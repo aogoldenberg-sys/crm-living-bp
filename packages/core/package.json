@@ -1,0 +1,23 @@
+{
+  "name": "@crm/core",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./planfact": "./src/planfact/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@crm/schemas": "workspace:*"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^2.1.1",
+    "typescript": "^5.5.4",
+    "vitest": "^2.1.1"
+  }
+}
