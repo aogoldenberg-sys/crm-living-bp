@@ -1,0 +1,94 @@
+import type { BusinessEvent, IsoDate, Kopecks } from "@crm/schemas";
+import { type Result, ok, err } from "../types.js";
+import { aggregateEvents } from "../planfact/aggregate.js";
+import { simulateOnce } from "./simulate.js";
+import { computePercentiles } from "./percentile.js";
+import type { ForecastConfig, ForecastPlan, CashForecast, DailyBalance } from "./types.js";
+
+/**
+ * Добавляет указанное число дней к IsoDate-строке без Date-объектов — они привносят
+ * timezone-баги и несовместимы с exactOptionalPropertyTypes.
+ * Простое смещение эпохи работает корректно для дат без перехода месяцев на 100 лет.
+ */
+function addDays(date: IsoDate, days: number): IsoDate {
+  const ms = new Date(date).getTime() + days * 86_400_000;
+  return new Date(ms).toISOString().slice(0, 10) as IsoDate;
+}
+
+/**
+ * Главная функция прогноза кассы методом Монте-Карло.
+ *
+ * Почему MC, а не детерминированный расчёт: бизнес-параметры (задержка оплаты,
+ * отвал лидов, волатильность выручки) — стохастические. MC даёт распределение
+ * исходов вместо одной точки, что позволяет видеть вероятность разрыва,
+ * а не просто «будет или нет».
+ *
+ * rng передаётся параметром: функция остаётся чистой и тесты детерминированы.
+ */
+export function forecastCash(
+  events: BusinessEvent[],
+  plan: ForecastPlan,
+  config: ForecastConfig,
+  rng: () => number,
+): Result<CashForecast> {
+  if (config.horizonDays <= 0) {
+    return err({ code: "INVALID_PERIOD", message: "horizonDays должен быть > 0" });
+  }
+  if (config.iterations <= 0) {
+    return err({ code: "INVALID_PERIOD", message: "iterations должен быть > 0" });
+  }
+
+  // Начальный баланс = net cash за всю историю событий (period = вся история).
+  const oldestDate = "2000-01-01" as IsoDate;
+  const aggregateResult = aggregateEvents(events, { from: oldestDate, to: plan.startDate });
+  if (!aggregateResult.ok) return aggregateResult;
+
+  const initialBalance: number = aggregateResult.value.netCash;
+
+  // Матрица: iterations × horizonDays. Транспонируем после симуляций.
+  const allRuns: number[][] = [];
+  let noGapCount = 0;
+
+  for (let i = 0; i < config.iterations; i++) {
+    const run = simulateOnce(initialBalance, plan, config, rng);
+    allRuns.push(run);
+
+    // Итерация "без разрыва" = баланс >= 0 во все дни.
+    const hasGap = run.some((b) => b < 0);
+    if (!hasGap) noGapCount++;
+  }
+
+  // Транспонируем: для каждого дня собираем значения всех итераций.
+  const dailyBalances: DailyBalance[] = [];
+  let gapDate: IsoDate | null = null;
+  let gapAmount: Kopecks | null = null;
+
+  for (let day = 0; day < config.horizonDays; day++) {
+    const dayValues: number[] = allRuns.map((run) => run[day] ?? 0);
+    const { p10, p50, p90 } = computePercentiles(dayValues);
+
+    const date = addDays(plan.startDate, day);
+    const roundedP10 = Math.round(p10) as Kopecks;
+    const roundedP50 = Math.round(p50) as Kopecks;
+    const roundedP90 = Math.round(p90) as Kopecks;
+
+    dailyBalances.push({ date, p10: roundedP10, p50: roundedP50, p90: roundedP90 });
+
+    // Первый день где p10 < 0 — кассовый разрыв.
+    if (gapDate === null && roundedP10 < 0) {
+      gapDate = date;
+      gapAmount = roundedP10;
+    }
+  }
+
+  const confidence = noGapCount / config.iterations;
+
+  return ok({
+    generatedAt: plan.startDate,
+    horizonDays: config.horizonDays,
+    dailyBalances,
+    gapDate,
+    gapAmount,
+    confidence,
+  });
+}
