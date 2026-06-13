@@ -6,9 +6,10 @@ import { computePercentiles } from "./percentile.js";
 import type { ForecastConfig, ForecastPlan, CashForecast, DailyBalance } from "./types.js";
 
 /**
- * Добавляет указанное число дней к IsoDate-строке без Date-объектов — они привносят
- * timezone-баги и несовместимы с exactOptionalPropertyTypes.
- * Простое смещение эпохи работает корректно для дат без перехода месяцев на 100 лет.
+ * Добавляет указанное число дней к IsoDate-строке.
+ * Использует Date.getTime() для арифметики — единственный надёжный способ учесть
+ * переходы месяцев и високосные годы без собственного календарного кода.
+ * Результат обрезается до UTC-даты без компонента времени.
  */
 function addDays(date: IsoDate, days: number): IsoDate {
   const ms = new Date(date).getTime() + days * 86_400_000;

@@ -3,12 +3,15 @@ import type { ForecastConfig, ForecastPlan } from "./types.js";
 
 /**
  * Одна MC-итерация: симулирует движение кассы по дням горизонта.
- * Возвращает массив балансов length === horizonDays в копейках (float до округления).
+ * Возвращает массив балансов length === horizonDays в копейках.
  *
- * Алгоритм входящих по заданию:
- *   incoming[day] = deals × (1 + N(0,σ)) × P(payment arrives on this day)
- * где P(day) определяется нормальным CDF со сдвигом paymentDelayDays.
- * Отвал лида применяется как скаляр (1 − leadDropoutRate) к базовой выручке.
+ * A-fix (truncation bias): сделки генерируются только до dealGenerationHorizon.
+ * Последние paymentDelayDays дней не получают новых сделок — иначе их платежи
+ * уйдут за горизонт и прогноз в хвосте будет систематически занижен.
+ *
+ * B-fix (stochastic dropout): каждая сделка независимо бросает монетку на отвал.
+ * Детерминированный множитель (1-rate) убирал дисперсию — один из ключевых
+ * источников риска в MC перестал работать.
  *
  * rng передаётся снаружи — функция чистая и детерминированная при том же rng.
  */
@@ -20,27 +23,28 @@ export function simulateOnce(
 ): number[] {
   const { horizonDays, revenueVolatility, paymentDelayDays, paymentDelayStdDev, leadDropoutRate } = config;
 
-  // Ожидаемая дневная выручка с поправкой на отвал лидов.
-  const baseDailyRevenue = plan.expectedDailyDeals * plan.avgDealAmountKopecks * (1 - leadDropoutRate);
+  // A-fix: не генерируем сделки в хвосте окна — их платежи не попадут в горизонт.
+  const dealGenerationHorizon = Math.max(0, horizonDays - Math.ceil(paymentDelayDays));
 
-  // Для каждого дня сэмплируем задержку оплаты и волатильность.
-  // Каждый день горизонта генерирует сделки; деньги от них приходят через delayDays дней.
-  // Мы накапливаем входящие в будущие дни по сэмплированной задержке.
   const incoming: number[] = new Array(horizonDays).fill(0) as number[];
 
-  for (let dealDay = 0; dealDay < horizonDays; dealDay++) {
-    const volatilityFactor = 1 + normalSample(0, revenueVolatility, rng);
-    const dailyRevenue = baseDailyRevenue * Math.max(0, volatilityFactor);
+  for (let dealDay = 0; dealDay < dealGenerationHorizon; dealDay++) {
+    // Волатильность применяется к числу сделок сегодня, а не к сумме:
+    // реальный бизнес-риск — непредсказуемый поток, не размер чека.
+    const sampledDeals = plan.expectedDailyDeals * Math.max(0, 1 + normalSample(0, revenueVolatility, rng));
+    const todayDeals = Math.round(sampledDeals);
 
-    // Задержка оплаты: сколько дней от сделки до зачисления.
-    const delay = Math.round(Math.max(0, normalSample(paymentDelayDays, paymentDelayStdDev, rng)));
-    const paymentDay = dealDay + delay;
+    for (let d = 0; d < todayDeals; d++) {
+      // B-fix: каждая сделка независимо может отвалиться до оплаты.
+      if (rng() < leadDropoutRate) continue;
 
-    if (paymentDay < horizonDays) {
-      // noUncheckedIndexedAccess: оператор ! безопасен — индекс проверен выше.
-      incoming[paymentDay] = (incoming[paymentDay] ?? 0) + dailyRevenue;
+      const delay = Math.round(Math.max(0, normalSample(paymentDelayDays, paymentDelayStdDev, rng)));
+      const paymentDay = dealDay + delay;
+
+      if (paymentDay < horizonDays) {
+        incoming[paymentDay] = (incoming[paymentDay] ?? 0) + plan.avgDealAmountKopecks;
+      }
     }
-    // Деньги за пределами горизонта просто не попадают в прогноз.
   }
 
   const balances: number[] = new Array(horizonDays).fill(0) as number[];
