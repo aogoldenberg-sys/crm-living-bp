@@ -1,5 +1,6 @@
 import type { BusinessEvent, IsoDate, Kopecks } from "@crm/schemas";
 import { type Result, ok, err } from "../types.js";
+import { EPOCH_START } from "../utils.js";
 import { aggregateEvents } from "../planfact/aggregate.js";
 import { simulateOnce } from "./simulate.js";
 import { computePercentiles } from "./percentile.js";
@@ -40,8 +41,7 @@ export function forecastCash(
   }
 
   // Начальный баланс = net cash за всю историю событий (period = вся история).
-  const oldestDate = "2000-01-01" as IsoDate;
-  const aggregateResult = aggregateEvents(events, { from: oldestDate, to: plan.startDate });
+  const aggregateResult = aggregateEvents(events, { from: EPOCH_START, to: plan.startDate });
   if (!aggregateResult.ok) return aggregateResult;
 
   const initialBalance: number = aggregateResult.value.netCash;

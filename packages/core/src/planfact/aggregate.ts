@@ -1,11 +1,6 @@
-import type { BusinessEvent, Kopecks } from "@crm/schemas";
+import type { BusinessEvent, IsoDate, Kopecks } from "@crm/schemas";
 import { type Result, ok, err } from "../types.js";
-
-/**
- * IsoDate из @crm/schemas — это z.string().date() без отдельного type-алиаса.
- * Инферируемый тип = string; используем string напрямую, смысл тот же.
- */
-type IsoDate = string;
+import { eventDate } from "../utils.js";
 
 export interface PlanFactMetrics {
   totalIn: Kopecks;
@@ -21,22 +16,10 @@ export interface PlanFactMetrics {
   periodTo: IsoDate;
 }
 
-/**
- * Проверяем принадлежность платёжного события периоду по valueDate,
- * а не по ts — valueDate отражает реальную дату зачисления,
- * ts может быть датой импорта выписки (позже на несколько дней).
- */
-function isPaymentInPeriod(valueDate: IsoDate, from: IsoDate, to: IsoDate): boolean {
-  return valueDate >= from && valueDate <= to;
-}
-
-/**
- * Для не-платёжных событий используем ts (дата факта).
- * Берём только дату-часть ISO-строки для сравнения с IsoDate.
- */
-function isEventInPeriod(ts: string, from: IsoDate, to: IsoDate): boolean {
-  const dateOnly = ts.slice(0, 10);
-  return dateOnly >= from && dateOnly <= to;
+/** Принадлежность события периоду через его каноническую дату (из utils.eventDate). */
+function isInPeriod(e: BusinessEvent, from: IsoDate, to: IsoDate): boolean {
+  const d = eventDate(e);
+  return d >= from && d <= to;
 }
 
 /**
@@ -65,7 +48,7 @@ export function aggregateEvents(
   // Собираем id событий, аннулированных коррекциями, попавшими в период.
   const cancelledIds = new Set<string>();
   for (const e of events) {
-    if (e.type === "payment_correction" && isEventInPeriod(e.ts, period.from, period.to)) {
+    if (e.type === "payment_correction" && isInPeriod(e, period.from, period.to)) {
       cancelledIds.add(e.correctedEventId);
     }
   }
@@ -81,19 +64,21 @@ export function aggregateEvents(
   for (const e of events) {
     if (cancelledIds.has(e.eventId)) continue;
 
-    if (e.type === "payment_in" && isPaymentInPeriod(e.valueDate, period.from, period.to)) {
+    if (!isInPeriod(e, period.from, period.to)) continue;
+
+    if (e.type === "payment_in") {
       totalIn += e.amount;
-    } else if (e.type === "payment_out" && isPaymentInPeriod(e.valueDate, period.from, period.to)) {
+    } else if (e.type === "payment_out") {
       totalOut += e.amount;
-    } else if (e.type === "deal_stage_changed" && isEventInPeriod(e.ts, period.from, period.to)) {
+    } else if (e.type === "deal_stage_changed") {
       dealsCount++;
       if (e.estimatedAmount !== null) {
         dealAmountSum += e.estimatedAmount;
         dealAmountCount++;
       }
-    } else if (e.type === "lead_captured" && isEventInPeriod(e.ts, period.from, period.to)) {
+    } else if (e.type === "lead_captured") {
       leadsCount++;
-    } else if (e.type === "call_logged" && isEventInPeriod(e.ts, period.from, period.to)) {
+    } else if (e.type === "call_logged") {
       callsCount++;
     }
   }

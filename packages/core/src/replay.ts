@@ -1,5 +1,6 @@
 import type { BusinessEvent, IsoDate } from "@crm/schemas";
 import { type Result, ok } from "./types.js";
+import { eventDate, EPOCH_START } from "./utils.js";
 import { aggregateEvents, type PlanFactMetrics } from "./planfact/aggregate.js";
 import { deriveAlerts, type Alert, type PlanAssumptions } from "./planfact/alerts.js";
 import { forecastCash } from "./forecast/forecast.js";
@@ -19,24 +20,9 @@ export interface ReplayState {
 }
 
 /**
- * Определяет «дату» события для сравнения с датой среза.
- *
- * Почему два разных поля: платёжные события используют valueDate —
- * реальную дату зачисления, которая может отличаться от ts (дата импорта выписки).
- * Для всех остальных событий используем дату из ts.
- * Это зеркалирует логику isPaymentInPeriod / isEventInPeriod в aggregate.ts.
- */
-function eventDate(e: BusinessEvent): IsoDate {
-  if (e.type === "payment_in" || e.type === "payment_out") {
-    return e.valueDate;
-  }
-  // payment_correction, deal_stage_changed, lead_captured, call_logged
-  return e.ts.slice(0, 10) as IsoDate;
-}
-
-/**
- * Фильтрует события: оставляет только те, чья дата <= date.
- * Не мутирует исходный массив — создаёт новый через filter.
+ * Фильтрует события: оставляет только те, чья каноническая дата <= date.
+ * Не мутирует исходный массив — filter создаёт новый.
+ * eventDate импортируется из utils — единый источник истины для логики дат.
  */
 function filterUpTo(events: BusinessEvent[], date: IsoDate): BusinessEvent[] {
   return events.filter((e) => eventDate(e) <= date);
@@ -68,7 +54,7 @@ export function replayAt(
   // Не мутируем вход — filter создаёт новый массив.
   const filtered = filterUpTo(events, date);
 
-  const aggregateResult = aggregateEvents(filtered, { from: "2000-01-01", to: date });
+  const aggregateResult = aggregateEvents(filtered, { from: EPOCH_START, to: date });
   // aggregateEvents может вернуть ошибку только при from > to.
   // from = "2000-01-01" всегда <= date (IsoDate валидируется на входе схемой),
   // но пробрасываем ошибку для полноты контракта Result.
