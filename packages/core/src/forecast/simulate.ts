@@ -32,7 +32,10 @@ export function simulateOnce(
     // Волатильность применяется к числу сделок сегодня, а не к сумме:
     // реальный бизнес-риск — непредсказуемый поток, не размер чека.
     const sampledDeals = plan.expectedDailyDeals * Math.max(0, 1 + normalSample(0, revenueVolatility, rng));
-    const todayDeals = Math.round(sampledDeals);
+    // floor + stochastic fractional part: floor(2.5) = 2 гарантированно,
+    // +1 с вероятностью 0.5. Math.round(2.5) = 3 всегда — систематический перекос.
+    const floorDeals = Math.floor(sampledDeals);
+    const todayDeals = floorDeals + (rng() < (sampledDeals - floorDeals) ? 1 : 0);
 
     for (let d = 0; d < todayDeals; d++) {
       // B-fix: каждая сделка независимо может отвалиться до оплаты.
