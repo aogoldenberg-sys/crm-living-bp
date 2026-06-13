@@ -33,11 +33,11 @@ describe("computeDeviation", () => {
     expect(r.value.direction).toBe("above");
   });
 
-  it("план = 0 → ошибка INVALID_PERIOD", () => {
+  it("план = 0 → ошибка ZERO_PLAN (не INVALID_PERIOD — план не задан, не период)", () => {
     const r = computeDeviation(100_000, 0);
     expect(r.ok).toBe(false);
     if (r.ok) return;
-    expect(r.error.code).toBe("INVALID_PERIOD");
+    expect(r.error.code).toBe("ZERO_PLAN");
   });
 
   it("округление до 2 знаков", () => {

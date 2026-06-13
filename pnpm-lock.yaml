@@ -15,6 +15,22 @@ importers:
         specifier: ^5.5.4
         version: 5.9.3
 
+  packages/core:
+    dependencies:
+      '@crm/schemas':
+        specifier: workspace:*
+        version: link:../schemas
+    devDependencies:
+      '@vitest/coverage-v8':
+        specifier: ^2.1.1
+        version: 2.1.9(vitest@2.1.9)
+      typescript:
+        specifier: ^5.5.4
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.1
+        version: 2.1.9
+
   packages/schemas:
     dependencies:
       zod:

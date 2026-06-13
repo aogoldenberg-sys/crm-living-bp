@@ -11,7 +11,8 @@ const ON_TARGET_THRESHOLD_PCT = 1;
 
 /**
  * Вычисляет отклонение факта от плана в процентах.
- * Plan = 0 — деление на ноль, возвращаем INVALID_PERIOD как ближайший доменный код.
+ * Plan = 0 → ZERO_PLAN: это не невалидный период, а незаданный план;
+ * дашборд должен показывать «план не задан», а не «период невалиден».
  * Math.round применяем только здесь (финальный результат) — никаких промежуточных округлений,
  * чтобы избежать накопления ошибок при цепочке вычислений.
  */
@@ -20,7 +21,7 @@ export function computeDeviation(
   plan: Kopecks,
 ): Result<DeviationResult> {
   if (plan === 0) {
-    return err({ code: "INVALID_PERIOD", message: "Plan value is zero — division by zero" });
+    return err({ code: "ZERO_PLAN", message: "Plan value is zero — cannot compute deviation" });
   }
 
   const raw = ((fact - plan) / plan) * 100;
@@ -46,20 +47,26 @@ export function computeDeviation(
  * Используем для обнаружения тренда отклонений во времени:
  * нарастающий негативный тренд важнее разовых выбросов.
  */
+/**
+ * Длина выходного массива всегда равна длине входного.
+ * Нарушение этого инварианта ломает выравнивание временных рядов при отображении на дашборде.
+ * При noUncheckedIndexedAccess TypeScript допускает undefined по индексу — бросаем явно,
+ * чтобы рассинхрон длин не прошёл молча в продакшен.
+ */
 export function computeEma(values: number[], alpha: number): number[] {
   if (values.length === 0) return [];
 
-  const result: number[] = [];
   const first = values[0];
-  // noUncheckedIndexedAccess: first может быть undefined, но мы уже проверили length > 0
-  if (first === undefined) return [];
+  if (first === undefined) throw new Error("computeEma: unexpected undefined at index 0");
 
-  result.push(first);
+  const result: number[] = [first];
 
   for (let i = 1; i < values.length; i++) {
     const prev = result[i - 1];
     const cur = values[i];
-    if (prev === undefined || cur === undefined) break;
+    if (prev === undefined || cur === undefined) {
+      throw new Error(`computeEma: unexpected undefined at index ${i} — length invariant broken`);
+    }
     result.push(alpha * cur + (1 - alpha) * prev);
   }
 

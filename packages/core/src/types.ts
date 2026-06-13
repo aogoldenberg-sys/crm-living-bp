@@ -6,7 +6,9 @@
 export type DomainError =
   | { code: "INVALID_PERIOD"; message: string }
   | { code: "NO_EVENTS"; message: string }
-  | { code: "NEGATIVE_BALANCE"; message: string };
+  | { code: "NEGATIVE_BALANCE"; message: string }
+  /** Plan = 0 при попытке вычислить отклонение — не период невалидный, а план не задан. */
+  | { code: "ZERO_PLAN"; message: string };
 
 export type Result<T> =
   | { ok: true; value: T }

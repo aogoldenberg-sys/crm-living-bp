@@ -19,7 +19,13 @@ export interface Alert {
   metric: string;
   severity: "yellow" | "red";
   message: string;
+  /** Отклонение в процентах — для метрик выручки, конверсии, CAC. */
   deviationPct: number;
+  /**
+   * Коэффициент покрытия постоянных затрат — только для metric === "cash_balance".
+   * Отдельное поле, чтобы UI не путал 1.2× (покрытие) с −12% (отклонение).
+   */
+  coverageRatio?: number;
 }
 
 /**
@@ -87,20 +93,21 @@ function cacAlerts(plan: PlanAssumptions): Alert[] {
 
 /**
  * Кассовый остаток — netCash соотносим с постоянными затратами.
- * deviationPct здесь — коэффициент покрытия (факт / порог × 100), для единообразия в Alert.
+ * coverageRatio (коэффициент покрытия) хранится отдельно от deviationPct —
+ * 1.2× и −12% это разные смыслы, UI не должен их смешивать.
+ * deviationPct = 0 для cash_balance: процентное отклонение здесь неприменимо.
  */
 function cashBalanceAlerts(metrics: PlanFactMetrics, plan: PlanAssumptions): Alert[] {
   if (plan.fixedCostsPlan === 0) return [];
-  const coverageRatio = metrics.netCash / plan.fixedCostsPlan;
-  const deviationPct = Math.round(coverageRatio * 100) / 100;
+  const coverageRatio = Math.round((metrics.netCash / plan.fixedCostsPlan) * 100) / 100;
 
   if (coverageRatio < THRESHOLDS.cashBalance.red) {
-    return [{ metric: "cash_balance", severity: "red", deviationPct,
-      message: `Кассовый остаток покрывает ${deviationPct.toFixed(2)}× постоянных затрат (критично < 1.0×)` }];
+    return [{ metric: "cash_balance", severity: "red", deviationPct: 0, coverageRatio,
+      message: `Кассовый остаток покрывает ${coverageRatio.toFixed(2)}× постоянных затрат (критично < 1.0×)` }];
   }
   if (coverageRatio < THRESHOLDS.cashBalance.yellow) {
-    return [{ metric: "cash_balance", severity: "yellow", deviationPct,
-      message: `Кассовый остаток покрывает ${deviationPct.toFixed(2)}× постоянных затрат (< 1.5×)` }];
+    return [{ metric: "cash_balance", severity: "yellow", deviationPct: 0, coverageRatio,
+      message: `Кассовый остаток покрывает ${coverageRatio.toFixed(2)}× постоянных затрат (< 1.5×)` }];
   }
   return [];
 }

@@ -13,7 +13,10 @@ export const PositiveKopecks = Kopecks.positive();
  * Все ts в системе — строго UTC с суффиксом Z.
  */
 export const IsoDate = z.string().date();
+export type IsoDate = z.infer<typeof IsoDate>;
+
 export const IsoDateTime = z.string().datetime({ offset: true });
+export type IsoDateTime = z.infer<typeof IsoDateTime>;
 
 export const Inn = z.string().regex(/^\d{10}$|^\d{12}$/, "ИНН: 10 или 12 цифр");
 
