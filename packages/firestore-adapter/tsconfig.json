@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "types": ["node"],
+    "paths": {
+      "@crm/schemas": ["../schemas/src/index.ts"],
+      "@crm/core": ["../core/src/index.ts"],
+      "@crm/core/forecast": ["../core/src/forecast/index.ts"]
+    }
+  },
+  "include": ["src/**/*"]
+}

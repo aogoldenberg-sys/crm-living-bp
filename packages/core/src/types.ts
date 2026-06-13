@@ -8,7 +8,9 @@ export type DomainError =
   | { code: "NO_EVENTS"; message: string }
   | { code: "NEGATIVE_BALANCE"; message: string }
   /** Plan = 0 при попытке вычислить отклонение — не период невалидный, а план не задан. */
-  | { code: "ZERO_PLAN"; message: string };
+  | { code: "ZERO_PLAN"; message: string }
+  /** Ошибка I/O при работе с внешним хранилищем (Firestore, файловая система и т.д.). */
+  | { code: "STORAGE_ERROR"; message: string };
 
 export type Result<T> =
   | { ok: true; value: T }
