@@ -1,0 +1,160 @@
+{
+  "name": "opentgp — импорт банковской выписки (CSV/XLS)",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "Загрузка банковской выписки",
+        "formDescription": "Загрузите CSV или XLS выписку банка. Дубли не создаются — eventId детерминирован.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Файл выписки (CSV или XLS)",
+              "fieldType": "file",
+              "requiredField": true,
+              "acceptFileTypes": ".csv,.xls,.xlsx"
+            },
+            {
+              "fieldLabel": "Формат банка",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  { "option": "ТБанк (Тинькофф) CSV" },
+                  { "option": "Сбербанк XLS" },
+                  { "option": "Альфа-Банк CSV" },
+                  { "option": "Универсальный CSV (;)" }
+                ]
+              },
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {
+          "respondWith": "text",
+          "responseText": "✅ Выписка принята в обработку. Проверьте Telegram через 1 минуту."
+        }
+      },
+      "id": "form-trigger",
+      "name": "Форма загрузки выписки",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [240, 300],
+      "webhookId": "opentgp-bank-import-v1"
+    },
+    {
+      "parameters": {
+        "operation": "fromFile",
+        "fileType": "={{ $json['Формат банка'].includes('XLS') ? 'xls' : 'csv' }}",
+        "options": {
+          "delimiter": ";",
+          "headerRow": true,
+          "includeEmptyRows": false,
+          "range": ""
+        }
+      },
+      "id": "parse-file",
+      "name": "Парсинг CSV/XLS",
+      "type": "n8n-nodes-base.spreadsheetFile",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ═══════════════════════════════════════════════════════════════════\n// НОРМАЛИЗАТОР БАНКОВСКОЙ ВЫПИСКИ → BusinessEvent\n//\n// Детерминированный eventId: повторный импорт той же выписки\n// не создаст дублей в Firestore (doc.set идемпотентен).\n//\n// amount всегда в КОПЕЙКАХ (int): 150 000.00 ₽ → 15000000\n// Копейки = единственная надёжная форма; float-рубли дают ошибки\n// при агрегировании (0.1 + 0.2 ≠ 0.3 в IEEE 754).\n//\n// businessId вшит в этот воркфлоу = 'opentgp'.\n// Для другого клиента — копируем воркфлоу, меняем одну строку.\n// ═══════════════════════════════════════════════════════════════════\n\nconst crypto = require('crypto');\n\nconst BUSINESS_ID = 'opentgp';\n\n// ── UUID v5 (RFC 4122) из строки-подписи транзакции ─────────────────\n// Гарантирует: один и тот же номер транзакции + дата + сумма\n// → всегда один и тот же UUID. Повторный импорт = idempotent.\nfunction uuidV5(signature) {\n  // DNS namespace (RFC 4122, §4.3)\n  const NS = Buffer.from('6ba7b8109dad11d180b400c04fd430c8', 'hex');\n  const data = Buffer.from(signature, 'utf8');\n  const hash = crypto.createHash('sha1').update(Buffer.concat([NS, data])).digest();\n  // Set version 5 bits\n  hash[6] = (hash[6] & 0x0f) | 0x50;\n  // Set variant bits\n  hash[8] = (hash[8] & 0x3f) | 0x80;\n  const h = hash.toString('hex');\n  return `${h.slice(0,8)}-${h.slice(8,12)}-${h.slice(12,16)}-${h.slice(16,20)}-${h.slice(20,32)}`;\n}\n\n// ── Парсинг суммы в копейки ──────────────────────────────────────────\n// Входные форматы банков:\n//   \"150 000,00\"  (Сбер, русский формат)\n//   \"150000.00\"   (ТБанк CSV)\n//   \"-5000.50\"    (расход — отрицательный)\n//   \"1,234.56\"    (английский формат)\nfunction parseAmountToKopecks(raw) {\n  if (raw === undefined || raw === null || raw === '') return null;\n  const s = String(raw).trim()\n    .replace(/\\s/g, '')     // убираем пробелы-разделители тысяч\n    .replace(/,(?=\\d{2}$)/, '.')  // «150000,00» → «150000.00»\n    .replace(/[^0-9.\\-]/g, '');   // убираем лишние символы (₽, пробелы)\n  const f = parseFloat(s);\n  if (isNaN(f)) return null;\n  // Math.round убирает погрешность float: 150000.009999... → 15000001\n  return Math.round(f * 100);\n}\n\n// ── ISO date из российского формата ────────────────────────────────\n// «15.06.2026» → «2026-06-15»\n// «2026-06-15» → «2026-06-15» (уже ISO)\nfunction toIsoDate(raw) {\n  if (!raw) return null;\n  const s = String(raw).trim();\n  // DD.MM.YYYY\n  const ruMatch = s.match(/^(\\d{2})\\.(\\d{2})\\.(\\d{4})$/);\n  if (ruMatch) return `${ruMatch[3]}-${ruMatch[2]}-${ruMatch[1]}`;\n  // YYYY-MM-DD already\n  if (/^\\d{4}-\\d{2}-\\d{2}/.test(s)) return s.slice(0, 10);\n  return null;\n}\n\n// ── Маппинг по формату банка ─────────────────────────────────────────\n// Добавляй новые банки здесь, не трогая логику ниже.\nconst BANK_SCHEMA = {\n  'ТБанк (Тинькофф) CSV': {\n    dateField:          'Дата операции',\n    valueDateField:     'Дата платежа',\n    amountField:        'Сумма операции',\n    counterpartyField:  'Описание',\n    purposeField:       'Категория',\n    txIdField:          null, // будем хэшировать дату+сумму+описание\n  },\n  'Сбербанк XLS': {\n    dateField:          'Дата операции',\n    valueDateField:     'Дата обработки',\n    amountField:        'Сумма в валюте карты',\n    counterpartyField:  'Место операции',\n    purposeField:       'Описание операции',\n    txIdField:          null,\n  },\n  'Альфа-Банк CSV': {\n    dateField:          'Дата совершения операции',\n    valueDateField:     'Дата обработки',\n    amountField:        'Сумма',\n    counterpartyField:  'Наименование контрагента',\n    purposeField:       'Назначение платежа',\n    txIdField:          'Номер документа',\n  },\n  'Универсальный CSV (;)': {\n    dateField:          'date',\n    valueDateField:     'value_date',\n    amountField:        'amount',\n    counterpartyField:  'counterparty',\n    purposeField:       'purpose',\n    txIdField:          'tx_id',\n  },\n};\n\n// ── Основная логика ──────────────────────────────────────────────────\nconst items = $input.all();\nconst bankFormat = $('Форма загрузки выписки').first().json['Формат банка'];\nconst schema = BANK_SCHEMA[bankFormat] ?? BANK_SCHEMA['Универсальный CSV (;)'];\nconst importTs = new Date().toISOString(); // момент импорта, UTC\n\nconst results = [];\nconst errors = [];\n\nfor (const item of items) {\n  const row = item.json;\n\n  const rawDate = row[schema.dateField];\n  const rawValueDate = row[schema.valueDateField] ?? rawDate;\n  const rawAmount = row[schema.amountField];\n  const counterpartyRaw = String(row[schema.counterpartyField] ?? '').trim();\n  const purposeRaw = String(row[schema.purposeField] ?? '').trim();\n  const txId = schema.txIdField ? String(row[schema.txIdField] ?? '').trim() : null;\n\n  const valueDate = toIsoDate(rawValueDate);\n  const amountKopecks = parseAmountToKopecks(rawAmount);\n\n  // Пропускаем строки без даты или суммы (заголовки, итоги, пустые)\n  if (!valueDate || amountKopecks === null || amountKopecks === 0) {\n    errors.push({ row, reason: 'missing date or amount' });\n    continue;\n  }\n\n  // Детерминированный ID: txId (если есть) ИЛИ хэш реквизитов\n  const signature = txId\n    ? `${BUSINESS_ID}:${txId}`\n    : `${BUSINESS_ID}:${valueDate}:${amountKopecks}:${counterpartyRaw.slice(0, 50)}`;\n  const eventId = uuidV5(signature);\n\n  // Направление: положительная сумма = поступление, отрицательная = расход\n  const isIncoming = amountKopecks > 0;\n  const absAmount = Math.abs(amountKopecks);\n\n  const event = isIncoming\n    ? {\n        type: 'payment_in',\n        businessId: BUSINESS_ID,\n        eventId,\n        ts: importTs,\n        valueDate,\n        amount: absAmount,\n        counterpartyInn: null,\n        counterpartyName: counterpartyRaw || 'Не указан',\n        purpose: purposeRaw || '',\n        matchedInvoiceId: null,\n        source: 'statement_import',\n      }\n    : {\n        type: 'payment_out',\n        businessId: BUSINESS_ID,\n        eventId,\n        ts: importTs,\n        valueDate,\n        amount: absAmount,\n        counterpartyInn: null,\n        counterpartyName: counterpartyRaw || 'Не указан',\n        purpose: purposeRaw || '',\n        expenseCategory: purposeRaw || 'прочее',\n        source: 'statement_import',\n      };\n\n  results.push({ json: event });\n}\n\nif (errors.length > 0) {\n  console.warn(`[normalize] пропущено ${errors.length} строк без даты/суммы`);\n}\n\nconsole.log(`[normalize] банк: ${bankFormat}, строк: ${items.length}, событий: ${results.length}, пропущено: ${errors.length}`);\n\nreturn results;\n"
+      },
+      "id": "normalize",
+      "name": "Нормализация → BusinessEvent",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "batchSize": 50,
+        "options": {}
+      },
+      "id": "batch",
+      "name": "Батч по 50 событий",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://crm-ingest.aogoldenberg.workers.dev/ingest",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $input.all().map(i => i.json) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": false
+            }
+          }
+        }
+      },
+      "id": "post-ingest",
+      "name": "POST → crm-ingest",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "INGEST_SECRET_CRED",
+          "name": "CRM Ingest API Secret"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Собираем итог по всем батчам\nconst results = $input.all();\nlet totalEvents = 0;\nlet totalSkipped = 0;\n\nfor (const item of results) {\n  totalEvents += item.json.events ?? 0;\n  totalSkipped += item.json.skipped ?? 0;\n}\n\nconst summary = `✅ Импорт выписки завершён\\nЗаписано событий: ${totalEvents}\\nПропущено: ${totalSkipped}`;\nconsole.log(summary);\nreturn [{ json: { summary, totalEvents, totalSkipped } }];\n"
+      },
+      "id": "summary",
+      "name": "Итог импорта",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 300]
+    }
+  ],
+  "connections": {
+    "Форма загрузки выписки": {
+      "main": [
+        [{ "node": "Парсинг CSV/XLS", "type": "main", "index": 0 }]
+      ]
+    },
+    "Парсинг CSV/XLS": {
+      "main": [
+        [{ "node": "Нормализация → BusinessEvent", "type": "main", "index": 0 }]
+      ]
+    },
+    "Нормализация → BusinessEvent": {
+      "main": [
+        [{ "node": "Батч по 50 событий", "type": "main", "index": 0 }]
+      ]
+    },
+    "Батч по 50 событий": {
+      "main": [
+        [{ "node": "POST → crm-ingest", "type": "main", "index": 0 }],
+        [{ "node": "Итог импорта", "type": "main", "index": 0 }]
+      ]
+    },
+    "POST → crm-ingest": {
+      "main": [
+        [{ "node": "Батч по 50 событий", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": ""
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "_comment": "ИНСТРУКЦИЯ ПО НАСТРОЙКЕ:\n1. Импортируй этот файл в n8n (New Workflow → Import from File)\n2. Создай Credential: Settings → Credentials → Add → Header Auth\n   Name: CRM Ingest API Secret\n   Name (header): X-API-Secret\n   Value: ada92a9fc15499f34b57fb41ed5eec67e14ad4e8703b9fba5248cce66ecc5252\n3. Привяжи credential к ноде 'POST → crm-ingest'\n4. Активируй воркфлоу (кнопка Active)\n5. Открой Form URL из ноды 'Форма загрузки выписки'\n6. Загрузи выписку"
+}
