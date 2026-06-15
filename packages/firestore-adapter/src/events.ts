@@ -17,37 +17,56 @@ const COLLECTION = "events";
  * Невалидные документы логируются и пропускаются: грязь из Firestore
  * умирает на этой границе и не попадает в бизнес-логику.
  */
+export type LoadEventsResult = { events: BusinessEvent[]; skipped: number };
+
+/**
+ * Загружает события из Firestore, начиная с момента since.
+ *
+ * Почему фильтр по ts, а не valueDate: ts — момент записи в систему,
+ * монотонно возрастающий. Курсор по ts гарантирует отсутствие пропусков
+ * при инкрементальной синхронизации. valueDate может быть в прошлом
+ * (дата зачисления по банковской выписке) — курсор по нему «пропустит»
+ * ретроспективные события.
+ *
+ * orderBy("ts") обязателен: Firestore не гарантирует порядок по doc id,
+ * а лексикографический порядок ts === хронологический только при Z-суффиксе
+ * (инвариант из IsoDateTime в schemas).
+ *
+ * skipped в ответе — не тихая потеря: вызывающий код обязан залогировать
+ * или передать счётчик в метрику. Игнорировать нельзя.
+ */
 export async function loadEvents(
   db: Firestore,
   since?: IsoDateTime,
-): Promise<Result<BusinessEvent[]>> {
+): Promise<Result<LoadEventsResult>> {
   try {
     const col = db.collection(COLLECTION);
     const query: Query<DocumentData> = since !== undefined
-      ? col.where("ts", ">=", since)
-      : col;
+      ? col.where("ts", ">=", since).orderBy("ts")
+      : col.orderBy("ts");
 
     const snapshot = await query.get();
     const events: BusinessEvent[] = [];
+    let skipped = 0;
 
     for (const doc of snapshot.docs) {
       const raw = doc.data();
       const parsed = BusinessEvent.safeParse(raw);
 
       if (!parsed.success) {
-        // Предупреждение вместо краша: один испорченный документ
-        // не должен блокировать загрузку всей истории.
+        // Считаем, не только предупреждаем: вызывающий код видит реальный счётчик потерь.
         console.warn(
           `[firestore-adapter] loadEvents: invalid document id=${doc.id}, skipping.`,
           parsed.error.issues,
         );
+        skipped++;
         continue;
       }
 
       events.push(parsed.data);
     }
 
-    return ok(events);
+    return ok({ events, skipped });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     return err({ code: "STORAGE_ERROR", message });

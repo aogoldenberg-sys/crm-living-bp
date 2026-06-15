@@ -53,8 +53,8 @@ describe("IsoDateTime", () => {
   it("принимает UTC datetime с Z", () => {
     expect(IsoDateTime.parse("2026-06-13T10:00:00Z")).toBe("2026-06-13T10:00:00Z");
   });
-  it("принимает datetime с явным offset", () => {
-    expect(IsoDateTime.parse("2026-06-13T13:00:00+03:00")).toBe("2026-06-13T13:00:00+03:00");
+  it("отклоняет datetime с offset (+03:00) — ломает курсор Firestore", () => {
+    expect(() => IsoDateTime.parse("2026-06-13T13:00:00+03:00")).toThrow();
   });
   it("отклоняет datetime без таймзоны — сломает машину времени", () => {
     expect(() => IsoDateTime.parse("2026-06-13T10:00:00")).toThrow();

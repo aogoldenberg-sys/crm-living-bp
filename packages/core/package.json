@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./planfact": "./src/planfact/index.ts"
+    "./planfact": "./src/planfact/index.ts",
+    "./forecast": "./src/forecast/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

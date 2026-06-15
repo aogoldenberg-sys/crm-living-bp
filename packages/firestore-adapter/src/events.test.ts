@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { BusinessEvent } from "@crm/schemas";
 import type { Firestore } from "firebase-admin/firestore";
-import { loadEvents, saveEvents } from "./events.js";
+import { loadEvents, saveEvents, type LoadEventsResult } from "./events.js";
 import { FakeFirestore, ErrorFakeFirestore } from "./testing/fake-firestore.js";
 
 /** Минимальный валидный PaymentIn для тестов. */
@@ -31,8 +31,9 @@ describe("saveEvents + loadEvents", () => {
     const loaded = await loadEvents(db);
     expect(loaded.ok).toBe(true);
     if (loaded.ok) {
-      expect(loaded.value).toHaveLength(1);
-      expect(loaded.value[0]?.eventId).toBe(event.eventId);
+      expect(loaded.value.events).toHaveLength(1);
+      expect(loaded.value.events[0]?.eventId).toBe(event.eventId);
+      expect(loaded.value.skipped).toBe(0);
     }
   });
 
@@ -48,7 +49,8 @@ describe("saveEvents + loadEvents", () => {
 
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.value).toHaveLength(2);
+      expect(result.value.events).toHaveLength(2);
+      expect(result.value.skipped).toBe(0);
     }
   });
 
@@ -62,12 +64,12 @@ describe("saveEvents + loadEvents", () => {
 
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.value).toHaveLength(1);
-      expect(result.value[0]?.eventId).toBe(recent.eventId);
+      expect(result.value.events).toHaveLength(1);
+      expect(result.value.events[0]?.eventId).toBe(recent.eventId);
     }
   });
 
-  it("loadEvents: невалидный документ пропускается, валидные возвращаются", async () => {
+  it("loadEvents: невалидный документ пропускается, skipped инкрементируется", async () => {
     const db = new FakeFirestore() as unknown as Firestore;
     const valid = makePaymentIn({ eventId: "00000000-0000-0000-0000-000000000001" });
 
@@ -83,9 +85,10 @@ describe("saveEvents + loadEvents", () => {
 
     expect(result.ok).toBe(true);
     if (result.ok) {
-      // Только один валидный; мусор пропущен без краша
-      expect(result.value).toHaveLength(1);
-      expect(result.value[0]?.eventId).toBe(valid.eventId);
+      expect(result.value.events).toHaveLength(1);
+      expect(result.value.events[0]?.eventId).toBe(valid.eventId);
+      // Счётчик потерь виден вызывающему коду — тихих потерь нет
+      expect(result.value.skipped).toBe(1);
     }
   });
 
@@ -99,7 +102,7 @@ describe("saveEvents + loadEvents", () => {
     const result = await loadEvents(db);
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.value).toHaveLength(1);
+      expect(result.value.events).toHaveLength(1);
     }
   });
 

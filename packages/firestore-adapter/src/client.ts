@@ -28,3 +28,20 @@ export function createFirestoreClient(): Firestore {
 
   return getFirestore();
 }
+
+/**
+ * Инициализирует Firebase Admin SDK из JSON-строки сервисного аккаунта.
+ *
+ * Почему отдельная функция: Cloudflare Workers не имеют файловой системы —
+ * JSON передаётся через Cloudflare Secrets (env variable), а не как путь к файлу.
+ * Требует wrangler compatibility_flags = ["nodejs_compat_v2"] для работы firebase-admin.
+ *
+ * Не вызывается в тестах — тесты инжектируют FakeFirestore напрямую.
+ */
+export function createFirestoreClientFromJson(serviceAccountJson: string): Firestore {
+  if (getApps().length === 0) {
+    const serviceAccount = JSON.parse(serviceAccountJson) as object;
+    initializeApp({ credential: cert(serviceAccount) });
+  }
+  return getFirestore();
+}

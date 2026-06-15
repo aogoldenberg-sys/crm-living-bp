@@ -41,15 +41,29 @@ class FakeQuerySnapshot {
   constructor(readonly docs: FakeDocSnapshot[]) {}
 }
 
-/** Строитель запроса с поддержкой where-фильтров. */
+/** Строитель запроса с поддержкой where-фильтров и orderBy. */
 class FakeQuery {
   protected filters: Array<{ field: string; op: string; value: unknown }> = [];
+  protected _orderBy: { field: string; direction: "asc" | "desc" } | null = null;
 
   constructor(protected readonly store: Map<string, StoredDoc>) {}
 
   where(field: string, op: string, value: unknown): FakeQuery {
     const q = new FakeQuery(this.store);
     q.filters = [...this.filters, { field, op, value }];
+    q._orderBy = this._orderBy;
+    return q;
+  }
+
+  /**
+   * Сортировка нужна в тестах, чтобы поведение совпадало с реальным Firestore.
+   * Сортируем лексикографически — для IsoDateTime (Z-суффикс) это корректный
+   * хронологический порядок.
+   */
+  orderBy(field: string, direction: "asc" | "desc" = "asc"): FakeQuery {
+    const q = new FakeQuery(this.store);
+    q.filters = [...this.filters];
+    q._orderBy = { field, direction };
     return q;
   }
 
@@ -62,6 +76,16 @@ class FakeQuery {
       if (this.matchesFilters(stored.data)) {
         docs.push(new FakeDocSnapshot(stored.data, true, id));
       }
+    }
+
+    if (this._orderBy) {
+      const { field, direction } = this._orderBy;
+      docs.sort((a, b) => {
+        const aVal = String(a.data()?.[field] ?? "");
+        const bVal = String(b.data()?.[field] ?? "");
+        const cmp = aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
+        return direction === "asc" ? cmp : -cmp;
+      });
     }
 
     return new FakeQuerySnapshot(docs);
@@ -157,12 +181,15 @@ export class ErrorFakeFirestore extends FakeFirestore {
   }
 
   override collection(_path: string): ReturnType<FakeFirestore["collection"]> {
-    // Возвращаем прокси, который бросит при get() или set()
+    // Возвращаем прокси, который бросит при get() или set().
+    // Покрываем все цепочки, которые использует адаптер:
+    //   col.orderBy().get()
+    //   col.where().orderBy().get()
     const err = this.error;
+    const throwingQuery = { orderBy: () => throwingQuery, get: async () => { throw err; } };
     return {
-      where: () => ({
-        get: async () => { throw err; },
-      }),
+      where: () => throwingQuery,
+      orderBy: () => throwingQuery,
       doc: () => ({
         set: async () => { throw err; },
         get: async () => { throw err; },
@@ -170,6 +197,7 @@ export class ErrorFakeFirestore extends FakeFirestore {
       }),
       get: async () => { throw err; },
       filters: [],
+      _orderBy: null,
     } as unknown as ReturnType<FakeFirestore["collection"]>;
   }
 }

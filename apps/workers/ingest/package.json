@@ -1,0 +1,24 @@
+{
+  "name": "@crm/worker-ingest",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@crm/schemas": "workspace:*",
+    "@crm/firestore-adapter": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240924.0",
+    "@crm/firestore-adapter": "workspace:*",
+    "typescript": "^5.5.4",
+    "vitest": "^2.1.1",
+    "wrangler": "^3.78.0"
+  }
+}
