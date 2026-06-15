@@ -6,16 +6,19 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
-    "@crm/schemas": "workspace:*",
     "@crm/core": "workspace:*",
-    "@crm/firestore-adapter": "workspace:*"
+    "@crm/firestore-adapter": "workspace:*",
+    "@crm/schemas": "workspace:*"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20240924.0",
     "typescript": "^5.5.4",
+    "vitest": "^2.1.1",
     "wrangler": "^3.78.0"
   }
 }

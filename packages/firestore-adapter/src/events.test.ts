@@ -106,6 +106,37 @@ describe("saveEvents + loadEvents", () => {
     }
   });
 
+  it("ИЗОЛЯЦИЯ: события тенанта А не видны тенанту Б", async () => {
+    const db = new FakeFirestore();
+    const eventA = makePaymentIn({ eventId: "00000000-0000-0000-0000-aaaaaaaaaaaa" });
+    const eventB = makePaymentIn({ eventId: "00000000-0000-0000-0000-bbbbbbbbbbbb" });
+
+    await saveEvents(db, "tenant-a", [eventA]);
+    await saveEvents(db, "tenant-b", [eventB]);
+
+    const resultA = await loadEvents(db, "tenant-a");
+    const resultB = await loadEvents(db, "tenant-b");
+
+    expect(resultA.ok).toBe(true);
+    expect(resultB.ok).toBe(true);
+    if (resultA.ok && resultB.ok) {
+      // Tenant A видит только своё событие
+      expect(resultA.value.events).toHaveLength(1);
+      expect(resultA.value.events[0]?.eventId).toBe(eventA.eventId);
+
+      // Tenant B видит только своё событие
+      expect(resultB.value.events).toHaveLength(1);
+      expect(resultB.value.events[0]?.eventId).toBe(eventB.eventId);
+
+      // Кросс-проверка: eventId тенанта Б отсутствует у тенанта А
+      const idsA = resultA.value.events.map((e) => e.eventId);
+      expect(idsA).not.toContain(eventB.eventId);
+
+      const idsB = resultB.value.events.map((e) => e.eventId);
+      expect(idsB).not.toContain(eventA.eventId);
+    }
+  });
+
   it("STORAGE_ERROR: возвращает err при сбое db", async () => {
     const db = new ErrorFakeFirestore(
       new Error("Firestore unavailable"),

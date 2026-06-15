@@ -27,6 +27,7 @@ import {
   loadPlan,
   saveForecast,
   savePlanfact,
+  type Db,
 } from "@crm/firestore-adapter";
 
 interface Env {
@@ -51,7 +52,14 @@ export default {
 
 async function run(env: Env): Promise<void> {
   const db = createFirestoreRestClient(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+  await runWithDb(db);
+}
 
+/**
+ * Чистая бизнес-логика без привязки к env/secrets.
+ * Экспортируется для unit-тестов (Vitest + FakeFirestore, без workerd).
+ */
+export async function runWithDb(db: Db): Promise<void> {
   const tenantsResult = await listTenants(db);
   if (!tenantsResult.ok) {
     console.error("[compute] listTenants failed:", tenantsResult.error);
@@ -63,11 +71,11 @@ async function run(env: Env): Promise<void> {
     return;
   }
 
-  // Process each tenant independently
+  // Process each tenant independently — failure of one must not cancel others.
   await Promise.all(tenantsResult.value.map((businessId) => runForTenant(db, businessId)));
 }
 
-async function runForTenant(db: ReturnType<typeof createFirestoreRestClient>, businessId: string): Promise<void> {
+async function runForTenant(db: Db, businessId: string): Promise<void> {
   const today = new Date().toISOString().slice(0, 10) as IsoDate;
 
   // ── Загрузка событий ──────────────────────────────────────────────────
