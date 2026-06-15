@@ -11,3 +11,4 @@ export { loadEvents, saveEvents, type LoadEventsResult } from "./events.js";
 export { saveForecast, loadForecast } from "./forecast.js";
 export { loadPlan, savePlan } from "./plan.js";
 export { savePlanfact, loadPlanfact } from "./planfact.js";
+export { registerTenant, listTenants } from "./tenants.js";

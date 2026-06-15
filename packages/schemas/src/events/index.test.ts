@@ -14,6 +14,7 @@ describe("BusinessEvent discriminatedUnion", () => {
       purpose: "Тест",
       matchedInvoiceId: null,
       source: "manual",
+      businessId: "opentgp",
     };
     expect(BusinessEvent.parse(event).type).toBe("payment_in");
   });
@@ -30,6 +31,7 @@ describe("BusinessEvent discriminatedUnion", () => {
       purpose: "Тест",
       expenseCategory: "зарплата",
       source: "manual",
+      businessId: "opentgp",
     };
     expect(BusinessEvent.parse(event).type).toBe("payment_out");
   });
@@ -42,6 +44,7 @@ describe("BusinessEvent discriminatedUnion", () => {
       correctedEventId: "550e8400-e29b-41d4-a716-446655440000",
       reason: "Ошибка ввода",
       source: "manual",
+      businessId: "opentgp",
     };
     expect(BusinessEvent.parse(event).type).toBe("payment_correction");
   });
@@ -60,6 +63,7 @@ describe("BusinessEvent discriminatedUnion", () => {
       counterpartyName: "Тест",
       managerId: "550e8400-e29b-41d4-a716-446655440013",
       source: "manual",
+      businessId: "opentgp",
     };
     expect(BusinessEvent.parse(event).type).toBe("deal_stage_changed");
   });
@@ -77,6 +81,7 @@ describe("BusinessEvent discriminatedUnion", () => {
       contactPhone: null,
       contactEmail: null,
       source: "manual",
+      businessId: "opentgp",
     };
     expect(BusinessEvent.parse(event).type).toBe("lead_captured");
   });
@@ -94,6 +99,7 @@ describe("BusinessEvent discriminatedUnion", () => {
       recordingUrl: null,
       outcome: "answered",
       source: "telephony",
+      businessId: "opentgp",
     };
     expect(BusinessEvent.parse(event).type).toBe("call_logged");
   });

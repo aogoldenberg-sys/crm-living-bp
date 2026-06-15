@@ -14,6 +14,7 @@ const valid = {
   counterpartyName: "ООО Тест",
   managerId: "550e8400-e29b-41d4-a716-446655440013",
   source: "manual" as const,
+  businessId: "opentgp",
 };
 
 describe("DealStageChanged", () => {
@@ -34,5 +35,9 @@ describe("DealStageChanged", () => {
   });
   it("отклоняет лишние поля (.strict)", () => {
     expect(() => DealStageChanged.parse({ ...valid, extra: "x" })).toThrow();
+  });
+  it("отклоняет событие без businessId", () => {
+    const { businessId: _, ...withoutBusinessId } = valid;
+    expect(DealStageChanged.safeParse(withoutBusinessId).success).toBe(false);
   });
 });

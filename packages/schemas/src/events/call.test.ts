@@ -13,6 +13,7 @@ const valid = {
   recordingUrl: "https://pbx.example.com/rec/001.mp3",
   outcome: "answered" as const,
   source: "telephony" as const,
+  businessId: "opentgp",
 };
 
 describe("CallLogged", () => {
@@ -39,5 +40,9 @@ describe("CallLogged", () => {
   });
   it("отклоняет лишние поля (.strict)", () => {
     expect(() => CallLogged.parse({ ...valid, notes: "hello" })).toThrow();
+  });
+  it("отклоняет событие без businessId", () => {
+    const { businessId: _, ...withoutBusinessId } = valid;
+    expect(CallLogged.safeParse(withoutBusinessId).success).toBe(false);
   });
 });

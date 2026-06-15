@@ -16,6 +16,7 @@ export const PaymentIn = z.object({
   purpose: z.string(),
   matchedInvoiceId: z.string().nullable(),
   source: DataSource,
+  businessId: z.string().min(1),
 }).strict();
 
 export type PaymentIn = z.infer<typeof PaymentIn>;
@@ -36,6 +37,7 @@ export const PaymentOut = z.object({
   /** Категория расхода нужна для P&L — без неё нельзя считать маржу по статьям. */
   expenseCategory: z.string().min(1),
   source: DataSource,
+  businessId: z.string().min(1),
 }).strict();
 
 export type PaymentOut = z.infer<typeof PaymentOut>;
@@ -53,6 +55,7 @@ export const PaymentCorrection = z.object({
   correctedEventId: z.string().uuid(),
   reason: z.string().min(1),
   source: DataSource,
+  businessId: z.string().min(1),
 }).strict();
 
 export type PaymentCorrection = z.infer<typeof PaymentCorrection>;

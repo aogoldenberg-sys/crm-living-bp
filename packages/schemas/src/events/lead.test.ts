@@ -13,6 +13,7 @@ const valid = {
   contactPhone: "+79001234567",
   contactEmail: "client@example.com",
   source: "ads_api" as const,
+  businessId: "opentgp",
 };
 
 describe("LeadCaptured", () => {
@@ -42,5 +43,9 @@ describe("LeadCaptured", () => {
   });
   it("отклоняет некорректный ts", () => {
     expect(() => LeadCaptured.parse({ ...valid, ts: "12-06-2026" })).toThrow();
+  });
+  it("отклоняет событие без businessId", () => {
+    const { businessId: _, ...withoutBusinessId } = valid;
+    expect(LeadCaptured.safeParse(withoutBusinessId).success).toBe(false);
   });
 });

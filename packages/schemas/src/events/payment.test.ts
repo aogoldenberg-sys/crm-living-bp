@@ -12,6 +12,7 @@ const validPaymentIn = {
   purpose: "Оплата по счёту 42",
   matchedInvoiceId: null,
   source: "statement_import" as const,
+  businessId: "opentgp",
 };
 
 describe("PaymentIn", () => {
@@ -39,6 +40,10 @@ describe("PaymentIn", () => {
   it("отклоняет неизвестный source", () => {
     expect(() => PaymentIn.parse({ ...validPaymentIn, source: "fax" })).toThrow();
   });
+  it("отклоняет событие без businessId", () => {
+    const { businessId: _, ...withoutBusinessId } = validPaymentIn;
+    expect(PaymentIn.safeParse(withoutBusinessId).success).toBe(false);
+  });
 });
 
 const validPaymentOut = {
@@ -52,6 +57,7 @@ const validPaymentOut = {
   purpose: "Аренда офиса июнь",
   expenseCategory: "аренда",
   source: "bank_api" as const,
+  businessId: "opentgp",
 };
 
 describe("PaymentOut", () => {
@@ -70,6 +76,10 @@ describe("PaymentOut", () => {
   it("отклоняет отрицательную сумму", () => {
     expect(() => PaymentOut.parse({ ...validPaymentOut, amount: -1000 })).toThrow();
   });
+  it("отклоняет событие без businessId", () => {
+    const { businessId: _, ...withoutBusinessId } = validPaymentOut;
+    expect(PaymentOut.safeParse(withoutBusinessId).success).toBe(false);
+  });
 });
 
 const validCorrection = {
@@ -79,6 +89,7 @@ const validCorrection = {
   correctedEventId: "550e8400-e29b-41d4-a716-446655440000",
   reason: "Неверная сумма — дублирование банковской выписки",
   source: "manual" as const,
+  businessId: "opentgp",
 };
 
 describe("PaymentCorrection", () => {
@@ -95,5 +106,9 @@ describe("PaymentCorrection", () => {
   });
   it("отклоняет лишние поля (.strict)", () => {
     expect(() => PaymentCorrection.parse({ ...validCorrection, amount: 100 })).toThrow();
+  });
+  it("отклоняет событие без businessId", () => {
+    const { businessId: _, ...withoutBusinessId } = validCorrection;
+    expect(PaymentCorrection.safeParse(withoutBusinessId).success).toBe(false);
   });
 });

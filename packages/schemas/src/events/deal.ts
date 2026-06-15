@@ -21,6 +21,7 @@ export const DealStageChanged = z.object({
   counterpartyName: z.string().min(1),
   managerId: z.string().uuid(),
   source: DataSource,
+  businessId: z.string().min(1),
 }).strict();
 
 export type DealStageChanged = z.infer<typeof DealStageChanged>;

@@ -16,7 +16,7 @@
 import { timingSafeEqual } from "node:crypto";
 import type { Db } from "@crm/firestore-adapter";
 import { BusinessEvent } from "@crm/schemas";
-import { createFirestoreRestClient, saveEvents } from "@crm/firestore-adapter";
+import { createFirestoreRestClient, saveEvents, registerTenant } from "@crm/firestore-adapter";
 
 interface Env {
   FIREBASE_SERVICE_ACCOUNT_JSON: string;
@@ -45,7 +45,21 @@ export async function run(rawItems: unknown[], db: Db): Promise<IngestResult> {
   }
 
   if (valid.length > 0) {
-    const saveResult = await saveEvents(db, valid);
+    // All events in one batch must belong to same tenant
+    const businessIds = [...new Set(valid.map((e) => e.businessId))];
+    if (businessIds.length > 1) {
+      throw new Error("Mixed businessIds in single batch");
+    }
+
+    const businessId = valid[0]!.businessId;
+
+    // Auto-register tenant (idempotent)
+    const registerResult = await registerTenant(db, businessId);
+    if (!registerResult.ok) {
+      throw new Error(`registerTenant failed: ${JSON.stringify(registerResult.error)}`);
+    }
+
+    const saveResult = await saveEvents(db, businessId, valid);
     if (!saveResult.ok) {
       // Пробрасываем как Error: вызывающий fetch-хендлер вернёт 500
       throw new Error(`saveEvents failed: ${JSON.stringify(saveResult.error)}`);

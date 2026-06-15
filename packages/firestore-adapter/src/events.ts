@@ -3,8 +3,6 @@ import { BusinessEvent } from "@crm/schemas";
 import type { IsoDateTime } from "@crm/schemas";
 import { type Result, ok, err } from "@crm/core";
 
-const COLLECTION = "events";
-
 /**
  * Загружает события из Firestore, начиная с момента since.
  *
@@ -37,10 +35,11 @@ export type LoadEventsResult = { events: BusinessEvent[]; skipped: number };
  */
 export async function loadEvents(
   db: Db,
+  businessId: string,
   since?: IsoDateTime,
 ): Promise<Result<LoadEventsResult>> {
   try {
-    const col = db.collection(COLLECTION);
+    const col = db.collection(`tenants/${businessId}/events`);
     const query: Query = since !== undefined
       ? col.where("ts", ">=", since).orderBy("ts")
       : col.orderBy("ts");
@@ -85,11 +84,12 @@ export async function loadEvents(
  */
 export async function saveEvents(
   db: Db,
+  businessId: string,
   events: BusinessEvent[],
 ): Promise<Result<void>> {
   try {
     const saves = events.map((event) =>
-      db.collection(COLLECTION).doc(event.eventId).set(event),
+      db.collection(`tenants/${businessId}/events`).doc(event.eventId).set(event),
     );
     await Promise.all(saves);
     return ok(undefined);

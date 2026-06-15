@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
 import type { BusinessEvent } from "@crm/schemas";
-import type { Firestore } from "firebase-admin/firestore";
 import { loadEvents, saveEvents, type LoadEventsResult } from "./events.js";
 import { FakeFirestore, ErrorFakeFirestore } from "./testing/fake-firestore.js";
 
@@ -17,18 +16,19 @@ function makePaymentIn(overrides?: { eventId?: string; ts?: string }): BusinessE
     purpose: "Оплата услуг",
     matchedInvoiceId: null,
     source: "manual",
+    businessId: "test-biz",
   } as BusinessEvent;
 }
 
 describe("saveEvents + loadEvents", () => {
   it("saveEvents сохраняет документы с правильными eventId", async () => {
-    const db = new FakeFirestore() as unknown as Firestore;
+    const db = new FakeFirestore() ;
     const event = makePaymentIn();
 
-    const result = await saveEvents(db, [event]);
+    const result = await saveEvents(db, "test-biz", [event]);
     expect(result.ok).toBe(true);
 
-    const loaded = await loadEvents(db);
+    const loaded = await loadEvents(db, "test-biz");
     expect(loaded.ok).toBe(true);
     if (loaded.ok) {
       expect(loaded.value.events).toHaveLength(1);
@@ -38,14 +38,14 @@ describe("saveEvents + loadEvents", () => {
   });
 
   it("loadEvents без since возвращает все события", async () => {
-    const db = new FakeFirestore() as unknown as Firestore;
+    const db = new FakeFirestore() ;
     const events = [
       makePaymentIn({ eventId: "00000000-0000-0000-0000-000000000001", ts: "2026-01-01T10:00:00Z" }),
       makePaymentIn({ eventId: "00000000-0000-0000-0000-000000000002", ts: "2026-06-01T10:00:00Z" }),
     ];
 
-    await saveEvents(db, events);
-    const result = await loadEvents(db);
+    await saveEvents(db, "test-biz", events);
+    const result = await loadEvents(db, "test-biz");
 
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -55,12 +55,12 @@ describe("saveEvents + loadEvents", () => {
   });
 
   it("loadEvents с since фильтрует по полю ts", async () => {
-    const db = new FakeFirestore() as unknown as Firestore;
+    const db = new FakeFirestore() ;
     const old = makePaymentIn({ eventId: "00000000-0000-0000-0000-000000000001", ts: "2025-01-01T00:00:00Z" });
     const recent = makePaymentIn({ eventId: "00000000-0000-0000-0000-000000000002", ts: "2026-06-01T00:00:00Z" });
 
-    await saveEvents(db, [old, recent]);
-    const result = await loadEvents(db, "2026-01-01T00:00:00Z");
+    await saveEvents(db, "test-biz", [old, recent]);
+    const result = await loadEvents(db, "test-biz", "2026-01-01T00:00:00Z");
 
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -70,18 +70,18 @@ describe("saveEvents + loadEvents", () => {
   });
 
   it("loadEvents: невалидный документ пропускается, skipped инкрементируется", async () => {
-    const db = new FakeFirestore() as unknown as Firestore;
+    const db = new FakeFirestore() ;
     const valid = makePaymentIn({ eventId: "00000000-0000-0000-0000-000000000001" });
 
-    await saveEvents(db, [valid]);
+    await saveEvents(db, "test-biz", [valid]);
 
     // Вручную кладём мусор в коллекцию events через «внутренности» фейка
     const rawFake = db as unknown as FakeFirestore;
-    const col = rawFake.collection("events");
+    const col = rawFake.collection("tenants/test-biz/events");
     const badDoc = col.doc("bad-doc-id");
     await badDoc.set({ type: "unknown_garbage", foo: 123 });
 
-    const result = await loadEvents(db);
+    const result = await loadEvents(db, "test-biz");
 
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -93,13 +93,13 @@ describe("saveEvents + loadEvents", () => {
   });
 
   it("saveEvents идемпотентно: повторный save того же eventId не создаёт дублей", async () => {
-    const db = new FakeFirestore() as unknown as Firestore;
+    const db = new FakeFirestore() ;
     const event = makePaymentIn();
 
-    await saveEvents(db, [event]);
-    await saveEvents(db, [event]); // повторный вызов
+    await saveEvents(db, "test-biz", [event]);
+    await saveEvents(db, "test-biz", [event]); // повторный вызов
 
-    const result = await loadEvents(db);
+    const result = await loadEvents(db, "test-biz");
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.value.events).toHaveLength(1);
@@ -109,16 +109,16 @@ describe("saveEvents + loadEvents", () => {
   it("STORAGE_ERROR: возвращает err при сбое db", async () => {
     const db = new ErrorFakeFirestore(
       new Error("Firestore unavailable"),
-    ) as unknown as Firestore;
+    ) ;
 
-    const saveResult = await saveEvents(db, [makePaymentIn()]);
+    const saveResult = await saveEvents(db, "test-biz", [makePaymentIn()]);
     expect(saveResult.ok).toBe(false);
     if (!saveResult.ok) {
       expect(saveResult.error.code).toBe("STORAGE_ERROR");
       expect(saveResult.error.message).toBe("Firestore unavailable");
     }
 
-    const loadResult = await loadEvents(db);
+    const loadResult = await loadEvents(db, "test-biz");
     expect(loadResult.ok).toBe(false);
     if (!loadResult.ok) {
       expect(loadResult.error.code).toBe("STORAGE_ERROR");

@@ -22,6 +22,7 @@ import {
 import type { ForecastConfig } from "@crm/core";
 import {
   createFirestoreRestClient,
+  listTenants,
   loadEvents,
   loadPlan,
   saveForecast,
@@ -50,44 +51,61 @@ export default {
 
 async function run(env: Env): Promise<void> {
   const db = createFirestoreRestClient(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+
+  const tenantsResult = await listTenants(db);
+  if (!tenantsResult.ok) {
+    console.error("[compute] listTenants failed:", tenantsResult.error);
+    return;
+  }
+
+  if (tenantsResult.value.length === 0) {
+    console.log("[compute] no tenants registered yet");
+    return;
+  }
+
+  // Process each tenant independently
+  await Promise.all(tenantsResult.value.map((businessId) => runForTenant(db, businessId)));
+}
+
+async function runForTenant(db: ReturnType<typeof createFirestoreRestClient>, businessId: string): Promise<void> {
   const today = new Date().toISOString().slice(0, 10) as IsoDate;
 
   // ── Загрузка событий ──────────────────────────────────────────────────
-  const eventsResult = await loadEvents(db);
+  const eventsResult = await loadEvents(db, businessId);
   if (!eventsResult.ok) {
-    console.error("[compute] loadEvents failed:", eventsResult.error);
+    console.error(`[compute] ${businessId}: loadEvents failed:`, eventsResult.error);
     return;
   }
   const { events, skipped } = eventsResult.value;
   if (skipped > 0) {
-    console.warn(`[compute] loadEvents: ${skipped} invalid docs skipped`);
+    console.warn(`[compute] ${businessId}: loadEvents: ${skipped} invalid docs skipped`);
   }
-  console.log(`[compute] loaded ${events.length} events`);
+  console.log(`[compute] ${businessId}: loaded ${events.length} events`);
 
   // ── Агрегирование план/факт ───────────────────────────────────────────
   const aggregateResult = aggregateEvents(events, { from: EPOCH_START, to: today });
   if (!aggregateResult.ok) {
-    console.error("[compute] aggregateEvents failed:", aggregateResult.error);
+    console.error(`[compute] ${businessId}: aggregateEvents failed:`, aggregateResult.error);
     return;
   }
   const metrics: PlanFactMetrics = aggregateResult.value;
 
-  const planfactResult = await savePlanfact(db, metrics);
+  const planfactResult = await savePlanfact(db, businessId, metrics);
   if (!planfactResult.ok) {
-    console.error("[compute] savePlanfact failed:", planfactResult.error);
+    console.error(`[compute] ${businessId}: savePlanfact failed:`, planfactResult.error);
     return;
   }
 
   // ── Прогноз кассы ─────────────────────────────────────────────────────
-  const planResult = await loadPlan(db);
+  const planResult = await loadPlan(db, businessId);
   if (!planResult.ok) {
-    console.error("[compute] loadPlan failed:", planResult.error);
+    console.error(`[compute] ${businessId}: loadPlan failed:`, planResult.error);
     return;
   }
 
   if (planResult.value === null) {
     // Бизнес-план ещё не настроен — прогноз не строим, это норма при первом запуске.
-    console.log("[compute] no active plan found, skipping forecast");
+    console.log(`[compute] ${businessId}: no active plan found, skipping forecast`);
     return;
   }
 
@@ -98,18 +116,18 @@ async function run(env: Env): Promise<void> {
 
   const forecastResult = forecastCash(events, planResult.value, FORECAST_CONFIG, rng);
   if (!forecastResult.ok) {
-    console.error("[compute] forecastCash failed:", forecastResult.error);
+    console.error(`[compute] ${businessId}: forecastCash failed:`, forecastResult.error);
     return;
   }
 
-  const saveResult = await saveForecast(db, forecastResult.value);
+  const saveResult = await saveForecast(db, businessId, forecastResult.value);
   if (!saveResult.ok) {
-    console.error("[compute] saveForecast failed:", saveResult.error);
+    console.error(`[compute] ${businessId}: saveForecast failed:`, saveResult.error);
     return;
   }
 
   const { gapDate, confidence } = forecastResult.value;
   console.log(
-    `[compute] done: netCash=${metrics.netCash} gapDate=${gapDate ?? "none"} confidence=${(confidence * 100).toFixed(0)}%`,
+    `[compute] ${businessId}: done netCash=${metrics.netCash} gapDate=${gapDate ?? "none"} confidence=${(confidence * 100).toFixed(0)}%`,
   );
 }

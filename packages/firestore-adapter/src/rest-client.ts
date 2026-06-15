@@ -279,18 +279,24 @@ export class FirestoreRestClient implements Db {
   }
 
   async _runQuery(
-    collectionId: string,
+    collectionPath: string,
     filters: WhereFilter[],
     orderBy: { field: string; direction: "asc" | "desc" } | null,
   ): Promise<RestQuerySnapshot> {
-    const url = `${this.docsBase}:runQuery`;
+    // Support subcollection paths like "tenants/opentgp/events"
+    const parts = collectionPath.split("/");
+    const collectionId = parts[parts.length - 1]!;
+    const parentSuffix = parts.slice(0, -1).join("/");
+    const url = parentSuffix
+      ? `${this.docsBase}/${parentSuffix}:runQuery`
+      : `${this.docsBase}:runQuery`;
 
     const structuredQuery: Record<string, unknown> = {
       from: [{ collectionId }],
     };
 
     if (filters.length === 1) {
-      const f = filters[0];
+      const f = filters[0]!;
       structuredQuery.where = {
         fieldFilter: {
           field: { fieldPath: f.field },
@@ -328,7 +334,7 @@ export class FirestoreRestClient implements Db {
     });
 
     if (!res.ok) {
-      throw new Error(`Firestore runQuery ${collectionId} failed (${res.status}): ${await res.text()}`);
+      throw new Error(`Firestore runQuery ${collectionPath} failed (${res.status}): ${await res.text()}`);
     }
 
     const results = (await res.json()) as Array<{
@@ -339,7 +345,7 @@ export class FirestoreRestClient implements Db {
     for (const item of results) {
       if (!item.document) continue;
       const parts = item.document.name.split("/");
-      const id = parts[parts.length - 1];
+      const id = parts[parts.length - 1] ?? "";
       docs.push(new RestDocSnapshot(id, true, decodeFields(item.document.fields)));
     }
 

@@ -1,5 +1,4 @@
 import { describe, it, expect } from "vitest";
-import type { Firestore } from "firebase-admin/firestore";
 import type { ForecastPlan } from "@crm/core/forecast";
 import { loadPlan, savePlan } from "./plan.js";
 import { FakeFirestore, ErrorFakeFirestore } from "./testing/fake-firestore.js";
@@ -13,12 +12,12 @@ const samplePlan: ForecastPlan = {
 
 describe("savePlan + loadPlan", () => {
   it("savePlan → loadPlan возвращает тот же объект", async () => {
-    const db = new FakeFirestore() as unknown as Firestore;
+    const db = new FakeFirestore() ;
 
-    const saveResult = await savePlan(db, samplePlan);
+    const saveResult = await savePlan(db, "test-biz", samplePlan);
     expect(saveResult.ok).toBe(true);
 
-    const loadResult = await loadPlan(db);
+    const loadResult = await loadPlan(db, "test-biz");
     expect(loadResult.ok).toBe(true);
     if (loadResult.ok) {
       expect(loadResult.value).toEqual(samplePlan);
@@ -26,9 +25,9 @@ describe("savePlan + loadPlan", () => {
   });
 
   it("loadPlan возвращает null если план ещё не задан", async () => {
-    const db = new FakeFirestore() as unknown as Firestore;
+    const db = new FakeFirestore() ;
 
-    const result = await loadPlan(db);
+    const result = await loadPlan(db, "test-biz");
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.value).toBeNull();
@@ -38,15 +37,15 @@ describe("savePlan + loadPlan", () => {
   it("STORAGE_ERROR при сбое db", async () => {
     const db = new ErrorFakeFirestore(
       new Error("quota exceeded"),
-    ) as unknown as Firestore;
+    ) ;
 
-    const saveResult = await savePlan(db, samplePlan);
+    const saveResult = await savePlan(db, "test-biz", samplePlan);
     expect(saveResult.ok).toBe(false);
     if (!saveResult.ok) {
       expect(saveResult.error.code).toBe("STORAGE_ERROR");
     }
 
-    const loadResult = await loadPlan(db);
+    const loadResult = await loadPlan(db, "test-biz");
     expect(loadResult.ok).toBe(false);
     if (!loadResult.ok) {
       expect(loadResult.error.code).toBe("STORAGE_ERROR");

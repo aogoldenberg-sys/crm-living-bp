@@ -21,6 +21,7 @@ export const CallLogged = z.object({
   recordingUrl: z.string().url().nullable(),
   outcome: z.enum(["answered", "missed", "voicemail", "busy"]),
   source: DataSource,
+  businessId: z.string().min(1),
 }).strict();
 
 export type CallLogged = z.infer<typeof CallLogged>;

@@ -9,6 +9,7 @@
 
 import {
   createFirestoreRestClient,
+  listTenants,
   loadForecast,
   loadPlanfact,
 } from "@crm/firestore-adapter";
@@ -33,20 +34,42 @@ export default {
 async function run(env: Env): Promise<void> {
   const db = createFirestoreRestClient(env.FIREBASE_SERVICE_ACCOUNT_JSON);
 
+  const tenantsResult = await listTenants(db);
+  if (!tenantsResult.ok) {
+    console.error("[notify] listTenants failed:", tenantsResult.error);
+    await sendTelegram(env, "⚠️ CRM: не удалось получить список тенантов.");
+    return;
+  }
+
+  if (tenantsResult.value.length === 0) {
+    console.log("[notify] no tenants registered yet");
+    return;
+  }
+
+  for (const businessId of tenantsResult.value) {
+    await runForTenant(db, env, businessId);
+  }
+}
+
+async function runForTenant(
+  db: ReturnType<typeof createFirestoreRestClient>,
+  env: Env,
+  businessId: string,
+): Promise<void> {
   const [forecastResult, planfactResult] = await Promise.all([
-    loadForecast(db),
-    loadPlanfact(db),
+    loadForecast(db, businessId),
+    loadPlanfact(db, businessId),
   ]);
 
   // Раздельные проверки — TypeScript корректно сужает тип Result в каждом блоке
   if (!forecastResult.ok) {
-    console.error("[notify] failed to load forecast:", forecastResult.error);
-    await sendTelegram(env, "⚠️ CRM: не удалось загрузить данные для дайджеста.");
+    console.error(`[notify] ${businessId}: failed to load forecast:`, forecastResult.error);
+    await sendTelegram(env, `⚠️ CRM [${businessId}]: не удалось загрузить данные для дайджеста.`);
     return;
   }
   if (!planfactResult.ok) {
-    console.error("[notify] failed to load planfact:", planfactResult.error);
-    await sendTelegram(env, "⚠️ CRM: не удалось загрузить данные для дайджеста.");
+    console.error(`[notify] ${businessId}: failed to load planfact:`, planfactResult.error);
+    await sendTelegram(env, `⚠️ CRM [${businessId}]: не удалось загрузить данные для дайджеста.`);
     return;
   }
 
@@ -55,16 +78,16 @@ async function run(env: Env): Promise<void> {
 
   if (forecast === null || metrics === null) {
     // Первый запуск — compute ещё не работал
-    await sendTelegram(env, "🚀 CRM запущена. Данных пока нет — ожидаем первый compute-цикл.");
+    await sendTelegram(env, `🚀 CRM [${businessId}] запущена. Данных пока нет — ожидаем первый compute-цикл.`);
     return;
   }
 
-  const text = formatDigest(metrics, forecast);
+  const text = formatDigest(businessId, metrics, forecast);
   await sendTelegram(env, text);
-  console.log("[notify] digest sent");
+  console.log(`[notify] ${businessId}: digest sent`);
 }
 
-function formatDigest(metrics: PlanFactMetrics, forecast: CashForecast): string {
+function formatDigest(businessId: string, metrics: PlanFactMetrics, forecast: CashForecast): string {
   // Форматируем деньги: копейки → рубли с разделителем тысяч
   const fmt = (kopecks: number): string =>
     (kopecks / 100).toLocaleString("ru-RU", { maximumFractionDigits: 0 }) + " ₽";
@@ -78,7 +101,7 @@ function formatDigest(metrics: PlanFactMetrics, forecast: CashForecast): string 
     : `✅ Кассового разрыва не ожидается (уверенность ${(forecast.confidence * 100).toFixed(0)}%)`;
 
   return [
-    `📊 *CRM — ${date}*`,
+    `📊 *CRM [${businessId}] — ${date}*`,
     ``,
     `💰 Поступления: ${fmt(metrics.totalIn)}`,
     `💸 Расходы: ${fmt(metrics.totalOut)}`,

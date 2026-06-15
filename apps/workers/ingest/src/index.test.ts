@@ -14,6 +14,7 @@ const validEvent = {
   purpose: "Тестовый платёж",
   matchedInvoiceId: null,
   source: "manual",
+  businessId: "test-biz",
 };
 
 describe("ingest run()", () => {

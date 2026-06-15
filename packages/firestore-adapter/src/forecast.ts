@@ -2,7 +2,6 @@ import type { Db } from "./db.js";
 import type { CashForecast } from "@crm/core/forecast";
 import { type Result, ok, err } from "@crm/core";
 
-const COLLECTION = "cash_forecast";
 const DOC_ID = "latest";
 
 /**
@@ -14,10 +13,11 @@ const DOC_ID = "latest";
  */
 export async function saveForecast(
   db: Db,
+  businessId: string,
   forecast: CashForecast,
 ): Promise<Result<void>> {
   try {
-    await db.collection(COLLECTION).doc(DOC_ID).set(forecast);
+    await db.collection(`tenants/${businessId}/cash_forecast`).doc(DOC_ID).set(forecast as unknown as Record<string, unknown>);
     return ok(undefined);
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
@@ -31,9 +31,10 @@ export async function saveForecast(
  */
 export async function loadForecast(
   db: Db,
+  businessId: string,
 ): Promise<Result<CashForecast | null>> {
   try {
-    const snap = await db.collection(COLLECTION).doc(DOC_ID).get();
+    const snap = await db.collection(`tenants/${businessId}/cash_forecast`).doc(DOC_ID).get();
 
     if (!snap.exists) {
       return ok(null);

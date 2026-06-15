@@ -19,6 +19,7 @@ export const LeadCaptured = z.object({
   contactPhone: z.string().nullable(),
   contactEmail: z.string().email().nullable(),
   source: DataSource,
+  businessId: z.string().min(1),
 }).strict();
 
 export type LeadCaptured = z.infer<typeof LeadCaptured>;
