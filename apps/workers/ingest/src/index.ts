@@ -14,9 +14,9 @@
  */
 
 import { timingSafeEqual } from "node:crypto";
-import type { Firestore } from "firebase-admin/firestore";
+import type { Db } from "@crm/firestore-adapter";
 import { BusinessEvent } from "@crm/schemas";
-import { createFirestoreClientFromJson, saveEvents } from "@crm/firestore-adapter";
+import { createFirestoreRestClient, saveEvents } from "@crm/firestore-adapter";
 
 interface Env {
   FIREBASE_SERVICE_ACCOUNT_JSON: string;
@@ -30,7 +30,7 @@ export type IngestResult = { events: number; skipped: number };
  * Вынесена из fetch-хендлера чтобы тестироваться в Vitest без workerd.
  * Тест инжектирует FakeFirestore напрямую.
  */
-export async function run(rawItems: unknown[], db: Firestore): Promise<IngestResult> {
+export async function run(rawItems: unknown[], db: Db): Promise<IngestResult> {
   const valid: BusinessEvent[] = [];
   let skipped = 0;
 
@@ -92,7 +92,7 @@ export default {
 
     // ── Бизнес-логика (тестируемая отдельно) ─────────────────────────────
     try {
-      const db = createFirestoreClientFromJson(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+      const db = createFirestoreRestClient(env.FIREBASE_SERVICE_ACCOUNT_JSON);
       const result = await run(rawItems, db);
       console.log(`[ingest] done: events=${result.events} skipped=${result.skipped}`);
       return json(result);

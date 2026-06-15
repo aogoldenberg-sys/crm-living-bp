@@ -1,4 +1,4 @@
-import type { Firestore } from "firebase-admin/firestore";
+import type { Db } from "./db.js";
 import type { PlanFactMetrics } from "@crm/core";
 import { type Result, ok, err } from "@crm/core";
 
@@ -10,7 +10,7 @@ const DOC_ID = "latest";
  * Пересчитывается целиком при каждом запуске compute-воркера — один документ latest.
  */
 export async function savePlanfact(
-  db: Firestore,
+  db: Db,
   metrics: PlanFactMetrics,
 ): Promise<Result<void>> {
   try {
@@ -27,7 +27,7 @@ export async function savePlanfact(
  * null — compute ещё не запускался (первый старт системы).
  */
 export async function loadPlanfact(
-  db: Firestore,
+  db: Db,
 ): Promise<Result<PlanFactMetrics | null>> {
   try {
     const snap = await db.collection(COLLECTION).doc(DOC_ID).get();

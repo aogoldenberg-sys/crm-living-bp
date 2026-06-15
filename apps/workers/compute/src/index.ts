@@ -21,7 +21,7 @@ import {
 } from "@crm/core";
 import type { ForecastConfig } from "@crm/core";
 import {
-  createFirestoreClientFromJson,
+  createFirestoreRestClient,
   loadEvents,
   loadPlan,
   saveForecast,
@@ -49,7 +49,7 @@ export default {
 } satisfies ExportedHandler<Env>;
 
 async function run(env: Env): Promise<void> {
-  const db = createFirestoreClientFromJson(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+  const db = createFirestoreRestClient(env.FIREBASE_SERVICE_ACCOUNT_JSON);
   const today = new Date().toISOString().slice(0, 10) as IsoDate;
 
   // ── Загрузка событий ──────────────────────────────────────────────────

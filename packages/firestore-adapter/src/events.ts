@@ -1,4 +1,4 @@
-import type { Firestore, Query, DocumentData } from "firebase-admin/firestore";
+import type { Db, Query } from "./db.js";
 import { BusinessEvent } from "@crm/schemas";
 import type { IsoDateTime } from "@crm/schemas";
 import { type Result, ok, err } from "@crm/core";
@@ -36,12 +36,12 @@ export type LoadEventsResult = { events: BusinessEvent[]; skipped: number };
  * или передать счётчик в метрику. Игнорировать нельзя.
  */
 export async function loadEvents(
-  db: Firestore,
+  db: Db,
   since?: IsoDateTime,
 ): Promise<Result<LoadEventsResult>> {
   try {
     const col = db.collection(COLLECTION);
-    const query: Query<DocumentData> = since !== undefined
+    const query: Query = since !== undefined
       ? col.where("ts", ">=", since).orderBy("ts")
       : col.orderBy("ts");
 
@@ -84,7 +84,7 @@ export async function loadEvents(
  * Коррекции оформляются отдельным событием payment_correction (см. schemas).
  */
 export async function saveEvents(
-  db: Firestore,
+  db: Db,
   events: BusinessEvent[],
 ): Promise<Result<void>> {
   try {

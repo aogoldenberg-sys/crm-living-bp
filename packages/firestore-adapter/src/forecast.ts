@@ -1,4 +1,4 @@
-import type { Firestore } from "firebase-admin/firestore";
+import type { Db } from "./db.js";
 import type { CashForecast } from "@crm/core/forecast";
 import { type Result, ok, err } from "@crm/core";
 
@@ -13,7 +13,7 @@ const DOC_ID = "latest";
  * (аудит-лог), не входящая в MVP. Один документ = O(1) чтение без индексов.
  */
 export async function saveForecast(
-  db: Firestore,
+  db: Db,
   forecast: CashForecast,
 ): Promise<Result<void>> {
   try {
@@ -30,7 +30,7 @@ export async function saveForecast(
  * Возвращает null если прогноз ещё не был сформирован (первый запуск системы).
  */
 export async function loadForecast(
-  db: Firestore,
+  db: Db,
 ): Promise<Result<CashForecast | null>> {
   try {
     const snap = await db.collection(COLLECTION).doc(DOC_ID).get();

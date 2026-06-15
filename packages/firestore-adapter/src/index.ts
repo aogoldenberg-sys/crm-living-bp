@@ -1,9 +1,12 @@
 /**
  * Публичный API пакета firestore-adapter.
- * Единственное место в монорепо, где живёт firebase-admin.
- * Все остальные пакеты работают с доменными типами из @crm/core и @crm/schemas.
+ *
+ * createFirestoreRestClient — для CF Workers (fetch + JWT, без gRPC).
+ * createFirestoreClientFromJson — для VPS/серверного кода (firebase-admin).
  */
 export { createFirestoreClient, createFirestoreClientFromJson } from "./client.js";
+export { createFirestoreRestClient } from "./rest-client.js";
+export type { Db } from "./db.js";
 export { loadEvents, saveEvents, type LoadEventsResult } from "./events.js";
 export { saveForecast, loadForecast } from "./forecast.js";
 export { loadPlan, savePlan } from "./plan.js";

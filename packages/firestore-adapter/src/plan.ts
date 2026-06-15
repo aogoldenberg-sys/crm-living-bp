@@ -1,4 +1,4 @@
-import type { Firestore } from "firebase-admin/firestore";
+import type { Db } from "./db.js";
 import type { ForecastPlan } from "@crm/core/forecast";
 import { type Result, ok, err } from "@crm/core";
 
@@ -10,7 +10,7 @@ const DOC_ID = "active";
  * Возвращает null если план ещё не настроен — UI обязан обработать это явно.
  */
 export async function loadPlan(
-  db: Firestore,
+  db: Db,
 ): Promise<Result<ForecastPlan | null>> {
   try {
     const snap = await db.collection(COLLECTION).doc(DOC_ID).get();
@@ -34,7 +34,7 @@ export async function loadPlan(
  * детерминированность прогноза. Полная замена — безопаснее для MVP.
  */
 export async function savePlan(
-  db: Firestore,
+  db: Db,
   plan: ForecastPlan,
 ): Promise<Result<void>> {
   try {

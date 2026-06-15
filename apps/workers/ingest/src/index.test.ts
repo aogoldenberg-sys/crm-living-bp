@@ -1,5 +1,4 @@
 import { describe, it, expect } from "vitest";
-import type { Firestore } from "firebase-admin/firestore";
 import { run } from "./index.js";
 import { FakeFirestore } from "@crm/firestore-adapter/testing";
 
@@ -19,35 +18,35 @@ const validEvent = {
 
 describe("ingest run()", () => {
   it("сохраняет валидное событие, возвращает events=1 skipped=0", async () => {
-    const db = new FakeFirestore() as unknown as Firestore;
+    const db = new FakeFirestore();
     const result = await run([validEvent], db);
     expect(result.events).toBe(1);
     expect(result.skipped).toBe(0);
   });
 
   it("пропускает невалидное событие, возвращает events=0 skipped=1", async () => {
-    const db = new FakeFirestore() as unknown as Firestore;
+    const db = new FakeFirestore();
     const result = await run([{ type: "unknown", foo: "bar" }], db);
     expect(result.events).toBe(0);
     expect(result.skipped).toBe(1);
   });
 
   it("смесь: 1 валидное + 1 мусор → events=1 skipped=1", async () => {
-    const db = new FakeFirestore() as unknown as Firestore;
+    const db = new FakeFirestore();
     const result = await run([validEvent, { type: "garbage" }], db);
     expect(result.events).toBe(1);
     expect(result.skipped).toBe(1);
   });
 
   it("пустой массив — ничего не падает", async () => {
-    const db = new FakeFirestore() as unknown as Firestore;
+    const db = new FakeFirestore();
     const result = await run([], db);
     expect(result.events).toBe(0);
     expect(result.skipped).toBe(0);
   });
 
   it("идемпотентно: два одинаковых вызова — не дубли в Firestore", async () => {
-    const db = new FakeFirestore() as unknown as Firestore;
+    const db = new FakeFirestore();
     await run([validEvent], db);
     await run([validEvent], db);
     // Если в Firestore один doc — дублей нет

@@ -8,7 +8,7 @@
  */
 
 import {
-  createFirestoreClientFromJson,
+  createFirestoreRestClient,
   loadForecast,
   loadPlanfact,
 } from "@crm/firestore-adapter";
@@ -31,7 +31,7 @@ export default {
 } satisfies ExportedHandler<Env>;
 
 async function run(env: Env): Promise<void> {
-  const db = createFirestoreClientFromJson(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+  const db = createFirestoreRestClient(env.FIREBASE_SERVICE_ACCOUNT_JSON);
 
   const [forecastResult, planfactResult] = await Promise.all([
     loadForecast(db),

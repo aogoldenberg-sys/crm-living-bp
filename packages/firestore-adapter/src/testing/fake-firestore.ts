@@ -1,19 +1,19 @@
 /**
- * In-memory реализация Firestore для тестов.
+ * In-memory реализация Db-интерфейса для тестов.
  *
- * Почему свой фейк вместо эмулятора: эмулятор требует запущенного процесса
- * и инициализации firebase-admin, что делает тесты медленными и зависимыми
- * от среды. Фейк работает в памяти, запускается за миллисекунды, не требует
- * никакого окружения.
+ * Почему свой фейк вместо эмулятора: эмулятор требует запущенного процесса,
+ * Firebase-проекта и инициализации — делает тесты медленными и зависимыми
+ * от среды. Фейк работает в памяти, запускается за миллисекунды.
  *
  * Покрывает только методы, которые реально использует адаптер:
- * collection → doc → set/get и collection → where → get.
- * Не имитирует транзакции, листенеры, индексы и прочее — YAGNI.
+ * collection → doc → set/get и collection → (where →)? orderBy → get.
+ * Не имитирует транзакции, листенеры, индексы — YAGNI.
  *
- * Не импортирует firebase-admin: файл должен работать в тестах без
- * инициализации приложения. Приведение к нужному типу делается в тест-файлах
- * через `as unknown as FirebaseFirestore.Firestore`.
+ * Явно реализует интерфейс Db из db.ts — TypeScript проверит совместимость
+ * с FirestoreRestClient на этапе компиляции.
  */
+
+import type { Db, CollectionRef, DocRef, DocSnapshot, QuerySnapshot, Query } from "../db.js";
 
 type DocData = Record<string, unknown>;
 
@@ -138,8 +138,8 @@ class FakeCollectionRef extends FakeQuery {
   }
 }
 
-/** Корневой объект, имитирующий FirebaseFirestore.Firestore. */
-export class FakeFirestore {
+/** Корневой объект, реализующий интерфейс Db. */
+export class FakeFirestore implements Db {
   /** Отдельный Map на каждую коллекцию: `collectionPath → (docId → data)`. */
   private readonly collections = new Map<string, Map<string, StoredDoc>>();
 
