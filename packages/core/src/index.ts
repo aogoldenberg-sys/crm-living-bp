@@ -7,3 +7,4 @@ export * from "./risk/index.js";
 export * from "./intake/index.js";
 export * from "./funnel/index.js";
 export * from "./roadmap/index.js";
+export * from "./demand/index.js";
