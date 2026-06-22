@@ -3,3 +3,7 @@ export * from "./utils.js";
 export * from "./planfact/index.js";
 export * from "./forecast/index.js";
 export * from "./replay.js";
+export * from "./risk/index.js";
+export * from "./intake/index.js";
+export * from "./funnel/index.js";
+export * from "./roadmap/index.js";
