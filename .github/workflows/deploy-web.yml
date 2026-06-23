@@ -45,7 +45,7 @@ jobs:
           EOF
 
       - name: Add .htpasswd
-        run: echo 'demo:$apr1$xF9kL2mQ$D/PruuoBWgk0py3Uufuik/' > apps/web/dist/.htpasswd
+        run: echo "${{ secrets.HTPASSWD_LINE }}" > apps/web/dist/.htpasswd
 
       - name: Deploy to FTP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5

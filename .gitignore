@@ -4,3 +4,7 @@ dist/
 *.tsbuildinfo
 .env
 .env.local
+
+# Wrangler local secrets
+*.dev.vars
+.dev.vars
