@@ -12,3 +12,16 @@ export { saveForecast, loadForecast } from "./forecast.js";
 export { loadPlan, savePlan } from "./plan.js";
 export { savePlanfact, loadPlanfact } from "./planfact.js";
 export { registerTenant, listTenants } from "./tenants.js";
+export { provisionTenantSecret, sha256hex } from "./auth.js";
+export { saveIntake, loadIntake } from "./intake.js";
+export { acceptIntake } from "./acceptIntake.js";
+export { saveBusinessPlan, loadBusinessPlan } from "./businessPlan.js";
+export {
+  loadDealEvents,
+  loadFunnel,
+  loadFunnels,
+  saveFunnel,
+  saveDealsProjection,
+  saveFunnelMetrics,
+} from "./deals.js";
+export { saveDemandSignals, loadDemandSignals } from "./demand.js";
