@@ -107,8 +107,8 @@ describe("ROLE_OWNER пресет", () => {
     expect(ROLE_OWNER.roleId).toBe("owner");
   });
 
-  it("deals = 'team' (сделки команды, §6)", () => {
-    expect(ROLE_OWNER.entityAccess.deals).toBe("team");
+  it("deals = 'all' (владелец видит все сделки)", () => {
+    expect(ROLE_OWNER.entityAccess.deals).toBe("all");
   });
 
   it("financials = 'write'", () => {
