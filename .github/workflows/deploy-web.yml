@@ -1,0 +1,58 @@
+name: Deploy web to FTP
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'apps/web/**'
+      - 'packages/**'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build web
+        run: pnpm --filter @crm/web build
+
+      - name: Add noindex meta
+        run: |
+          sed -i 's|<title>|<meta name="robots" content="noindex,nofollow" /><title>|' apps/web/dist/index.html
+
+      - name: Add robots.txt
+        run: echo -e "User-agent: *\nDisallow: /" > apps/web/dist/robots.txt
+
+      - name: Add .htaccess
+        run: |
+          cat > apps/web/dist/.htaccess << 'EOF'
+          AuthType Basic
+          AuthName "CRM Demo"
+          AuthUserFile /var/www/u3380578/data/www/opentgp.ru/crm_life/.htpasswd
+          Require valid-user
+          EOF
+
+      - name: Add .htpasswd
+        run: echo 'demo:$apr1$xF9kL2mQ$D/PruuoBWgk0py3Uufuik/' > apps/web/dist/.htpasswd
+
+      - name: Deploy to FTP
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: opentgp.ru
+          username: ${{ secrets.FTP_USER }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: apps/web/dist/
+          server-dir: www/opentgp.ru/crm_life/
+          protocol: ftps
