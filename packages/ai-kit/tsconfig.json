@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "paths": {
+      "@crm/schemas": ["../schemas/src/index.ts"],
+      "@crm/core": ["../core/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*"]
+}

@@ -1,0 +1,25 @@
+{
+  "name": "@crm/ai-kit",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@crm/core": "workspace:*",
+    "@crm/schemas": "workspace:*",
+    "@anthropic-ai/sdk": "^0.27.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@crm/firestore-adapter": "workspace:*",
+    "typescript": "^5.5.4",
+    "vitest": "^2.1.1"
+  }
+}

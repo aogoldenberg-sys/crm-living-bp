@@ -8,3 +8,9 @@ dist/
 # Wrangler local secrets
 *.dev.vars
 .dev.vars
+
+# Generated output
+graphify-out/
+
+# Claude Code session files
+.claude/
