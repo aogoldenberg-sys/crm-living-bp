@@ -163,6 +163,29 @@ export async function saveFunnel(
 }
 
 /**
+ * Загружает последние сохранённые метрики воронки.
+ * null — метрики ещё не сформированы (норма при первом запуске).
+ * Путь: tenants/{businessId}/funnel_metrics/{funnelId}.
+ */
+export async function loadFunnelMetrics(
+  db: Db,
+  businessId: string,
+  funnelId: string,
+): Promise<Result<FunnelMetrics | null>> {
+  try {
+    const snap = await db
+      .collection(`tenants/${businessId}/funnel_metrics`)
+      .doc(funnelId)
+      .get();
+    if (!snap.exists) return ok(null);
+    return ok(snap.data() as unknown as FunnelMetrics);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    return err({ code: "STORAGE_ERROR", message });
+  }
+}
+
+/**
  * Сохраняет агрегированные метрики воронки.
  * Путь: tenants/{businessId}/funnel_metrics/{funnelId}.
  * Один документ на воронку — перезаписывается при каждом compute-запуске.

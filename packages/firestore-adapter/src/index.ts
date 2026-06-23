@@ -22,6 +22,8 @@ export {
   loadFunnels,
   saveFunnel,
   saveDealsProjection,
+  loadFunnelMetrics,
   saveFunnelMetrics,
 } from "./deals.js";
+export { COL } from "./collections.js";
 export { saveDemandSignals, loadDemandSignals } from "./demand.js";

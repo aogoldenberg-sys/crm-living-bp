@@ -125,7 +125,7 @@ async function runForTenant(db: Db, businessId: string): Promise<void> {
     console.log(`[compute] ${businessId}: no active plan found, skipping forecast`);
     // Воронка и спрос не зависят от бизнес-плана — считаем независимо.
     await runFunnelStep(db, businessId);
-    await runDemandStep(db, businessId, events);
+    await runDemandStep(db, businessId, events); // fault-isolated
     return;
   }
 
@@ -155,7 +155,7 @@ async function runForTenant(db: Db, businessId: string): Promise<void> {
   await runFunnelStep(db, businessId);
 
   // ── Сигналы спроса ────────────────────────────────────────────────────
-  await runDemandStep(db, businessId, events);
+  await runDemandStep(db, businessId, events); // fault-isolated
 }
 
 /**
