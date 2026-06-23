@@ -1,0 +1,61 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Вспомогательные функции ────────────────────────────────────────────────
+
+    /** Пользователь аутентифицирован и принадлежит тенанту.
+     *  Принимает businessId из custom claim ИЛИ из uid (fallback для
+     *  сессий без claim — uid всегда равен businessId в custom token). */
+    function belongsTo(businessId) {
+      return request.auth != null
+          && (request.auth.token.businessId == businessId
+              || request.auth.uid == businessId);
+    }
+
+    /**
+     * Владелец: role = "owner" ИЛИ role отсутствует (backward compat —
+     * старые токены без role-claim считаются владельцем).
+     */
+    function isOwner(businessId) {
+      return belongsTo(businessId)
+          && (!("role" in request.auth.token) || request.auth.token.role == "owner");
+    }
+
+    /** Менеджер: role = "manager" явно задана. */
+    function isManager(businessId) {
+      return belongsTo(businessId)
+          && "role" in request.auth.token
+          && request.auth.token.role == "manager";
+    }
+
+    // ── Тенантные данные ───────────────────────────────────────────────────────
+
+    // Владелец читает всё своего тенанта.
+    match /tenants/{businessId}/{document=**} {
+      allow read: if isOwner(businessId);
+      allow write: if false; // только CF Workers через admin SDK
+    }
+
+    // Менеджер читает сделки только с совпадающим ownerId.
+    // crmUserId — UUID менеджера в CRM, задаётся auth-воркером в custom claim.
+    match /tenants/{businessId}/deals/{dealId} {
+      allow read: if isManager(businessId)
+                  && "crmUserId" in request.auth.token
+                  && resource.data.ownerId == request.auth.token.crmUserId;
+    }
+
+    // Менеджер читает конфиг воронки и метрики (нужны для экрана pipeline).
+    match /tenants/{businessId}/funnels/{funnelId} {
+      allow read: if isManager(businessId);
+    }
+    match /tenants/{businessId}/funnel_metrics/{funnelId} {
+      allow read: if isManager(businessId);
+    }
+
+    // Всё остальное — закрыто.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

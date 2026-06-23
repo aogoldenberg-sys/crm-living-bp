@@ -1,0 +1,223 @@
+/* ── LoginPage ────────────────────────────────────────────────────────────── */
+
+.login-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-deep-black);
+  padding: var(--space-6);
+  position: relative;
+}
+
+/* Фоновый паттерн (тот же что на лендинге, тускло) */
+.login-page::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background-image: url("/hero-placeholder.svg");
+  background-size: cover;
+  background-position: center;
+  opacity: 0.18;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ── Марка ───────────────────────────────────────────────────────────────── */
+
+.login-brand {
+  position: absolute;
+  top: var(--space-6);
+  left: var(--space-10);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  text-decoration: none;
+  color: var(--color-gold);
+  font-family: var(--font-serif);
+  font-size: var(--text-lg);
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  z-index: 10;
+  transition: opacity var(--duration-base);
+}
+
+.login-brand:hover {
+  opacity: 0.75;
+}
+
+/* ── Карточка ────────────────────────────────────────────────────────────── */
+
+.login-card {
+  position: relative;
+  z-index: 10;
+  width: 100%;
+  max-width: 400px;
+  background: var(--color-charcoal);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--space-10);
+  box-shadow: var(--shadow-lg);
+
+  animation: cardAppear 0.5s var(--ease-out) both;
+}
+
+@keyframes cardAppear {
+  from { opacity: 0; transform: translateY(20px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0)   scale(1);    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-card { animation: none; }
+}
+
+/* ── Заголовок ───────────────────────────────────────────────────────────── */
+
+.login-heading {
+  font-family: var(--font-serif);
+  font-size: var(--text-3xl);
+  font-weight: 400;
+  color: var(--color-ivory);
+  margin-bottom: var(--space-2);
+  letter-spacing: -0.01em;
+}
+
+.login-hint {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  margin-bottom: var(--space-8);
+  line-height: 1.5;
+}
+
+/* ── Форма ───────────────────────────────────────────────────────────────── */
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.lf-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.lf-label {
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-sand);
+}
+
+.lf-input {
+  width: 100%;
+  padding: var(--space-4) var(--space-5);
+  background: var(--surface-raised, #332D28);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  color: var(--color-ivory);
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  outline: none;
+  transition:
+    border-color var(--duration-base) var(--ease-out),
+    box-shadow   var(--duration-base) var(--ease-out);
+}
+
+.lf-input::placeholder {
+  color: var(--text-muted);
+}
+
+.lf-input:focus {
+  border-color: var(--color-gold);
+  box-shadow: 0 0 0 3px rgba(184, 150, 78, 0.15);
+}
+
+/* ── Ошибка ──────────────────────────────────────────────────────────────── */
+
+.lf-error {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--color-terracotta);
+  padding: var(--space-3) var(--space-4);
+  background: rgba(198, 93, 59, 0.10);
+  border: 1px solid rgba(198, 93, 59, 0.25);
+  border-radius: var(--radius-md);
+}
+
+/* ── Кнопка входа ────────────────────────────────────────────────────────── */
+
+.lf-submit {
+  width: 100%;
+  padding: var(--space-4);
+  margin-top: var(--space-2);
+  background: var(--color-gold);
+  color: var(--color-deep-black);
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border: none;
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition:
+    background  var(--duration-base) var(--ease-out),
+    box-shadow  var(--duration-base) var(--ease-out),
+    transform   var(--duration-fast) var(--ease-out);
+}
+
+.lf-submit:hover:not(:disabled) {
+  background: #CAA85A;
+  box-shadow: var(--shadow-glow);
+  transform: translateY(-1px);
+}
+
+.lf-submit:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.lf-submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Футер карточки ──────────────────────────────────────────────────────── */
+
+.login-footer {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  text-align: center;
+  margin-top: var(--space-6);
+}
+
+.login-link {
+  color: var(--color-sand);
+  text-decoration: none;
+  border-bottom: 1px solid rgba(201, 185, 154, 0.3);
+  padding-bottom: 1px;
+  transition: color var(--duration-base), border-color var(--duration-base);
+}
+
+.login-link:hover {
+  color: var(--color-ivory);
+  border-color: rgba(232, 223, 208, 0.5);
+}
+
+/* ── Адаптив ──────────────────────────────────────────────────────────────── */
+
+@media (max-width: 480px) {
+  .login-card {
+    padding: var(--space-8) var(--space-6);
+  }
+
+  .login-brand {
+    top: var(--space-5);
+    left: var(--space-5);
+  }
+}

@@ -1,5 +1,7 @@
 import { useAuth } from "../auth/useAuth";
-import { useFunnelMetrics } from "../funnel/useFunnelMetrics";
+import { useRole } from "../auth/useRole";
+import { useFunnelMetrics } from "./useFunnelMetrics";
+import { useDemandSignals } from "./useDemandSignals";
 import { usePipeline } from "../funnel/usePipeline";
 import { useIntake } from "./useIntake";
 import { PipelinePanel } from "../funnel/PipelinePanel";
@@ -58,22 +60,62 @@ function IconGlyph() {
   );
 }
 
+// ── DemandPanel ───────────────────────────────────────────────────────────────
+
+interface DemandPanelProps {
+  leads: number;
+  qualifiedRate: number;
+  trendScore: number;
+}
+
+function DemandPanel({ leads, qualifiedRate, trendScore }: DemandPanelProps) {
+  const trendLabel =
+    trendScore > 0.1 ? "▲ рост" : trendScore < -0.1 ? "▼ падение" : "→ нейтрально";
+  return (
+    <div className="db-right-card">
+      <p className="db-right-card-title">Сигналы спроса</p>
+      <div className="db-right-nums">
+        <div className="db-right-num-block">
+          <span className="db-right-big">{leads}</span>
+          <span className="db-right-sub">лидов</span>
+        </div>
+        <div className="db-right-num-sep" />
+        <div className="db-right-num-block">
+          <span className="db-right-big">{Math.round(qualifiedRate * 100)}%</span>
+          <span className="db-right-sub">квалиф.</span>
+        </div>
+        <div className="db-right-num-sep" />
+        <div className="db-right-num-block">
+          <span className="db-right-big">{trendLabel}</span>
+          <span className="db-right-sub">тренд</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
 export function Dashboard() {
   const { businessId, logout, role } = useAuth();
-  const { data: metrics } = useFunnelMetrics(businessId ?? "");
-  const { data: pipeline } = usePipeline(businessId ?? "");
-  const { data: intake } = useIntake(businessId ?? "");
+  const bid = businessId ?? "demo";
+
+  // Роль с полными правами (entityAccess + dashboardWidgets)
+  const { roleRecord } = useRole(bid);
+  const { entityAccess, dashboardWidgets } = roleRecord;
+
+  const { stages, totalDeals: funnelTotalDeals } = useFunnelMetrics(bid);
+  const { signals } = useDemandSignals(bid);
+  const { data: pipeline } = usePipeline(bid);
+  const { data: intake } = useIntake(bid);
 
   const isOwner = !role || role === "owner";
 
   // ── KPI derivations ──────────────────────────────────────────────────────
-  const stages = metrics?.stages ?? [];
   const nonTerminal = stages.filter((s) => !s.terminal);
   const totalStuck = stages.reduce((n, s) => n + s.stuck.length, 0);
-  const totalDeals = pipeline?.size ?? 0;
-  const pipelineWt = metrics?.totalWeightedPipeline ?? 0;
+  const totalDeals = pipeline?.size ?? funnelTotalDeals;
+  const pipelineWt = stages.reduce((sum, s) => sum + s.weightedPipeline, 0);
   const firstConv = nonTerminal[0]?.factConversion;
   const convStr = firstConv != null ? `${Math.round(firstConv * 100)}%` : "—";
 
@@ -86,6 +128,13 @@ export function Dashboard() {
 
   // Стадийная зависимость: есть ли реальные сделки
   const hasDeals = totalDeals > 0;
+
+  // ── Role-based widget visibility ─────────────────────────────────────────
+  const showDeals = entityAccess.deals !== "none" && dashboardWidgets.includes("pipeline");
+  const showFinancials =
+    entityAccess.financials !== "none" && dashboardWidgets.includes("cash_forecast");
+  const showDemandSignals =
+    signals !== null && dashboardWidgets.includes("demand_signals");
 
   // Bottom row: first 4 stages (mix terminal + non-terminal)
   const bottomStages = stages.slice(0, 4);
@@ -107,10 +156,12 @@ export function Dashboard() {
           <a href="#" className="db-nav-item db-nav-item--active">
             <IconHome /> Дашборд
           </a>
-          <a href="#pipeline" className="db-nav-item">
-            <IconPipeline /> Воронка
-          </a>
-          {isOwner && (
+          {showDeals && (
+            <a href="#pipeline" className="db-nav-item">
+              <IconPipeline /> Воронка
+            </a>
+          )}
+          {showFinancials && (
             <a href="#finances" className="db-nav-item">
               <IconFinance /> Финансы
             </a>
@@ -124,7 +175,7 @@ export function Dashboard() {
 
         <footer className="db-sidebar-footer">
           <div className="db-sidebar-meta">
-            <span className="db-sid-bid">{businessId}</span>
+            <span className="db-sid-bid">{bid}</span>
             {role && (
               <span className="db-sid-role">
                 {role === "manager" ? "Менеджер" : "Владелец"}
@@ -194,12 +245,12 @@ export function Dashboard() {
             {!hasDeals && isOwner && (
               <RoadmapPanel
                 intake={intake}
-                businessId={businessId ?? ""}
+                businessId={bid}
               />
             )}
 
-            {/* Воронка — центр когда есть сделки */}
-            {hasDeals && (
+            {/* Воронка — центр когда есть сделки и роль разрешает */}
+            {hasDeals && showDeals && (
               <div id="pipeline">
                 <PipelinePanel filterMine={role === "manager"} />
               </div>
@@ -210,6 +261,15 @@ export function Dashboard() {
           <aside className="db-right-col">
             {/* Bar-chart по этапам */}
             <StageChart stages={stages} />
+
+            {/* Сигналы спроса — только если есть данные и роль разрешает */}
+            {showDemandSignals && signals !== null && (
+              <DemandPanel
+                leads={signals.leads}
+                qualifiedRate={signals.qualifiedRate}
+                trendScore={signals.trendScore}
+              />
+            )}
 
             {/* Вторичная метрика — Оценка */}
             {isOwner && (
@@ -234,8 +294,8 @@ export function Dashboard() {
           </aside>
         </div>
 
-        {/* ── 4 карточки по этапам снизу ────────────────────────────────── */}
-        {bottomStages.length > 0 && (
+        {/* ── 4 карточки по этапам снизу (только при доступе к финансам) ── */}
+        {showFinancials && bottomStages.length > 0 && (
           <div className="db-bottom-row" id="finances">
             {bottomStages.map((s, i) => (
               <KpiCard
