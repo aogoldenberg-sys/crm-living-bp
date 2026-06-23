@@ -23,6 +23,16 @@ describe("EntityAccess schema", () => {
     expect(result.success).toBe(true);
   });
 
+  it("принимает deals = 'team'", () => {
+    const result = EntityAccess.safeParse({
+      deals: "team",
+      clients: "own",
+      financials: "read",
+      settings: "none",
+    });
+    expect(result.success).toBe(true);
+  });
+
   it("отклоняет невалидный уровень доступа", () => {
     const result = EntityAccess.safeParse({
       deals: "admin",  // не в enum
@@ -97,8 +107,8 @@ describe("ROLE_OWNER пресет", () => {
     expect(ROLE_OWNER.roleId).toBe("owner");
   });
 
-  it("deals = 'all' (полный доступ к сделкам)", () => {
-    expect(ROLE_OWNER.entityAccess.deals).toBe("all");
+  it("deals = 'team' (сделки команды, §6)", () => {
+    expect(ROLE_OWNER.entityAccess.deals).toBe("team");
   });
 
   it("financials = 'write'", () => {
@@ -163,8 +173,8 @@ describe("ROLE_MARKETER пресет", () => {
     expect(ROLE_MARKETER.roleId).toBe("marketer");
   });
 
-  it("deals = 'all' (читает все для аналитики спроса)", () => {
-    expect(ROLE_MARKETER.entityAccess.deals).toBe("all");
+  it("deals = 'none' (аналитика из demand_signals, не из сделок, §6)", () => {
+    expect(ROLE_MARKETER.entityAccess.deals).toBe("none");
   });
 
   it("clients = 'none' (нет доступа к персональным данным)", () => {
@@ -184,6 +194,10 @@ describe("ROLE_MARKETER пресет", () => {
   it("подписан на conversion_drop и new_lead", () => {
     expect(ROLE_MARKETER.alertSubscriptions).toContain("conversion_drop");
     expect(ROLE_MARKETER.alertSubscriptions).toContain("new_lead");
+  });
+
+  it("не имеет доступа к сделкам (deals === 'none')", () => {
+    expect(ROLE_MARKETER.entityAccess.deals).toBe("none");
   });
 
   it("валидируется по схеме Role", () => {

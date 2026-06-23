@@ -10,7 +10,8 @@ import { z } from "zod";
 
 // ── Доступ к сущностям ────────────────────────────────────────────────────────
 
-export const AccessLevel = z.enum(["none", "own", "all"]);
+/** none | own (только свои) | team (своя команда) | all */
+export const AccessLevel = z.enum(["none", "own", "team", "all"]);
 export type AccessLevel = z.infer<typeof AccessLevel>;
 
 export const FinanceAccess = z.enum(["none", "read", "write"]);
@@ -20,7 +21,7 @@ export const SettingsAccess = z.enum(["none", "read", "write"]);
 export type SettingsAccess = z.infer<typeof SettingsAccess>;
 
 export const EntityAccess = z.object({
-  /** Доступ к сделкам: none / own (только свои) / all. */
+  /** Доступ к сделкам: none / own (только свои) / team (команда) / all. */
   deals: AccessLevel,
   /** Доступ к карточкам клиентов. */
   clients: AccessLevel,
@@ -77,14 +78,15 @@ export type Role = z.infer<typeof Role>;
 // ── Пресеты (§6) ──────────────────────────────────────────────────────────────
 
 /**
- * Коммерческий директор / владелец.
- * Полный доступ ко всему — стратегическая картина + оперативный контроль.
+ * Коммерческий директор / владелец. §6
+ * Видит воронку, demand-сигналы, сделки всей команды.
+ * Детальный кассовый вид (отдельный виджет) скрыт — только агрегаты.
  */
 export const ROLE_OWNER: Role = {
   roleId: "owner",
   displayName: "Коммерческий директор",
   entityAccess: {
-    deals: "all",
+    deals: "team",
     clients: "all",
     financials: "write",
     settings: "write",
@@ -134,15 +136,15 @@ export const ROLE_MANAGER: Role = {
 };
 
 /**
- * Маркетолог.
- * Читает все сделки для аналитики спроса, без доступа к финансам и клиентам.
- * Видит сигналы спроса и конверсию — это его зона ответственности.
+ * Маркетолог. §6
+ * Аналитика спроса строится из demand_signals — прямой доступ к сделкам не нужен.
+ * Касса и финмодель скрыты.
  */
 export const ROLE_MARKETER: Role = {
   roleId: "marketer",
   displayName: "Маркетолог",
   entityAccess: {
-    deals: "all",
+    deals: "none",
     clients: "none",
     financials: "none",
     settings: "none",
