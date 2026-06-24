@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useAuth } from "../auth/useAuth";
 import { useRole } from "../auth/useRole";
 import { useFunnelMetrics } from "./useFunnelMetrics";
@@ -10,6 +11,7 @@ import { KpiCard } from "./KpiCard";
 import { StageChart } from "./StageChart";
 import { RoadmapPanel } from "./RoadmapPanel";
 import { UploadPlanButton } from "./UploadPlanButton";
+import { buildGraph, deriveSWOT, RETAIL_TEMPLATE } from "@crm/core";
 import "./Dashboard.css";
 
 function formatRub(kopecks: number): string {
@@ -171,6 +173,34 @@ export function Dashboard() {
 
   // Стадийная зависимость: есть ли реальные сделки
   const hasDeals = totalDeals > 0;
+
+  // ── Owner right column derivations (Block 4) ─────────────────────────────
+
+  // Рентабельность: ищем маржу в assumptions или в strengths
+  const marginEntry = useMemo(
+    () =>
+      findAssumption(
+        intake?.assessment.assumptionsExtracted ?? {},
+        "margin", "маржа", "рентаб",
+      ),
+    [intake],
+  );
+
+  const marginDisplay = useMemo((): string | null => {
+    if (!marginEntry) return null;
+    const raw = marginEntry.value.point ?? marginEntry.value.lo ?? marginEntry.value.hi;
+    if (raw == null) return null;
+    // если < 1, скорее всего уже коэффициент (0.30 = 30%)
+    const pct = raw > 1 ? raw : raw * 100;
+    return `${Math.round(pct)}%`;
+  }, [marginEntry]);
+
+  // Перспективы: выводим из causal graph RETAIL_TEMPLATE
+  const opportunities = useMemo(() => {
+    const graph = buildGraph(RETAIL_TEMPLATE);
+    const swot = deriveSWOT(graph);
+    return swot.opportunities;
+  }, []);
 
   // ── Role-based widget visibility ─────────────────────────────────────────
   const showDeals = entityAccess.deals !== "none" && dashboardWidgets.includes("pipeline");
@@ -370,6 +400,56 @@ export function Dashboard() {
                 qualifiedRate={signals.qualifiedRate}
                 trendScore={signals.trendScore}
               />
+            )}
+
+            {/* ── Владелец: Рентабельность, Перспективы, Маркетинг ── */}
+            {isOwner && (
+              <>
+                {/* Рентабельность */}
+                <div className="db-right-card">
+                  <p className="db-right-card-title">Рентабельность</p>
+                  {marginDisplay ? (
+                    <div className="db-right-nums">
+                      <div className="db-right-num-block">
+                        <span className="db-right-big">{marginDisplay}</span>
+                        <span className="db-right-sub">маржа</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <span className="db-right-no-data">нет данных</span>
+                  )}
+                </div>
+
+                {/* Перспективы (из causal graph) */}
+                <div className="db-right-card">
+                  <p className="db-right-card-title">Перспективы</p>
+                  {opportunities.length > 0 ? (
+                    <ul className="db-opportunities-list">
+                      {opportunities.map((opp, i) => (
+                        <li key={i} className="db-opportunity-item">
+                          <span className="db-opportunity-label">{opp.signal}</span>
+                          {opp.detail && (
+                            <span className="db-opportunity-signal">{opp.detail}</span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="db-right-card-placeholder">
+                      Граф причин строится по вашим данным
+                    </p>
+                  )}
+                </div>
+
+                {/* Маркетинг — честная заглушка */}
+                <div className="db-right-card">
+                  <p className="db-right-card-title">Маркетинг</p>
+                  <p className="db-right-card-placeholder">
+                    <span className="pipeline-sleep-icon">○ </span>
+                    Подключите рекламный кабинет для анализа интереса аудитории
+                  </p>
+                </div>
+              </>
             )}
 
             {/* Вторичная метрика — Оценка */}
