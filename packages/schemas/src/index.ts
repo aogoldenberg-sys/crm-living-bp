@@ -8,3 +8,4 @@ export * from "./plan/intake.js";
 export * from "./plan/businessPlan.js";
 export * from "./plan/funnel.js";
 export * from "./roles.js";
+export * from "./process.js";
