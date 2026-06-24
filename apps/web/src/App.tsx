@@ -35,7 +35,7 @@ export default function App() {
   }, [_setUser]);
 
   return (
-    <BrowserRouter>
+    <BrowserRouter basename={import.meta.env.BASE_URL.slice(0, -1)}>
       <Routes>
         {/* Лендинг — всегда доступен */}
         <Route path="/" element={<LandingPage />} />

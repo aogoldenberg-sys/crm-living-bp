@@ -38,6 +38,13 @@ jobs:
       - name: Add .htaccess
         run: |
           cat > apps/web/dist/.htaccess << 'EOF'
+          Options -MultiViews
+          RewriteEngine On
+          RewriteBase /crm_life/
+          RewriteCond %{REQUEST_FILENAME} !-f
+          RewriteCond %{REQUEST_FILENAME} !-d
+          RewriteRule ^ index.html [L]
+
           AuthType Basic
           AuthName "CRM Demo"
           AuthUserFile /var/www/u3380578/data/www/opentgp.ru/crm_life/.htpasswd
