@@ -6,6 +6,7 @@ on:
     paths:
       - 'apps/web/**'
       - 'packages/**'
+      - 'pnpm-lock.yaml'
 
 jobs:
   deploy:
@@ -37,19 +38,18 @@ jobs:
 
       - name: Add .htaccess
         run: |
-          cat > apps/web/dist/.htaccess << 'EOF'
-          Options -MultiViews
-          RewriteEngine On
-          RewriteBase /crm_life/
-          RewriteCond %{REQUEST_FILENAME} !-f
-          RewriteCond %{REQUEST_FILENAME} !-d
-          RewriteRule ^ index.html [L]
+          cat > apps/web/dist/.htaccess << 'HTEOF'
+RewriteEngine On
+RewriteBase /crm_life/
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.html [L]
 
-          AuthType Basic
-          AuthName "CRM Demo"
-          AuthUserFile /var/www/u3380578/data/www/opentgp.ru/crm_life/.htpasswd
-          Require valid-user
-          EOF
+AuthType Basic
+AuthName "CRM Demo"
+AuthUserFile /var/www/u3380578/data/www/opentgp.ru/crm_life/.htpasswd
+Require valid-user
+HTEOF
 
       - name: Add .htpasswd
         run: echo "${{ secrets.HTPASSWD_LINE }}" > apps/web/dist/.htpasswd
