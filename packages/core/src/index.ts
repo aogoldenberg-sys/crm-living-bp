@@ -11,3 +11,4 @@ export * from "./demand/index.js";
 export * from "./uniteconomics/index.js";
 export * from "./lenses/index.js";
 export * from "./process/index.js";
+export * from "./causal/index.js";

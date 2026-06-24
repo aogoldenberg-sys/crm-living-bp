@@ -1,4 +1,6 @@
 import type { SwotInput, SwotStructure, SwotItem } from "./types.js";
+import type { CausalGraph } from "@crm/schemas";
+import { deriveSWOT } from "../causal/index.js";
 
 // ── Thresholds ────────────────────────────────────────────────────────────────
 
@@ -20,7 +22,10 @@ const PAYBACK_WEAKNESS_THRESHOLD = 24;
  *
  * Opportunities and threats are always empty arrays (stubs for §11).
  */
-export function computeSwotStructure(input: SwotInput): SwotStructure | null {
+export function computeSwotStructure(
+  input: SwotInput,
+  graph?: CausalGraph,
+): SwotStructure | null {
   // Confidence gate: nothing to work with
   const hasData =
     input.revenueGrowthRate !== undefined ||
@@ -115,6 +120,16 @@ export function computeSwotStructure(input: SwotInput): SwotStructure | null {
       detail: `Payback: ${Math.round(input.paybackMonths)} мес.`,
       source: "paybackMonths",
     });
+  }
+
+  if (graph) {
+    const graphSwot = deriveSWOT(graph);
+    return {
+      strengths,
+      weaknesses,
+      opportunities: graphSwot.opportunities,
+      threats: graphSwot.threats,
+    };
   }
 
   return {
