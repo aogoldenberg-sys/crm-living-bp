@@ -4,6 +4,7 @@ import { useFunnelMetrics } from "./useFunnelMetrics";
 import { useDemandSignals } from "./useDemandSignals";
 import { usePipeline } from "../funnel/usePipeline";
 import { useIntake } from "./useIntake";
+import type { AssumptionEntry } from "./useIntake";
 import { PipelinePanel } from "../funnel/PipelinePanel";
 import { KpiCard } from "./KpiCard";
 import { StageChart } from "./StageChart";
@@ -17,6 +18,47 @@ function formatRub(kopecks: number): string {
     currency: "RUB",
     maximumFractionDigits: 0,
   }).format(kopecks / 100);
+}
+
+// ── Owner KPI helpers (Block 3) ──────────────────────────────────────────────
+
+/** Ищет первую запись в assumptionsExtracted, ключ которой содержит любое из keywords (без учёта регистра). */
+function findAssumption(
+  assumptions: Record<string, AssumptionEntry>,
+  ...keywords: string[]
+): AssumptionEntry | null {
+  const lowerKeys = keywords.map((k) => k.toLowerCase());
+  for (const [key, entry] of Object.entries(assumptions)) {
+    const lowerKey = key.toLowerCase();
+    if (lowerKeys.some((kw) => lowerKey.includes(kw))) {
+      return entry;
+    }
+  }
+  return null;
+}
+
+/** Форматирует денежное значение из AssumptionEntry.
+ *  Единицы: "kopecks" → делим на 100, иначе считаем рублями. */
+function formatAssumptionRub(entry: AssumptionEntry): string {
+  const raw = entry.value.point ?? entry.value.lo ?? entry.value.hi;
+  if (raw == null) return "—";
+  const amount = entry.unit.toLowerCase().includes("kopeck") ? raw / 100 : raw;
+  return new Intl.NumberFormat("ru-RU", {
+    style: "currency",
+    currency: "RUB",
+    maximumFractionDigits: 0,
+  }).format(amount);
+}
+
+/** Форматирует срок из AssumptionEntry (месяцы или годы). */
+function formatPayback(entry: AssumptionEntry): string {
+  const raw = entry.value.point ?? entry.value.lo ?? entry.value.hi;
+  if (raw == null) return "—";
+  const unit = entry.unit.toLowerCase();
+  if (unit.includes("year") || unit.includes("год") || unit.includes("лет")) {
+    return `${raw} лет`;
+  }
+  return `${raw} мес.`;
 }
 
 // ── Sidebar icons (минималистичные SVG) ───────────────────────────────────────
@@ -204,32 +246,89 @@ export function Dashboard() {
 
         {/* ── 4 KPI-карточки сверху ──────────────────────────────────────── */}
         <div className="db-kpi-row">
-          <KpiCard
-            color="caramel"
-            title="Воронка"
-            value={pipelineWt > 0 ? formatRub(pipelineWt) : "—"}
-            sub={totalDeals ? `${totalDeals} сделок` : "нет сделок"}
-            spark={stagesSpark.length ? stagesSpark : undefined}
-          />
-          <KpiCard
-            color="burgundy"
-            title="Застряли"
-            value={String(totalStuck)}
-            sub={totalDeals ? `из ${totalDeals} сделок` : "—"}
-          />
-          <KpiCard
-            color="teal"
-            title="Активных"
-            value={String(nonTerminal.reduce((s, x) => s + x.count, 0))}
-            sub={`${nonTerminal.length} этапов`}
-          />
-          <KpiCard
-            color="ivory"
-            title="Конверсия"
-            value={convStr}
-            sub="первый этап"
-            detail={firstConv != null ? `норма ${Math.round((nonTerminal[0]?.normConversion ?? 0) * 100)}%` : undefined}
-          />
+          {isOwner ? (
+            /* Владелец — CAPEX / OPEX / Окупаемость / Точка ноля */
+            <>
+              <KpiCard
+                color="charcoal"
+                title="Капзатраты (CAPEX)"
+                value={(() => {
+                  const e = findAssumption(
+                    intake?.assessment.assumptionsExtracted ?? {},
+                    "capex", "capital", "invest", "инвест", "капит",
+                  );
+                  return e ? formatAssumptionRub(e) : "—";
+                })()}
+                sub="из бизнес-плана"
+              />
+              <KpiCard
+                color="teal-dark"
+                title="Опзатраты (OPEX)"
+                value={(() => {
+                  const e = findAssumption(
+                    intake?.assessment.assumptionsExtracted ?? {},
+                    "opex", "oper", "расход", "затрат", "expense", "cost",
+                  );
+                  return e ? formatAssumptionRub(e) : "—";
+                })()}
+                sub="из бизнес-плана"
+              />
+              <KpiCard
+                color="burgundy"
+                title="Срок окупаемости"
+                value={(() => {
+                  const e = findAssumption(
+                    intake?.assessment.assumptionsExtracted ?? {},
+                    "payback", "окупаем", "срок",
+                  );
+                  return e ? formatPayback(e) : "—";
+                })()}
+                sub="из бизнес-плана"
+              />
+              <KpiCard
+                color="ivory"
+                title="Точка ноля"
+                value={(() => {
+                  const e = findAssumption(
+                    intake?.assessment.assumptionsExtracted ?? {},
+                    "breakeven", "break_even", "безубыт", "точка_нол",
+                  );
+                  return e ? formatAssumptionRub(e) : "—";
+                })()}
+                sub="выручка безубыточности"
+              />
+            </>
+          ) : (
+            /* Менеджер — стандартные воронка/застряли/активных/конверсия */
+            <>
+              <KpiCard
+                color="caramel"
+                title="Воронка"
+                value={pipelineWt > 0 ? formatRub(pipelineWt) : "—"}
+                sub={totalDeals ? `${totalDeals} сделок` : "нет сделок"}
+                spark={stagesSpark.length ? stagesSpark : undefined}
+              />
+              <KpiCard
+                color="burgundy"
+                title="Застряли"
+                value={String(totalStuck)}
+                sub={totalDeals ? `из ${totalDeals} сделок` : "—"}
+              />
+              <KpiCard
+                color="teal"
+                title="Активных"
+                value={String(nonTerminal.reduce((s, x) => s + x.count, 0))}
+                sub={`${nonTerminal.length} этапов`}
+              />
+              <KpiCard
+                color="ivory"
+                title="Конверсия"
+                value={convStr}
+                sub="первый этап"
+                detail={firstConv != null ? `норма ${Math.round((nonTerminal[0]?.normConversion ?? 0) * 100)}%` : undefined}
+              />
+            </>
+          )}
         </div>
 
         {/* ── Центр + правая колонка ─────────────────────────────────────── */}
