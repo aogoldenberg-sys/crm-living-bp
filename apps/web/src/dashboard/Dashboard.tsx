@@ -8,6 +8,7 @@ import { PipelinePanel } from "../funnel/PipelinePanel";
 import { KpiCard } from "./KpiCard";
 import { StageChart } from "./StageChart";
 import { RoadmapPanel } from "./RoadmapPanel";
+import { UploadPlanButton } from "./UploadPlanButton";
 import "./Dashboard.css";
 
 function formatRub(kopecks: number): string {
@@ -198,6 +199,7 @@ export function Dashboard() {
               {role === "manager" ? "Менеджер" : "Владелец"}
             </span>
           )}
+          {isOwner && <UploadPlanButton />}
         </header>
 
         {/* ── 4 KPI-карточки сверху ──────────────────────────────────────── */}
