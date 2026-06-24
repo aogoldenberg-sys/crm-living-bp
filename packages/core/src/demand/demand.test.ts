@@ -39,13 +39,7 @@ function makeDeal(overrides: Partial<DealStageChanged> & {
   return {
     type: "deal_stage_changed",
     eventId: uuid(),
-    funnelId: "main",
     estimatedAmount: 1_000_000,
-    probability: 0.5,
-    expectedCloseDate: null,
-    expectedPaymentDate: null,
-    clientId: null,
-    ownerId: uuid(),
     managerId: uuid(),
     counterpartyInn: null,
     counterpartyName: "Demo",

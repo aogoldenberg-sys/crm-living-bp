@@ -19,6 +19,7 @@ function makePaymentIn(opts: { eventId: string; valueDate: IsoDate; amount: numb
     purpose: "Оплата",
     matchedInvoiceId: null,
     source: "manual",
+    businessId: "demo",
   };
 }
 
@@ -35,6 +36,7 @@ function makeLeadCaptured(opts: { eventId: string; ts: string }): BusinessEvent 
     contactPhone: null,
     contactEmail: null,
     source: "manual",
+    businessId: "demo",
   };
 }
 
@@ -46,6 +48,7 @@ function makePaymentCorrection(opts: { eventId: string; ts: string; correctedEve
     correctedEventId: opts.correctedEventId,
     reason: "Ошибка ввода",
     source: "manual",
+    businessId: "demo",
   };
 }
 

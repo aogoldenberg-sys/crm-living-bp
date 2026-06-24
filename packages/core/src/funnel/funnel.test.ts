@@ -28,14 +28,8 @@ function makeEvent(
   return {
     type: "deal_stage_changed",
     eventId: uuid(),
-    funnelId: "main",
     leadId: uuid(),
     estimatedAmount: 1_000_000,
-    probability: 0.5,
-    expectedCloseDate: null,
-    expectedPaymentDate: null,
-    clientId: null,
-    ownerId: "550e8400-e29b-41d4-a716-446655440001",
     managerId: "550e8400-e29b-41d4-a716-446655440001",
     counterpartyInn: null,
     counterpartyName: "Тест",
@@ -56,7 +50,7 @@ const AS_OF = new Date("2026-06-20T12:00:00Z");
 
 describe("reduceDeals — пустой лог", () => {
   it("возвращает пустую Map", () => {
-    const result = reduceDeals([], AS_OF);
+    const result = reduceDeals([], AS_OF, "main");
     expect(result.size).toBe(0);
   });
 });
@@ -70,22 +64,22 @@ describe("reduceDeals — сделка через все стадии", () => {
   ];
 
   it("сделка в конечном состоянии won", () => {
-    const deals = reduceDeals(events, AS_OF);
+    const deals = reduceDeals(events, AS_OF, "main");
     expect(deals.get(DEAL_A)?.currentStage).toBe("won");
   });
 
   it("updatedAt — ts последнего события", () => {
-    const deals = reduceDeals(events, AS_OF);
+    const deals = reduceDeals(events, AS_OF, "main");
     expect(deals.get(DEAL_A)?.updatedAt).toBe("2026-06-19T10:00:00Z");
   });
 
   it("daysInStage = 1 (с 2026-06-19 до 2026-06-20)", () => {
-    const deals = reduceDeals(events, AS_OF);
+    const deals = reduceDeals(events, AS_OF, "main");
     expect(deals.get(DEAL_A)?.daysInStage).toBe(1);
   });
 
   it("не создаёт лишних сделок", () => {
-    const deals = reduceDeals(events, AS_OF);
+    const deals = reduceDeals(events, AS_OF, "main");
     expect(deals.size).toBe(1);
   });
 });
@@ -98,12 +92,12 @@ describe("reduceDeals — застрявшая сделка", () => {
   ];
 
   it("daysInStage = 10 (с 2026-06-10 до 2026-06-20)", () => {
-    const deals = reduceDeals(events, AS_OF);
+    const deals = reduceDeals(events, AS_OF, "main");
     expect(deals.get(DEAL_B)?.daysInStage).toBe(10);
   });
 
   it("currentStage = qual", () => {
-    const deals = reduceDeals(events, AS_OF);
+    const deals = reduceDeals(events, AS_OF, "main");
     expect(deals.get(DEAL_B)?.currentStage).toBe("qual");
   });
 });
@@ -113,8 +107,8 @@ describe("reduceDeals — детерминизм при перемешанном
   const ev2 = makeEvent({ dealId: DEAL_C, fromStage: "new", toStage: "qual", ts: "2026-06-16T10:00:00Z" });
 
   it("результат одинаков вне зависимости от порядка входа", () => {
-    const r1 = reduceDeals([ev1, ev2], AS_OF);
-    const r2 = reduceDeals([ev2, ev1], AS_OF);
+    const r1 = reduceDeals([ev1, ev2], AS_OF, "main");
+    const r2 = reduceDeals([ev2, ev1], AS_OF, "main");
     expect(r1.get(DEAL_C)?.currentStage).toBe(r2.get(DEAL_C)?.currentStage);
     expect(r1.get(DEAL_C)?.daysInStage).toBe(r2.get(DEAL_C)?.daysInStage);
   });
@@ -146,14 +140,14 @@ describe("funnelMetrics — сделка через все стадии (DEAL_A 
   ];
 
   it("на стадии new count=0, на won count=1", () => {
-    const deals = reduceDeals(events, AS_OF);
+    const deals = reduceDeals(events, AS_OF, "main");
     const m = funnelMetrics(deals, FUNNEL);
     expect(m.stages.find(s => s.stageId === "new")?.count).toBe(0);
     expect(m.stages.find(s => s.stageId === "won")?.count).toBe(1);
   });
 
   it("конверсия new→qual = 1.0 (единственная сделка прошла дальше)", () => {
-    const deals = reduceDeals(events, AS_OF);
+    const deals = reduceDeals(events, AS_OF, "main");
     const m = funnelMetrics(deals, FUNNEL);
     const newStage = m.stages.find(s => s.stageId === "new")!;
     expect(newStage.factConversion).toBeCloseTo(1.0);
@@ -167,14 +161,14 @@ describe("funnelMetrics — застрявшая сделка (DEAL_B в qual 10
   ];
 
   it("DEAL_B попадает в stuck на стадии qual", () => {
-    const deals = reduceDeals(events, AS_OF);
+    const deals = reduceDeals(events, AS_OF, "main");
     const m = funnelMetrics(deals, FUNNEL);
     const qualStage = m.stages.find(s => s.stageId === "qual")!;
     expect(qualStage.stuck).toContain(DEAL_B);
   });
 
   it("avgDays > normDays для qual", () => {
-    const deals = reduceDeals(events, AS_OF);
+    const deals = reduceDeals(events, AS_OF, "main");
     const m = funnelMetrics(deals, FUNNEL);
     const qualStage = m.stages.find(s => s.stageId === "qual")!;
     expect(qualStage.avgDays).toBeGreaterThan(qualStage.normDays);
@@ -189,18 +183,18 @@ describe("funnelMetrics — отклонение конверсии от нор�
   const evB2 = makeEvent({ dealId: DEAL_B, fromStage: "new", toStage: "qual", ts: "2026-06-16T10:00:00Z" });
 
   it("factConversion < normConversion когда сделки застревают", () => {
-    const deals = reduceDeals([evA, evB1, evB2], AS_OF);
+    const deals = reduceDeals([evA, evB1, evB2], AS_OF, "main");
     const m = funnelMetrics(deals, FUNNEL);
     const newStage = m.stages.find(s => s.stageId === "new")!;
     expect(newStage.factConversion).toBeLessThan(newStage.normConversion);
   });
 
   it("weightedPipeline = amount × probability для сделки в new", () => {
-    const deals = reduceDeals([evA, evB1, evB2], AS_OF);
+    const deals = reduceDeals([evA, evB1, evB2], AS_OF, "main");
     const m = funnelMetrics(deals, FUNNEL);
     const newStage = m.stages.find(s => s.stageId === "new")!;
-    // evA: amount=1_000_000, probability=0.5 → 500_000
-    expect(newStage.weightedPipeline).toBe(500_000);
+    // evA: amount=1_000_000, probability=0 (default, schema no longer carries probability)
+    expect(newStage.weightedPipeline).toBe(0);
   });
 });
 
@@ -215,7 +209,7 @@ describe("funnelMetrics — терминальная стадия won", () => {
   ];
 
   it("stuck пуст для терминальной стадии won (даже если daysInStage > normDays)", () => {
-    const deals = reduceDeals(events, AS_OF);
+    const deals = reduceDeals(events, AS_OF, "main");
     const m = funnelMetrics(deals, FUNNEL);
     const wonStage = m.stages.find(s => s.stageId === "won")!;
     // daysInStage = 1, normDays = 1 → в обычной логике could be stuck, но terminal = [] всегда
@@ -223,21 +217,21 @@ describe("funnelMetrics — терминальная стадия won", () => {
   });
 
   it("factConversion = 0 для терминальной стадии (нет стадий дальше)", () => {
-    const deals = reduceDeals(events, AS_OF);
+    const deals = reduceDeals(events, AS_OF, "main");
     const m = funnelMetrics(deals, FUNNEL);
     const wonStage = m.stages.find(s => s.stageId === "won")!;
     expect(wonStage.factConversion).toBe(0);
   });
 
   it("terminal = true в метриках стадии won", () => {
-    const deals = reduceDeals(events, AS_OF);
+    const deals = reduceDeals(events, AS_OF, "main");
     const m = funnelMetrics(deals, FUNNEL);
     const wonStage = m.stages.find(s => s.stageId === "won")!;
     expect(wonStage.terminal).toBe(true);
   });
 
   it("нетерминальные стадии имеют terminal = false", () => {
-    const deals = reduceDeals(events, AS_OF);
+    const deals = reduceDeals(events, AS_OF, "main");
     const m = funnelMetrics(deals, FUNNEL);
     const nonTerminal = m.stages.filter(s => s.stageId !== "won");
     expect(nonTerminal.every(s => s.terminal === false)).toBe(true);
@@ -260,14 +254,14 @@ describe("funnelMetrics — когортная конверсия", () => {
   };
 
   it("cohortConversion для new = 0.5 (1 из 2 дошёл дальше)", () => {
-    const deals = reduceDeals([evA1, evA2, evB1], AS_OF);
+    const deals = reduceDeals([evA1, evA2, evB1], AS_OF, "main");
     const m = funnelMetrics(deals, FUNNEL, PERIOD);
     const newStage = m.stages.find(s => s.stageId === "new")!;
     expect(newStage.cohortConversion).toBeCloseTo(0.5);
   });
 
   it("cohortConversion null если не передан cohortOptions", () => {
-    const deals = reduceDeals([evA1, evA2, evB1], AS_OF);
+    const deals = reduceDeals([evA1, evA2, evB1], AS_OF, "main");
     const m = funnelMetrics(deals, FUNNEL);
     const newStage = m.stages.find(s => s.stageId === "new")!;
     expect(newStage.cohortConversion).toBeNull();
@@ -275,14 +269,14 @@ describe("funnelMetrics — когортная конверсия", () => {
 
   it("cohortConversion null для терминальной стадии даже с events", () => {
     const wonEvent = makeEvent({ dealId: DEAL_A, fromStage: "proposal", toStage: "won", ts: "2026-06-18T10:00:00Z" });
-    const deals = reduceDeals([evA1, evA2, wonEvent], AS_OF);
+    const deals = reduceDeals([evA1, evA2, wonEvent], AS_OF, "main");
     const m = funnelMetrics(deals, FUNNEL, { events: [evA1, evA2, wonEvent], from: "2026-06-14T00:00:00Z", to: "2026-06-20T23:59:59Z" });
     const wonStage = m.stages.find(s => s.stageId === "won")!;
     expect(wonStage.cohortConversion).toBeNull();
   });
 
   it("cohortConversion null если в период не было входов в стадию", () => {
-    const deals = reduceDeals([evA1, evA2, evB1], AS_OF);
+    const deals = reduceDeals([evA1, evA2, evB1], AS_OF, "main");
     // Период до событий
     const m = funnelMetrics(deals, FUNNEL, { events: [evA1, evA2, evB1], from: "2026-06-01T00:00:00Z", to: "2026-06-10T00:00:00Z" });
     const newStage = m.stages.find(s => s.stageId === "new")!;

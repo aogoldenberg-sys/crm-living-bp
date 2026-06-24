@@ -137,6 +137,7 @@ describe("forecastCash", () => {
         purpose: "Оплата",
         matchedInvoiceId: null,
         source: "manual",
+        businessId: "demo",
       },
     ];
 

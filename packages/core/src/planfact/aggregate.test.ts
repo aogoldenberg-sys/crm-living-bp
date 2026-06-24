@@ -18,6 +18,7 @@ function makePaymentIn(overrides: Partial<{
     purpose: "Оплата по счёту 1",
     matchedInvoiceId: null,
     source: "manual",
+    businessId: "demo",
   };
 }
 
@@ -35,6 +36,7 @@ function makePaymentOut(overrides: Partial<{
     purpose: "Аренда офиса",
     expenseCategory: "rent",
     source: "manual",
+    businessId: "demo",
   };
 }
 
@@ -46,6 +48,7 @@ function makeCorrection(correctedEventId: string, eventId?: string): BusinessEve
     correctedEventId,
     reason: "Ошибка ввода",
     source: "manual",
+    businessId: "demo",
   };
 }
 
@@ -62,6 +65,7 @@ function makeLeadCaptured(ts: string, leadId: string): BusinessEvent {
     contactPhone: null,
     contactEmail: null,
     source: "manual",
+    businessId: "demo",
   };
 }
 
@@ -79,6 +83,7 @@ function makeDealStageChanged(ts: string, dealId: string, estimatedAmount: numbe
     counterpartyName: "Клиент",
     managerId: "dddddddd-0000-0000-0000-000000000001",
     source: "manual",
+    businessId: "demo",
   };
 }
 
@@ -95,6 +100,7 @@ function makeCallLogged(ts: string): BusinessEvent {
     recordingUrl: null,
     outcome: "answered",
     source: "telephony",
+    businessId: "demo",
   };
 }
 
@@ -178,6 +184,7 @@ describe("aggregateEvents", () => {
       correctedEventId: originalId,
       reason: "Ошибка",
       source: "manual",
+      businessId: "demo",
     };
     const events: BusinessEvent[] = [
       makePaymentIn({ eventId: originalId, amount: 100_000 }),

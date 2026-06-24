@@ -7,13 +7,15 @@ import type { Deal } from "@crm/schemas";
  * Детерминировано: при одинаковом логе результат всегда одинаков.
  * Порядок событий: по полю ts. Если ts равны — eventId как тай-брейкер.
  *
- * @param events  Отфильтрованный список событий для одного businessId
- * @param asOf    Момент "сейчас" для расчёта daysInStage (по умолчанию new Date())
+ * @param events   Отфильтрованный список событий для одного businessId
+ * @param asOf     Момент "сейчас" для расчёта daysInStage (по умолчанию new Date())
+ * @param funnelId ID воронки, к которой относятся эти сделки (по умолчанию "default")
  * @returns Map<dealId, Deal> — текущая проекция каждой сделки
  */
 export function reduceDeals(
   events: DealStageChanged[],
   asOf: Date = new Date(),
+  funnelId: string = "default",
 ): Map<string, Deal> {
   // Сортировка по ts ASC, тай-брейкер по eventId — детерминизм при параллельных событиях
   const sorted = [...events].sort((a, b) => {
@@ -43,14 +45,14 @@ export function reduceDeals(
 
     state.set(ev.dealId, {
       dealId: ev.dealId,
-      funnelId: ev.funnelId,
+      funnelId,
       currentStage: ev.toStage,
       amount: ev.estimatedAmount ?? (prev?.amount ?? 0),
-      probability: ev.probability,
-      ownerId: ev.ownerId,
-      clientId: ev.clientId ?? (prev?.clientId ?? null),
-      expectedCloseDate: ev.expectedCloseDate,
-      expectedPaymentDate: ev.expectedPaymentDate,
+      probability: prev?.probability ?? 0,
+      ownerId: prev?.ownerId ?? ev.managerId,
+      clientId: prev?.clientId ?? null,
+      expectedCloseDate: prev?.expectedCloseDate ?? null,
+      expectedPaymentDate: prev?.expectedPaymentDate ?? null,
       stageEnteredAt: stageChanged ? ev.ts : (prev?.stageEnteredAt ?? ev.ts),
       updatedAt: ev.ts,
     });
