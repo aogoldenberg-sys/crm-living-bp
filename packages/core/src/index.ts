@@ -9,3 +9,5 @@ export * from "./funnel/index.js";
 export * from "./roadmap/index.js";
 export * from "./demand/index.js";
 export * from "./uniteconomics/index.js";
+export * from "./lenses/index.js";
+export * from "./process/index.js";
