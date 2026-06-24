@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useAuth } from "../auth/useAuth";
 import { useRole } from "../auth/useRole";
 import { useFunnelMetrics } from "./useFunnelMetrics";
@@ -12,6 +12,7 @@ import { StageChart } from "./StageChart";
 import { RoadmapPanel } from "./RoadmapPanel";
 import { UploadPlanButton } from "./UploadPlanButton";
 import { buildGraph, deriveSWOT, RETAIL_TEMPLATE } from "@crm/core";
+import { PlanSidebar, PlanSidebarToggle } from "./PlanSidebar";
 import "./Dashboard.css";
 
 function formatRub(kopecks: number): string {
@@ -156,6 +157,9 @@ export function Dashboard() {
 
   const isOwner = !role || role === "owner";
 
+  // Plan sidebar (Block 6)
+  const [planSidebarOpen, setPlanSidebarOpen] = useState(false);
+
   // ── KPI derivations ──────────────────────────────────────────────────────
   const nonTerminal = stages.filter((s) => !s.terminal);
   const totalStuck = stages.reduce((n, s) => n + s.stuck.length, 0);
@@ -244,6 +248,12 @@ export function Dashboard() {
               <IconAssess /> Оценка
             </a>
           )}
+          {isOwner && (
+            <PlanSidebarToggle
+              isOpen={planSidebarOpen}
+              onToggle={() => setPlanSidebarOpen((v) => !v)}
+            />
+          )}
         </nav>
 
         <footer className="db-sidebar-footer">
@@ -260,6 +270,11 @@ export function Dashboard() {
           </button>
         </footer>
       </aside>
+
+      {/* ── Разделы бизнес-плана (коллапс) ───────────────────────────────── */}
+      {isOwner && (
+        <PlanSidebar intake={intake} isOpen={planSidebarOpen} />
+      )}
 
       {/* ── Ivory-канвас ──────────────────────────────────────────────────── */}
       <div className="db-body" data-canvas="light">
