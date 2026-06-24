@@ -12,3 +12,6 @@ export * from "./uniteconomics/index.js";
 export * from "./lenses/index.js";
 export * from "./process/index.js";
 export * from "./causal/index.js";
+export * from "./datasources/index.js";
+export * from "./lifecycle/index.js";
+export * from "./process/escalation.js";
