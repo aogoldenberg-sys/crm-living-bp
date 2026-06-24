@@ -206,6 +206,25 @@ export function Dashboard() {
     return swot.opportunities;
   }, []);
 
+  // Начальная стратегия — детерминированно из вшитой библиотеки
+  const initialStrategy = useMemo(() => {
+    const strengthTexts = intake?.assessment.strengths ?? [];
+    const concernTexts = (intake?.assessment.concerns ?? []).map((c) => c.description);
+    const allText = [...strengthTexts, ...concernTexts].join(" ").toLowerCase();
+    // Извлекаем слова как теги
+    const nicheTags = allText.match(/[а-яёa-z]+/g) ?? [];
+    return selectInitialStrategy({
+      nicheTags,
+      assessment: intake?.assessment
+        ? {
+            strengths: intake.assessment.strengths,
+            concerns: intake.assessment.concerns,
+            gaps: intake.assessment.gaps,
+          }
+        : undefined,
+    });
+  }, [intake]);
+
   // ── Role-based widget visibility ─────────────────────────────────────────
   const showDeals = entityAccess.deals !== "none" && dashboardWidgets.includes("pipeline");
   const showFinancials =
@@ -480,13 +499,49 @@ export function Dashboard() {
                   )}
                 </div>
 
-                {/* Маркетинг — честная заглушка */}
+                {/* Маркетинг — стратегия + 4P */}
+                <div className="db-right-card">
+                  <p className="db-right-card-title">Стратегии развития</p>
+                  <div className="db-strategy-block">
+                    <p className="db-strategy-name">{initialStrategy.strategy.name}</p>
+                    <p className="db-strategy-desc">{initialStrategy.strategy.description}</p>
+                    {initialStrategy.strategy.levers.length > 0 && (
+                      <ul className="db-strategy-levers">
+                        {initialStrategy.strategy.levers.slice(0, 3).map((lever) => (
+                          <li key={lever.id} className="db-strategy-lever">
+                            <span className="db-strategy-lever-label">{lever.label}</span>
+                            <span className="db-strategy-lever-desc">{lever.description}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    <p className="db-strategy-note">начальная, уточнится опытом</p>
+                  </div>
+                </div>
+
+                {/* Маркетинговые метрики — кабинет */}
                 <div className="db-right-card">
                   <p className="db-right-card-title">Маркетинг</p>
-                  <p className="db-right-card-placeholder">
-                    <span className="pipeline-sleep-icon">○ </span>
-                    Подключите рекламный кабинет для анализа интереса аудитории
-                  </p>
+                  <ul className="db-marketing-list">
+                    <li className="db-marketing-item">
+                      <span className="db-marketing-label">Продукт</span>
+                      <span className="db-marketing-hint">из плана §7</span>
+                    </li>
+                    <li className="db-marketing-item">
+                      <span className="db-marketing-label">Цена</span>
+                      <span className="db-marketing-hint">из допущений</span>
+                    </li>
+                    <li className="db-marketing-item">
+                      <span className="db-marketing-label">Каналы</span>
+                      <span className="db-marketing-hint">из плана §7</span>
+                    </li>
+                    <li className="db-marketing-item">
+                      <span className="db-marketing-label">CTR / CPL</span>
+                      <span className="db-marketing-placeholder">
+                        подключите кабинет
+                      </span>
+                    </li>
+                  </ul>
                 </div>
               </>
             )}

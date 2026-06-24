@@ -1313,3 +1313,87 @@
   flex-shrink: 0;
 }
 
+
+/* Strategy block (Block 4 fix) */
+.db-strategy-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.db-strategy-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--canvas-fg);
+  margin: 0;
+}
+.db-strategy-desc {
+  font-size: 12px;
+  color: var(--canvas-muted);
+  margin: 0;
+  line-height: 1.5;
+}
+.db-strategy-levers {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.db-strategy-lever {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: rgba(0,0,0,0.03);
+}
+.db-strategy-lever-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--canvas-fg);
+}
+.db-strategy-lever-desc {
+  font-size: 11px;
+  color: var(--canvas-muted);
+}
+.db-strategy-note {
+  font-size: 11px;
+  color: var(--canvas-muted);
+  font-style: italic;
+  margin: 2px 0 0;
+}
+
+/* Marketing 4P list */
+.db-marketing-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.db-marketing-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.db-marketing-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--canvas-fg);
+  min-width: 60px;
+}
+.db-marketing-hint {
+  font-size: 11px;
+  color: var(--canvas-muted);
+  font-style: italic;
+}
+.db-marketing-placeholder {
+  font-size: 11px;
+  color: var(--canvas-muted);
+  opacity: 0.7;
+  font-style: italic;
+  border-bottom: 1px dashed currentColor;
+}
