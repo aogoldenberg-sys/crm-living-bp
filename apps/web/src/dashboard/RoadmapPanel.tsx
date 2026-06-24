@@ -3,12 +3,45 @@
  *
  * Центр дашборда когда нет фактических сделок.
  * Строится детерминированно из intake-оценки, без Claude.
+ *
+ * Block 5: добавлены чекбокс «Сделано», кнопки действий, фильтр по фазам.
  */
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { buildRoadmap } from "@crm/core";
 import type { Roadmap, RoadmapItem } from "@crm/core";
 import type { PlanIntake } from "./useIntake";
+
+// ── Типы состояния ─────────────────────────────────────────────────────────────
+
+type PhaseFilter = "all" | "current" | "done" | "future";
+
+const PHASE_LABELS: Record<PhaseFilter, string> = {
+  all: "Все",
+  current: "Текущие",
+  done: "Завершённые",
+  future: "Будущие",
+};
+
+const PHASE_CYCLE: PhaseFilter[] = ["all", "current", "done", "future"];
+
+// ── localStorage helpers ──────────────────────────────────────────────────────
+
+function lsDoneKey(businessId: string, itemId: string): string {
+  return `roadmap_done_${businessId}_${itemId}`;
+}
+
+function lsActionKey(businessId: string, itemId: string): string {
+  return `roadmap_action_${businessId}_${itemId}`;
+}
+
+function isDone(businessId: string, itemId: string): boolean {
+  return localStorage.getItem(lsDoneKey(businessId, itemId)) === "true";
+}
+
+function getAction(businessId: string, itemId: string): string | null {
+  return localStorage.getItem(lsActionKey(businessId, itemId));
+}
 
 // ── Автономия-бейджи ──────────────────────────────────────────────────────────
 
@@ -28,11 +61,81 @@ function AutonomyBadge({ autonomy }: { autonomy: string }) {
   );
 }
 
+// ── Кнопка действия (зависит от phase + autonomy) ────────────────────────────
+
+interface ActionButtonProps {
+  item: RoadmapItem;
+  businessId: string;
+  onStateChange: () => void;
+}
+
+function ActionButton({ item, businessId, onStateChange }: ActionButtonProps) {
+  const currentAction = getAction(businessId, item.id);
+  const done = isDone(businessId, item.id);
+
+  if (done) return null;
+
+  let label: string | null = null;
+  let value: "in_progress" | "started" = "in_progress";
+
+  if (item.phase === "refinement") {
+    label = "Подготовить";
+    value = "in_progress";
+  } else if (item.phase === "execution") {
+    if (item.autonomy === "A2") {
+      label = "Сделать";
+      value = "started";
+    } else if (item.autonomy === "A3") {
+      label = "Начать";
+      value = "started";
+    }
+  }
+
+  if (!label) return null;
+
+  const isActive = currentAction === value;
+
+  return (
+    <button
+      type="button"
+      className={`rm-action-btn${isActive ? " rm-action-btn--done" : ""}`}
+      onClick={() => {
+        if (isActive) {
+          localStorage.removeItem(lsActionKey(businessId, item.id));
+        } else {
+          localStorage.setItem(lsActionKey(businessId, item.id), value);
+        }
+        onStateChange();
+      }}
+    >
+      {isActive ? "В работе" : label}
+    </button>
+  );
+}
+
 // ── Один пункт карты ──────────────────────────────────────────────────────────
 
-function RoadmapRow({ item, active }: { item: RoadmapItem; active: boolean }) {
+interface RoadmapRowProps {
+  item: RoadmapItem;
+  active: boolean;
+  businessId: string;
+  onStateChange: () => void;
+}
+
+function RoadmapRow({ item, active, businessId, onStateChange }: RoadmapRowProps) {
+  const done = isDone(businessId, item.id);
+
   return (
-    <div className={`rm-row${active ? " rm-row--active" : ""} rm-row--${item.priority}`}>
+    <div
+      className={[
+        "rm-row",
+        active ? "rm-row--active" : "",
+        `rm-row--${item.priority}`,
+        done ? "rm-row--done" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
       <div className="rm-row-left">
         <span className={`rm-dot rm-dot--${item.priority}`} />
       </div>
@@ -42,12 +145,59 @@ function RoadmapRow({ item, active }: { item: RoadmapItem; active: boolean }) {
           <div className="rm-row-desc">{item.description}</div>
         )}
         <div className="rm-row-action">{item.action}</div>
+        <div className="rm-row-actions">
+          <ActionButton item={item} businessId={businessId} onStateChange={onStateChange} />
+          <label className="rm-checkbox-label">
+            <input
+              type="checkbox"
+              checked={done}
+              onChange={(e) => {
+                if (e.target.checked) {
+                  localStorage.setItem(lsDoneKey(businessId, item.id), "true");
+                } else {
+                  localStorage.removeItem(lsDoneKey(businessId, item.id));
+                }
+                onStateChange();
+              }}
+            />
+            Сделано
+          </label>
+        </div>
       </div>
       <div className="rm-row-right">
         <AutonomyBadge autonomy={item.autonomy} />
       </div>
     </div>
   );
+}
+
+// ── Фильтрация элементов по фазовому фильтру ──────────────────────────────────
+
+function applyPhaseFilter(
+  items: RoadmapItem[],
+  filter: PhaseFilter,
+  businessId: string,
+): RoadmapItem[] {
+  switch (filter) {
+    case "all":
+      return items;
+    case "done":
+      return items.filter((i) => isDone(businessId, i.id));
+    case "current":
+      return items.filter(
+        (i) =>
+          !isDone(businessId, i.id) &&
+          (i.status === "pending" ||
+            i.status === "in_progress" ||
+            getAction(businessId, i.id) != null),
+      );
+    case "future":
+      return items.filter(
+        (i) => !isDone(businessId, i.id) && i.phase === "execution",
+      );
+    default:
+      return items;
+  }
 }
 
 // ── Панель ────────────────────────────────────────────────────────────────────
@@ -60,6 +210,17 @@ interface Props {
 }
 
 export function RoadmapPanel({ intake, businessId, creditsAvailable = false }: Props) {
+  const [phaseFilter, setPhaseFilter] = useState<PhaseFilter>("all");
+  // Счётчик для принудительного перерендера после изменений в localStorage
+  const [tick, setTick] = useState(0);
+
+  function handleStateChange() {
+    setTick((t) => t + 1);
+  }
+
+  // tick используется для реактивного перерендера при изменении localStorage
+  void tick;
+
   const roadmap: Roadmap | null = useMemo(() => {
     if (!intake) return null;
     return buildRoadmap({
@@ -92,10 +253,25 @@ export function RoadmapPanel({ intake, businessId, creditsAvailable = false }: P
   const execution = roadmap.items.filter((i: RoadmapItem) => i.phase === "execution");
   const firstPending = refinement.find((i: RoadmapItem) => i.status === "pending") ?? refinement[0];
 
+  // Применяем фильтр
+  const filteredRefinement = applyPhaseFilter(refinement, phaseFilter, businessId);
+  const filteredExecution = applyPhaseFilter(execution, phaseFilter, businessId);
+
+  // Скрываем фазу если она полностью пуста после фильтрации (кроме "все")
+  const showRefinement = filteredRefinement.length > 0 || phaseFilter === "all";
+  const showExecution = filteredExecution.length > 0 || phaseFilter === "all";
+
+  function cycleFilter() {
+    setPhaseFilter((current) => {
+      const idx = PHASE_CYCLE.indexOf(current);
+      return PHASE_CYCLE[(idx + 1) % PHASE_CYCLE.length]!;
+    });
+  }
+
   return (
     <div className="rm-panel">
       {/* Текущий шаг — крупно */}
-      {firstPending && (
+      {firstPending && phaseFilter === "all" && (
         <div className="rm-current-step">
           <span className="rm-current-label">Сейчас</span>
           <span className="rm-current-title">{firstPending.title}</span>
@@ -103,43 +279,71 @@ export function RoadmapPanel({ intake, businessId, creditsAvailable = false }: P
         </div>
       )}
 
+      {/* Фильтр по этапам */}
+      <div className="rm-phase-filter">
+        {PHASE_CYCLE.map((f) => (
+          <button
+            key={f}
+            type="button"
+            className={`rm-phase-filter-btn${phaseFilter === f ? " rm-phase-filter-btn--active" : ""}`}
+            onClick={() => setPhaseFilter(f)}
+          >
+            {PHASE_LABELS[f]}
+          </button>
+        ))}
+      </div>
+
       {/* Фаза ДОРАБОТКА */}
-      {refinement.length > 0 && (
+      {showRefinement && (
         <section className="rm-phase">
           <h3 className="rm-phase-title">
             Доработка плана
-            <span className="rm-phase-count">{refinement.length}</span>
+            <span className="rm-phase-count">{filteredRefinement.length}</span>
           </h3>
-          <div className="rm-rows">
-            {refinement.map((item: RoadmapItem) => (
-              <RoadmapRow
-                key={item.id}
-                item={item}
-                active={item.id === firstPending?.id}
-              />
-            ))}
-          </div>
+          {filteredRefinement.length > 0 ? (
+            <div className="rm-rows">
+              {filteredRefinement.map((item: RoadmapItem) => (
+                <RoadmapRow
+                  key={item.id}
+                  item={item}
+                  active={item.id === firstPending?.id}
+                  businessId={businessId}
+                  onStateChange={handleStateChange}
+                />
+              ))}
+            </div>
+          ) : (
+            <p className="rm-exec-empty">Нет элементов в этой категории</p>
+          )}
         </section>
       )}
 
       {/* Фаза РЕАЛИЗАЦИЯ */}
-      <section className="rm-phase">
-        <h3 className="rm-phase-title">
-          Реализация
-          {execution.length > 0 && (
-            <span className="rm-phase-count">{execution.length}</span>
+      {showExecution && (
+        <section className="rm-phase">
+          <h3 className="rm-phase-title">
+            Реализация
+            {filteredExecution.length > 0 && (
+              <span className="rm-phase-count">{filteredExecution.length}</span>
+            )}
+          </h3>
+          {filteredExecution.length > 0 ? (
+            <div className="rm-rows">
+              {filteredExecution.map((item: RoadmapItem) => (
+                <RoadmapRow
+                  key={item.id}
+                  item={item}
+                  active={false}
+                  businessId={businessId}
+                  onStateChange={handleStateChange}
+                />
+              ))}
+            </div>
+          ) : (
+            <p className="rm-exec-empty">{roadmap.executionEmptyReason}</p>
           )}
-        </h3>
-        {execution.length > 0 ? (
-          <div className="rm-rows">
-            {execution.map((item: RoadmapItem) => (
-              <RoadmapRow key={item.id} item={item} active={false} />
-            ))}
-          </div>
-        ) : (
-          <p className="rm-exec-empty">{roadmap.executionEmptyReason}</p>
-        )}
-      </section>
+        </section>
+      )}
     </div>
   );
 }
