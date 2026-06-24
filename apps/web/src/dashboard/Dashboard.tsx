@@ -11,7 +11,7 @@ import { KpiCard } from "./KpiCard";
 import { StageChart } from "./StageChart";
 import { RoadmapPanel } from "./RoadmapPanel";
 import { UploadPlanButton } from "./UploadPlanButton";
-import { buildGraph, deriveSWOT, RETAIL_TEMPLATE } from "@crm/core";
+import { buildGraph, deriveSWOT, RETAIL_TEMPLATE, selectInitialStrategy } from "@crm/core";
 import { PlanSidebar, PlanSidebarToggle } from "./PlanSidebar";
 import "./Dashboard.css";
 
@@ -507,7 +507,7 @@ export function Dashboard() {
                     <p className="db-strategy-desc">{initialStrategy.strategy.description}</p>
                     {initialStrategy.strategy.levers.length > 0 && (
                       <ul className="db-strategy-levers">
-                        {initialStrategy.strategy.levers.slice(0, 3).map((lever) => (
+                        {initialStrategy.strategy.levers.slice(0, 3).map((lever: { id: string; label: string; description: string }) => (
                           <li key={lever.id} className="db-strategy-lever">
                             <span className="db-strategy-lever-label">{lever.label}</span>
                             <span className="db-strategy-lever-desc">{lever.description}</span>

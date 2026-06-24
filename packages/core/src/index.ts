@@ -15,3 +15,4 @@ export * from "./causal/index.js";
 export * from "./datasources/index.js";
 export * from "./lifecycle/index.js";
 export * from "./process/escalation.js";
+export * from "./strategy/index.js";
