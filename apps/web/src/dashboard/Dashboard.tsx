@@ -222,7 +222,15 @@ export function Dashboard() {
       {/* ── Тёмный сайдбар 280px ──────────────────────────────────────────── */}
       <aside className="db-sidebar">
         <div className="db-sidebar-logo">
-          <IconGlyph />
+          {intake?.logoUrl ? (
+            <img
+              src={intake.logoUrl}
+              alt="Логотип компании"
+              className="db-sidebar-logo-img"
+            />
+          ) : (
+            <IconGlyph />
+          )}
           <div className="db-sidebar-logo-text">
             <span className="db-logo-name">Живой</span>
             <span className="db-logo-sub">Бизнес-план</span>
@@ -387,12 +395,28 @@ export function Dashboard() {
               </div>
             )}
 
-            {/* Дорожная карта — центр когда нет сделок */}
-            {!hasDeals && isOwner && (
+            {/* Честный центральный стейт: нет intake */}
+            {!hasDeals && isOwner && !intake && (
+              <div className="db-honest-placeholder">
+                <span className="db-honest-placeholder-icon">○</span>
+                Загрузите бизнес-план — появится живой макет предприятия
+              </div>
+            )}
+
+            {/* Дорожная карта — центр когда нет сделок и есть intake */}
+            {!hasDeals && isOwner && intake && (
               <RoadmapPanel
                 intake={intake}
                 businessId={bid}
               />
+            )}
+
+            {/* Честная заглушка: стратегии/сценарии */}
+            {isOwner && (
+              <div className="db-honest-placeholder" style={{ marginTop: hasDeals ? 0 : 16 }}>
+                <span className="db-honest-placeholder-icon">○</span>
+                Выбор стратегий — после 4 недель фактических данных
+              </div>
             )}
 
             {/* Воронка — центр когда есть сделки и роль разрешает */}
