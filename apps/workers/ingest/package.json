@@ -12,7 +12,8 @@
   },
   "dependencies": {
     "@crm/schemas": "workspace:*",
-    "@crm/firestore-adapter": "workspace:*"
+    "@crm/firestore-adapter": "workspace:*",
+    "mammoth": "^1.8.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20240924.0",
