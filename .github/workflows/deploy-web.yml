@@ -36,19 +36,11 @@ jobs:
       - name: Add robots.txt
         run: echo -e "User-agent: *\nDisallow: /" > apps/web/dist/robots.txt
 
-      # .htaccess: Auth FIRST, then SPA rewrite.
-      # Порядок критичен: Basic Auth должен идти до RewriteRule,
-      # иначе Apache спрашивает пароль на каждый subrequest rewrite.
-      # .htpasswd НЕ создаём в CI — он живёт на сервере и управляется вручную.
-      # Это предотвращает случайный сброс пароля при каждом деплое.
+      # .htaccess: только SPA rewrite, без Basic Auth.
+      # Аутентификация — через CRM-форму (Firebase custom token).
       - name: Add .htaccess
         run: |
           cat > apps/web/dist/.htaccess << 'HTEOF'
-AuthType Basic
-AuthName "crm"
-AuthUserFile /var/www/u3380578/data/www/opentgp.ru/crm_life/.htpasswd
-Require valid-user
-
 RewriteEngine On
 RewriteBase /crm_life/
 RewriteRule ^index\.html$ - [L]
@@ -66,7 +58,6 @@ HTEOF
           local-dir: apps/web/dist/
           server-dir: www/opentgp.ru/crm_life/
           protocol: ftps
-          # .htpasswd исключён: он живёт на сервере, CI его не трогает.
-          # Для смены пароля — только htpasswd вручную на сервере.
+          # .htpasswd не создаётся CI и не нужен — Basic Auth убран.
           exclude: |
             **/.htpasswd
