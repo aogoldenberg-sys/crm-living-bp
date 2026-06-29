@@ -73,6 +73,15 @@
   overflow-y: auto;
 }
 
+/* Allow <button> elements to share nav-item styling */
+button.db-nav-item {
+  background: none;
+  border: none;
+  outline: none;
+  text-align: left;
+  width: 100%;
+}
+
 .db-nav-item {
   display: flex;
   align-items: center;

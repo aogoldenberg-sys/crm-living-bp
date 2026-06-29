@@ -13,6 +13,8 @@ import { RoadmapPanel } from "./RoadmapPanel";
 import { UploadPlanButton } from "./UploadPlanButton";
 import { buildGraph, deriveSWOT, RETAIL_TEMPLATE, selectInitialStrategy } from "@crm/core";
 import { PlanSidebar, PlanSidebarToggle } from "./PlanSidebar";
+import { RisksPanel } from "../panels/RisksPanel";
+import { AutonomyPanel } from "../panels/AutonomyPanel";
 import "./Dashboard.css";
 
 function formatRub(kopecks: number): string {
@@ -97,6 +99,23 @@ function IconAssess() {
     </svg>
   );
 }
+function IconRisk() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M8 2l6 11H2L8 2Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" fill="none"/>
+      <line x1="8" y1="7" x2="8" y2="9.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+      <circle cx="8" cy="11.5" r="0.6" fill="currentColor"/>
+    </svg>
+  );
+}
+function IconAutonomy() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeWidth="1.4"/>
+      <path d="M8 5v3.5l2 1.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  );
+}
 function IconGlyph() {
   return (
     <svg width="22" height="22" viewBox="0 0 28 28" fill="none" aria-hidden="true">
@@ -156,6 +175,10 @@ export function Dashboard() {
   const { data: intake } = useIntake(bid);
 
   const isOwner = !role || role === "owner";
+
+  // View state: which panel is active
+  type View = "dashboard" | "risks" | "autonomy";
+  const [view, setView] = useState<View>("dashboard");
 
   // Plan sidebar (Block 6)
   const [planSidebarOpen, setPlanSidebarOpen] = useState(false);
@@ -257,23 +280,42 @@ export function Dashboard() {
         </div>
 
         <nav className="db-sidebar-nav" aria-label="Разделы">
-          <a href="#" className="db-nav-item db-nav-item--active">
+          <button
+            className={`db-nav-item${view === "dashboard" ? " db-nav-item--active" : ""}`}
+            onClick={() => setView("dashboard")}
+          >
             <IconHome /> Дашборд
-          </a>
+          </button>
           {showDeals && (
-            <a href="#pipeline" className="db-nav-item">
+            <a href="#pipeline" className="db-nav-item" onClick={() => setView("dashboard")}>
               <IconPipeline /> Воронка
             </a>
           )}
           {showFinancials && (
-            <a href="#finances" className="db-nav-item">
+            <a href="#finances" className="db-nav-item" onClick={() => setView("dashboard")}>
               <IconFinance /> Финансы
             </a>
           )}
           {isOwner && (
-            <a href="#intake" className="db-nav-item">
+            <a href="#intake" className="db-nav-item" onClick={() => setView("dashboard")}>
               <IconAssess /> Оценка
             </a>
+          )}
+          {isOwner && (
+            <button
+              className={`db-nav-item${view === "risks" ? " db-nav-item--active" : ""}`}
+              onClick={() => setView("risks")}
+            >
+              <IconRisk /> Риски
+            </button>
+          )}
+          {isOwner && (
+            <button
+              className={`db-nav-item${view === "autonomy" ? " db-nav-item--active" : ""}`}
+              onClick={() => setView("autonomy")}
+            >
+              <IconAutonomy /> Автономия
+            </button>
           )}
           {isOwner && (
             <PlanSidebarToggle
@@ -303,7 +345,20 @@ export function Dashboard() {
         <PlanSidebar intake={intake} isOpen={planSidebarOpen} />
       )}
 
+      {/* ── Panels (Риски / Автономия) ───────────────────────────────────── */}
+      {view === "risks" && (
+        <div className="db-body" data-canvas="light">
+          <RisksPanel assessment={intake?.assessment ?? null} />
+        </div>
+      )}
+      {view === "autonomy" && (
+        <div className="db-body" data-canvas="light">
+          <AutonomyPanel businessId={bid} />
+        </div>
+      )}
+
       {/* ── Ivory-канвас ──────────────────────────────────────────────────── */}
+      {view === "dashboard" && (
       <div className="db-body" data-canvas="light">
         {/* Заголовок страницы */}
         <header className="db-page-header">
@@ -585,6 +640,7 @@ export function Dashboard() {
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }

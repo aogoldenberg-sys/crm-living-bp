@@ -11,7 +11,7 @@
 import mammoth from "mammoth";
 import { timingSafeEqual } from "node:crypto";
 import type { Db } from "@crm/firestore-adapter";
-import { BusinessEvent } from "@crm/schemas";
+import { BusinessEvent, ExternalSignal } from "@crm/schemas";
 import { createFirestoreRestClient, saveEvents, registerTenant } from "@crm/firestore-adapter";
 import { generatePlan } from "@crm/ai-kit";
 
@@ -695,6 +695,93 @@ async function handleGenerate(request: Request, env: Env): Promise<Response> {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// /external handler — приём внешних сигналов (§12)
+// Auth: Firebase Bearer token ИЛИ X-Api-Key + ?businessId=
+// SHA-256 dedup по (type, source, ts, payload)
+// ══════════════════════════════════════════════════════════════════════════════
+
+async function handleExternal(request: Request, env: Env): Promise<Response> {
+  const projectId = env.FIREBASE_PROJECT_ID || "crm-living-bp";
+  const authHeader = request.headers.get("Authorization") ?? "";
+  const apiKeyHeader = request.headers.get("X-Api-Key") ?? "";
+
+  let businessId: string;
+  const db = createFirestoreRestClient(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+
+  if (authHeader.startsWith("Bearer ")) {
+    // Firebase token auth — businessId resolved from Firestore users/{uid}
+    const idToken = authHeader.slice(7).trim();
+    const claims = await verifyFirebaseIdToken(idToken, projectId);
+    if (!claims) return jsonCors({ error: "Unauthorized" }, 401);
+
+    const userDoc = await db.collection("users").doc(claims.uid).get();
+    if (!userDoc.exists) return jsonCors({ error: "User not registered" }, 400);
+    businessId = (userDoc.data() as { businessId: string }).businessId;
+  } else if (apiKeyHeader) {
+    // API key auth — businessId from query param
+    if (!isValidSecret(apiKeyHeader, env.INGEST_API_SECRET)) {
+      return jsonCors({ error: "Unauthorized" }, 401);
+    }
+    const url = new URL(request.url);
+    const bid = url.searchParams.get("businessId");
+    if (!bid) return jsonCors({ error: "Missing businessId query param" }, 400);
+    businessId = bid;
+  } else {
+    return jsonCors({ error: "Unauthorized" }, 401);
+  }
+
+  // Parse and validate body
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonCors({ error: "Invalid JSON" }, 400);
+  }
+
+  const parsed = ExternalSignal.safeParse(body);
+  if (!parsed.success) {
+    return jsonCors({ error: "Validation error", details: parsed.error.issues }, 422);
+  }
+  const signal = parsed.data;
+
+  // SHA-256 dedup key
+  const canonical = JSON.stringify({
+    type: signal.type,
+    source: signal.source,
+    ts: signal.ts,
+    payload: signal.payload,
+  });
+  const hashBuf = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(canonical),
+  );
+  const hash = Array.from(new Uint8Array(hashBuf))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+
+  // Idempotent write — skip if already stored
+  const existing = await db
+    .collection(`tenants/${businessId}/external_signals`)
+    .doc(hash)
+    .get();
+  if (existing.exists) {
+    return jsonCors({ hash, status: "duplicate" });
+  }
+
+  await db
+    .collection(`tenants/${businessId}/external_signals`)
+    .doc(hash)
+    .set({
+      ...signal,
+      hash,
+      businessId,
+      receivedAt: new Date().toISOString(),
+    } as unknown as Record<string, unknown>);
+
+  return jsonCors({ hash, status: "ok" });
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // Main fetch handler
 // ══════════════════════════════════════════════════════════════════════════════
 
@@ -720,6 +807,11 @@ export default {
     // ── /intake — бизнес-план (Firebase auth) ────────────────────────────
     if (request.method === "POST" && url.pathname === "/intake") {
       return handleIntake(request, env);
+    }
+
+    // ── /external — внешние сигналы §12 (Firebase auth или API key) ───────
+    if (request.method === "POST" && url.pathname === "/external") {
+      return handleExternal(request, env);
     }
 
     // ── / — события (API secret) ──────────────────────────────────────────
@@ -759,7 +851,7 @@ export default {
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Api-Key",
 };
 
 function json(body: unknown, status = 200): Response {
