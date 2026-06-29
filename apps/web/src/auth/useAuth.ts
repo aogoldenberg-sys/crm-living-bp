@@ -1,5 +1,10 @@
 import { create } from "zustand";
-import { signInWithCustomToken, signOut, type User } from "firebase/auth";
+import {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
+  type User,
+} from "firebase/auth";
 import { auth } from "../firebase";
 
 export type UserRole = "owner" | "manager";
@@ -9,7 +14,8 @@ interface AuthState {
   user: User | null;
   /** Роль пользователя из кастомного claim токена. null = владелец (default). */
   role: UserRole | null;
-  login: (businessId: string, secret: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<void>;
+  register: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   _setUser: (user: User | null, businessId: string | null, role?: UserRole | null) => void;
 }
@@ -19,27 +25,28 @@ export const useAuth = create<AuthState>((set) => ({
   user: null,
   role: null,
 
-  login: async (businessId: string, secret: string) => {
-    const workerUrl = import.meta.env.VITE_AUTH_WORKER_URL;
-    const res = await fetch(`${workerUrl}/token`, {
+  login: async (email: string, password: string) => {
+    const cred = await signInWithEmailAndPassword(auth, email, password);
+    // businessId = uid (App.tsx onAuthStateChanged reads uid as fallback)
+    set({ user: cred.user, businessId: cred.user.uid, role: null });
+  },
+
+  register: async (email: string, password: string) => {
+    const cred = await createUserWithEmailAndPassword(auth, email, password);
+    // Call /register to provision Firestore docs
+    const workerUrl = import.meta.env.VITE_INGEST_WORKER_URL as string;
+    const idToken = await cred.user.getIdToken();
+    const res = await fetch(`${workerUrl}/register`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ businessId, secret }),
+      headers: { Authorization: `Bearer ${idToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({}),
     });
-
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      throw new Error((data as { error?: string }).error ?? `HTTP ${res.status}`);
+      // Roll back: delete the created user
+      await cred.user.delete();
+      throw new Error("Ошибка создания аккаунта. Попробуйте позже.");
     }
-
-    const { token } = (await res.json()) as { token: string };
-    const credential = await signInWithCustomToken(auth, token);
-
-    // Читаем роль из claims — auth worker выставляет если настроена
-    const idTokenResult = await credential.user.getIdTokenResult();
-    const role = (idTokenResult.claims["role"] as UserRole | undefined) ?? null;
-
-    set({ user: credential.user, businessId, role });
+    set({ user: cred.user, businessId: cred.user.uid, role: null });
   },
 
   logout: async () => {

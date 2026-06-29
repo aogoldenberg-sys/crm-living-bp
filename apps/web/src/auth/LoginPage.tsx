@@ -7,20 +7,35 @@ export function LoginPage() {
   const login = useAuth((s) => s.login);
   const navigate = useNavigate();
 
-  const [businessId, setBusinessId] = useState("");
-  const [secret, setSecret] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const mapFirebaseError = (code: string): string => {
+    switch (code) {
+      case "auth/wrong-password":
+      case "auth/invalid-credential":
+        return "Неверный email или пароль";
+      case "auth/user-not-found":
+        return "Пользователь не найден";
+      case "auth/too-many-requests":
+        return "Слишком много попыток. Попробуйте позже.";
+      default:
+        return "Ошибка входа";
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setLoading(true);
     try {
-      await login(businessId.trim(), secret);
+      await login(email.trim(), password);
       navigate("/dashboard");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Ошибка входа");
+      const code = (err as { code?: string }).code ?? "";
+      setError(mapFirebaseError(code));
     } finally {
       setLoading(false);
     }
@@ -43,32 +58,32 @@ export function LoginPage() {
       {/* Карточка */}
       <div className="login-card">
         <h1 className="login-heading">Добро пожаловать</h1>
-        <p className="login-hint">Введите ID бизнеса и секретный ключ для доступа</p>
+        <p className="login-hint">Введите email и пароль для доступа</p>
 
         <form className="login-form" onSubmit={handleSubmit} noValidate>
           <div className="lf-group">
-            <label htmlFor="lf-businessId" className="lf-label">ID бизнеса</label>
+            <label htmlFor="lf-email" className="lf-label">Email</label>
             <input
-              id="lf-businessId"
-              type="text"
+              id="lf-email"
+              type="email"
               className="lf-input"
-              value={businessId}
-              onChange={(e) => setBusinessId(e.target.value)}
-              placeholder="your-business-id"
-              autoComplete="username"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@example.com"
+              autoComplete="email"
               required
               spellCheck={false}
             />
           </div>
 
           <div className="lf-group">
-            <label htmlFor="lf-secret" className="lf-label">Секретный ключ</label>
+            <label htmlFor="lf-password" className="lf-label">Пароль</label>
             <input
-              id="lf-secret"
+              id="lf-password"
               type="password"
               className="lf-input"
-              value={secret}
-              onChange={(e) => setSecret(e.target.value)}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••••••"
               autoComplete="current-password"
               required

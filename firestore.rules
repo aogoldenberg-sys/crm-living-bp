@@ -53,6 +53,12 @@ service cloud.firestore {
       allow read: if isManager(businessId);
     }
 
+    // users/{uid}: пользователь читает только свой документ; запись — только серверный воркер.
+    match /users/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if false;
+    }
+
     // Всё остальное — закрыто.
     match /{document=**} {
       allow read, write: if false;

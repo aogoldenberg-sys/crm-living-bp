@@ -6,12 +6,8 @@ import { useAuth } from "./auth/useAuth";
 import type { UserRole } from "./auth/useAuth";
 import { LandingPage } from "./landing/LandingPage";
 import { LoginPage } from "./auth/LoginPage";
+import { RegisterPage } from "./auth/RegisterPage";
 import { Dashboard } from "./dashboard/Dashboard";
-
-/** Заглушка — регистрация в следующем слайсе. */
-function RegisterStub() {
-  return <Navigate to="/login" replace />;
-}
 
 export default function App() {
   const { user, _setUser } = useAuth();
@@ -46,8 +42,8 @@ export default function App() {
           element={user ? <Navigate to="/dashboard" replace /> : <LoginPage />}
         />
 
-        {/* Регистрация — следующий слайс */}
-        <Route path="/register" element={<RegisterStub />} />
+        {/* Регистрация */}
+        <Route path="/register" element={user ? <Navigate to="/dashboard" replace /> : <RegisterPage />} />
 
         {/* Дашборд — требует авторизации */}
         <Route
