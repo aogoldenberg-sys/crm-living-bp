@@ -8,6 +8,17 @@ import { LandingPage } from "./landing/LandingPage";
 import { LoginPage } from "./auth/LoginPage";
 import { RegisterPage } from "./auth/RegisterPage";
 import { Dashboard } from "./dashboard/Dashboard";
+import { OnboardingFlow } from "./onboarding/OnboardingFlow";
+import { usePlanExists } from "./onboarding/usePlanExists";
+
+function DashboardOrOnboarding() {
+  const { user, businessId } = useAuth();
+  const { loading, exists } = usePlanExists(businessId);
+  if (!user) return <Navigate to="/login" replace />;
+  if (loading) return <div className="loading-screen">Загрузка...</div>;
+  if (!exists) return <Navigate to="/onboarding" replace />;
+  return <Dashboard />;
+}
 
 export default function App() {
   const { user, _setUser } = useAuth();
@@ -45,11 +56,18 @@ export default function App() {
         {/* Регистрация */}
         <Route path="/register" element={user ? <Navigate to="/dashboard" replace /> : <RegisterPage />} />
 
-        {/* Дашборд — требует авторизации */}
+        {/* Онбординг — только для авторизованных */}
         <Route
-          path="/dashboard"
-          element={user ? <Dashboard /> : <Navigate to="/login" replace />}
+          path="/onboarding"
+          element={user ? <OnboardingFlow /> : <Navigate to="/login" replace />}
         />
+        <Route
+          path="/onboarding/questionnaire"
+          element={user ? <OnboardingFlow /> : <Navigate to="/login" replace />}
+        />
+
+        {/* Дашборд — проверяет наличие плана, иначе редирект на онбординг */}
+        <Route path="/dashboard" element={<DashboardOrOnboarding />} />
 
         {/* Fallback */}
         <Route path="*" element={<Navigate to="/" replace />} />

@@ -13,6 +13,7 @@ import { timingSafeEqual } from "node:crypto";
 import type { Db } from "@crm/firestore-adapter";
 import { BusinessEvent } from "@crm/schemas";
 import { createFirestoreRestClient, saveEvents, registerTenant } from "@crm/firestore-adapter";
+import { generatePlan } from "@crm/ai-kit";
 
 interface Env {
   FIREBASE_SERVICE_ACCOUNT_JSON: string;
@@ -601,6 +602,98 @@ async function handleRegister(request: Request, env: Env): Promise<Response> {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// /generate handler — генерация плана из ответов анкеты
+// ══════════════════════════════════════════════════════════════════════════════
+
+async function handleGenerate(request: Request, env: Env): Promise<Response> {
+  // ── 1. Auth ──────────────────────────────────────────────────────────────
+  const authHeader = request.headers.get("Authorization") ?? "";
+  const idToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  if (!idToken) return jsonCors({ error: "Unauthorized" }, 401);
+
+  const projectId = env.FIREBASE_PROJECT_ID || "crm-living-bp";
+  const claims = await verifyFirebaseIdToken(idToken, projectId);
+  if (!claims) return jsonCors({ error: "Invalid token" }, 401);
+
+  const uid = claims.uid;
+
+  // ── 2. Получаем businessId из Firestore (серверная сторона — не из тела запроса) ──
+  const db = createFirestoreRestClient(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+  const userDoc = await db.collection("users").doc(uid).get();
+  if (!userDoc.exists) {
+    return jsonCors({ error: "User not registered. Call /register first." }, 400);
+  }
+  const userData = userDoc.data() as { businessId: string };
+  const businessId = userData.businessId;
+
+  // ── 3. Разбираем ответы анкеты ───────────────────────────────────────────
+  let answers: Record<string, string>;
+  try {
+    const body = (await request.json()) as { answers?: Record<string, string> };
+    if (!body.answers || typeof body.answers !== "object") {
+      return jsonCors({ error: "Missing answers" }, 400);
+    }
+    answers = body.answers;
+  } catch {
+    return jsonCors({ error: "Invalid JSON body" }, 400);
+  }
+
+  // ── 4. Генерируем план через Claude ─────────────────────────────────────
+  let plan;
+  try {
+    plan = await generatePlan(answers, env.ANTHROPIC_API_KEY);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return jsonCors({ error: `Ошибка генерации плана: ${msg}` }, 500);
+  }
+
+  // ── 5. Сохраняем в Firestore ─────────────────────────────────────────────
+  const intakeId = crypto.randomUUID();
+  const now = new Date().toISOString();
+
+  // tenants/{businessId}/plan_intakes/{intakeId} — подхватывает useIntake hook
+  try {
+    await db
+      .collection(`tenants/${businessId}/plan_intakes`)
+      .doc(intakeId)
+      .set({
+        intakeId,
+        businessId,
+        extractedAt: now,
+        source: "questionnaire",
+        mappedSections: plan.mappedSections,
+        assessment: plan.assessment,
+        confidence: plan.confidence,
+        disclaimer: plan.disclaimer,
+        status: "accepted_as_v1",
+      } as unknown as Record<string, unknown>);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return jsonCors({ error: `Ошибка сохранения plan_intakes: ${msg}` }, 500);
+  }
+
+  // tenants/{businessId}/plan_versions/v1 — версионирование по спеке
+  try {
+    await db
+      .collection(`tenants/${businessId}/plan_versions`)
+      .doc("v1")
+      .set({
+        planId: intakeId,
+        source: "questionnaire",
+        answers,
+        plan: plan.mappedSections,
+        assessment: plan.assessment,
+        createdAt: now,
+      } as unknown as Record<string, unknown>);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return jsonCors({ error: `Ошибка сохранения plan_versions: ${msg}` }, 500);
+  }
+
+  return jsonCors({ planId: intakeId, plan: plan.mappedSections, assessment: plan.assessment });
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // Main fetch handler
 // ══════════════════════════════════════════════════════════════════════════════
 
@@ -616,6 +709,11 @@ export default {
     // ── /register — регистрация нового пользователя ──────────────────────
     if (request.method === "POST" && url.pathname === "/register") {
       return handleRegister(request, env);
+    }
+
+    // ── /generate — генерация плана из анкеты ────────────────────────────
+    if (request.method === "POST" && url.pathname === "/generate") {
+      return handleGenerate(request, env);
     }
 
     // ── /intake — бизнес-план (Firebase auth) ────────────────────────────

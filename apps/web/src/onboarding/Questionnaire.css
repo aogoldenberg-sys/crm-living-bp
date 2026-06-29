@@ -1,0 +1,269 @@
+/* ── Questionnaire ────────────────────────────────────────────────────────── */
+
+.qs-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-deep-black);
+  position: relative;
+}
+
+/* ── Прогресс-бар ─────────────────────────────────────────────────────────── */
+
+.qs-progress-bar {
+  height: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  flex-shrink: 0;
+}
+
+.qs-progress-fill {
+  height: 100%;
+  background: var(--color-gold);
+  transition: width 0.4s var(--ease-out);
+}
+
+/* ── Контейнер ────────────────────────────────────────────────────────────── */
+
+.qs-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-8) var(--space-6);
+}
+
+/* ── Счётчик ──────────────────────────────────────────────────────────────── */
+
+.qs-counter {
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: var(--space-6);
+}
+
+/* ── Карточка вопроса ─────────────────────────────────────────────────────── */
+
+.qs-card {
+  width: 100%;
+  max-width: 560px;
+  animation: qs-appear 0.35s var(--ease-out) both;
+}
+
+@keyframes qs-appear {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .qs-card { animation: none; }
+}
+
+/* ── Текст вопроса ────────────────────────────────────────────────────────── */
+
+.qs-question {
+  font-family: var(--font-serif);
+  font-size: var(--text-2xl);
+  font-weight: 400;
+  color: var(--color-ivory);
+  line-height: 1.35;
+  margin-bottom: var(--space-6);
+  letter-spacing: -0.01em;
+}
+
+/* ── Поля ввода ───────────────────────────────────────────────────────────── */
+
+.qs-input-wrap {
+  margin-bottom: var(--space-4);
+}
+
+.qs-input,
+.qs-textarea {
+  width: 100%;
+  padding: var(--space-4) var(--space-5);
+  background: var(--surface-raised, #332D28);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  color: var(--color-ivory);
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  outline: none;
+  box-sizing: border-box;
+  transition:
+    border-color var(--duration-base) var(--ease-out),
+    box-shadow var(--duration-base) var(--ease-out);
+}
+
+.qs-input::placeholder,
+.qs-textarea::placeholder {
+  color: var(--text-muted);
+}
+
+.qs-input:focus,
+.qs-textarea:focus {
+  border-color: var(--color-gold);
+  box-shadow: 0 0 0 3px rgba(184, 150, 78, 0.15);
+}
+
+.qs-textarea {
+  resize: vertical;
+  min-height: 120px;
+  line-height: 1.6;
+}
+
+/* ── Радио ────────────────────────────────────────────────────────────────── */
+
+.qs-fieldset {
+  border: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.qs-fieldset-legend {
+  display: none;
+}
+
+.qs-radio-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  background: var(--surface-raised, #332D28);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition:
+    border-color var(--duration-base) var(--ease-out),
+    background var(--duration-base) var(--ease-out);
+}
+
+.qs-radio-label:hover {
+  border-color: var(--color-sand);
+  background: rgba(201, 185, 154, 0.06);
+}
+
+.qs-radio-label--selected {
+  border-color: var(--color-gold);
+  background: rgba(184, 150, 78, 0.10);
+}
+
+.qs-radio-input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--color-gold);
+  flex-shrink: 0;
+}
+
+.qs-radio-text {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  color: var(--color-ivory);
+}
+
+/* ── Ошибка ───────────────────────────────────────────────────────────────── */
+
+.qs-error {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--color-terracotta);
+  padding: var(--space-3) var(--space-4);
+  background: rgba(198, 93, 59, 0.10);
+  border: 1px solid rgba(198, 93, 59, 0.25);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-4);
+}
+
+/* ── Кнопки навигации ─────────────────────────────────────────────────────── */
+
+.qs-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+}
+
+.qs-actions-right {
+  display: flex;
+  gap: var(--space-3);
+  margin-left: auto;
+}
+
+.qs-btn {
+  padding: var(--space-3) var(--space-6);
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  border: none;
+  transition:
+    background var(--duration-base) var(--ease-out),
+    box-shadow var(--duration-base) var(--ease-out),
+    transform var(--duration-fast) var(--ease-out);
+}
+
+.qs-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.qs-btn--primary {
+  background: var(--color-gold);
+  color: var(--color-deep-black);
+}
+
+.qs-btn--primary:hover:not(:disabled) {
+  background: #CAA85A;
+  box-shadow: var(--shadow-glow);
+  transform: translateY(-1px);
+}
+
+.qs-btn--primary:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.qs-btn--back {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border-default);
+}
+
+.qs-btn--back:hover:not(:disabled) {
+  color: var(--color-ivory);
+  border-color: var(--color-sand);
+}
+
+.qs-btn--skip {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid transparent;
+  padding-left: var(--space-3);
+  padding-right: var(--space-3);
+}
+
+.qs-btn--skip:hover:not(:disabled) {
+  color: var(--color-sand);
+}
+
+/* ── Адаптив ──────────────────────────────────────────────────────────────── */
+
+@media (max-width: 480px) {
+  .qs-question {
+    font-size: var(--text-xl);
+  }
+
+  .qs-actions {
+    flex-wrap: wrap;
+  }
+}

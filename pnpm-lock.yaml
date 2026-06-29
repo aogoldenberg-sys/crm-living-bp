@@ -57,6 +57,9 @@ importers:
 
   apps/workers/ingest:
     dependencies:
+      '@crm/ai-kit':
+        specifier: workspace:*
+        version: link:../../../packages/ai-kit
       '@crm/firestore-adapter':
         specifier: workspace:*
         version: link:../../../packages/firestore-adapter

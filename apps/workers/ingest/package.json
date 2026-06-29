@@ -11,6 +11,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@crm/ai-kit": "workspace:*",
     "@crm/schemas": "workspace:*",
     "@crm/firestore-adapter": "workspace:*",
     "mammoth": "^1.8.0"

@@ -4,3 +4,5 @@ export { extractPlan } from "./intake/extract.js";
 export { extractStructured } from "./intake/extract-structured.js";
 export { assessPlan } from "./intake/assess.js";
 export type { AssessmentOutput } from "./intake/assess.js";
+export { generatePlan } from "./plan/generate.js";
+export type { GeneratedPlan, GenerateAnswers } from "./plan/generate.js";
