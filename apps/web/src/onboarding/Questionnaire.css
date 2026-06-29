@@ -302,3 +302,87 @@
 .qs-input--detail {
   margin-top: 0.75rem;
 }
+
+/* ── Onboarding Upload Stage ──────────────────────────────────────────────── */
+.ob-upload {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  padding: 2.5rem 1.25rem;
+}
+
+.ob-upload__title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin: 0.5rem 0 0;
+  color: var(--color-text, #1a1a1a);
+}
+
+.ob-upload__sub {
+  margin: 0;
+  color: var(--color-text, #1a1a1a);
+  opacity: 0.7;
+  font-size: 0.9375rem;
+}
+
+.ob-upload__zone {
+  width: 100%;
+  max-width: 460px;
+}
+
+/* Override upload-plan styles inside the onboarding upload stage */
+.ob-upload .upload-plan-group {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 2rem 1.5rem;
+  border: 2px dashed rgba(0,0,0,0.18);
+  border-radius: 12px;
+  background: rgba(0,0,0,0.03);
+}
+
+.ob-upload .upload-plan-btn {
+  width: 100%;
+  padding: 0.875rem 1.5rem;
+  font-size: 1rem;
+  font-weight: 700;
+  border: none;
+  border-radius: 8px;
+  background: #f5c518;
+  color: #111;
+  cursor: pointer;
+  text-align: center;
+  transition: background 0.15s;
+}
+
+.ob-upload .upload-plan-btn:hover:not(:disabled) {
+  background: #e6b800;
+}
+
+.ob-upload .upload-plan-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.ob-upload .upload-plan-hint {
+  display: none; /* sub text is already shown above */
+}
+
+.ob-upload .upload-plan-filename {
+  font-size: 0.875rem;
+  color: var(--color-text, #1a1a1a);
+  opacity: 0.7;
+  text-align: center;
+  max-width: 100%;
+}
+
+.ob-upload .upload-plan-msg {
+  font-size: 0.875rem;
+}
+
+.ob-upload .upload-plan-group--drag {
+  border-color: #f5c518;
+  background: rgba(245, 197, 24, 0.06);
+}

@@ -52,18 +52,18 @@ export function OnboardingFlow() {
 
   if (stage === "upload") {
     return (
-      <div className="generating-screen">
-        <div style={{ textAlign: "center", marginBottom: "1.5rem" }}>
-          <button
-            className="qs-btn qs-btn--back"
-            style={{ fontSize: "0.875rem" }}
-            onClick={() => setStage("empty")}
-          >
-            ← Назад
-          </button>
+      <div className="generating-screen ob-upload">
+        <button
+          className="qs-btn qs-btn--back"
+          onClick={() => setStage("empty")}
+        >
+          ← Назад
+        </button>
+        <h2 className="ob-upload__title">Загрузите бизнес-план</h2>
+        <p className="ob-upload__sub">PDF, Word, Excel, текст — перетащите или выберите файл</p>
+        <div className="ob-upload__zone">
+          <UploadPlanButton onSuccess={() => navigate("/dashboard")} />
         </div>
-        <h2 style={{ marginBottom: "1rem", textAlign: "center" }}>Загрузите бизнес-план</h2>
-        <UploadPlanButton onSuccess={() => navigate("/dashboard")} />
       </div>
     );
   }

@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import {
   createUserWithEmailAndPassword,
+  sendEmailVerification,
   signInWithEmailAndPassword,
   signOut,
   type User,
@@ -47,6 +48,8 @@ export const useAuth = create<AuthState>((set) => ({
 
   register: async (email: string, password: string) => {
     const cred = await createUserWithEmailAndPassword(auth, email, password);
+    // Отправить письмо подтверждения (Firebase default template — шаблон в Console → Auth → Templates)
+    await sendEmailVerification(cred.user).catch(() => { /* не критично если не отправилось */ });
     // Call /register to provision Firestore docs
     const workerUrl = import.meta.env.VITE_INGEST_WORKER_URL as string;
     const idToken = await cred.user.getIdToken();

@@ -27,9 +27,9 @@ export function Questionnaire({ onSubmit, onHome }: Props) {
   const q = QUESTIONS[step]!;
   const isLast = step === QUESTIONS.length - 1;
   const canSkip = (q as { skippable?: boolean }).skippable === true;
-  const allowZero = (q as { allowZero?: boolean }).allowZero === true;
   const qPlaceholder = (q as { placeholder?: string }).placeholder;
   const qTextPlaceholder = (q as { textPlaceholder?: string }).textPlaceholder;
+  const qTextOnlyFor = (q as { textOnlyFor?: string }).textOnlyFor;
 
   const currentValue = answers[q.id as keyof Answers] ?? "";
 
@@ -39,11 +39,7 @@ export function Questionnaire({ onSubmit, onHome }: Props) {
       const [radio] = parseRadioWithText(currentValue);
       return radio.trim() !== "";
     }
-    const val = currentValue.trim();
-    if (q.type === "number" && allowZero) {
-      return val !== "" && !isNaN(Number(val));
-    }
-    return val !== "";
+    return currentValue.trim() !== "";
   }
 
   function setValue(val: string) {
@@ -113,13 +109,15 @@ export function Questionnaire({ onSubmit, onHome }: Props) {
               </label>
             ))}
           </fieldset>
-          <input
-            type="text"
-            className="qs-input qs-input--detail"
-            value={detail}
-            onChange={(e) => setValue(buildRadioWithText(radioVal, e.target.value))}
-            placeholder={qTextPlaceholder ?? "Уточните..."}
-          />
+          {(!qTextOnlyFor || radioVal === qTextOnlyFor) && (
+            <input
+              type="text"
+              className="qs-input qs-input--detail"
+              value={detail}
+              onChange={(e) => setValue(buildRadioWithText(radioVal, e.target.value))}
+              placeholder={qTextPlaceholder ?? "Уточните..."}
+            />
+          )}
         </>
       );
     }
