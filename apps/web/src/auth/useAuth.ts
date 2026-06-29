@@ -5,7 +5,21 @@ import {
   signOut,
   type User,
 } from "firebase/auth";
-import { auth } from "../firebase";
+import { doc, getDoc } from "firebase/firestore";
+import { auth, db } from "../firebase";
+
+async function resolveBusinessId(uid: string): Promise<string> {
+  try {
+    const snap = await getDoc(doc(db, "users", uid));
+    if (snap.exists()) {
+      const bizId = (snap.data() as { businessId?: string }).businessId;
+      if (bizId) return bizId;
+    }
+  } catch {
+    // fall through
+  }
+  return uid; // fallback: uid (new accounts before worker runs)
+}
 
 export type UserRole = "owner" | "manager";
 
@@ -27,8 +41,8 @@ export const useAuth = create<AuthState>((set) => ({
 
   login: async (email: string, password: string) => {
     const cred = await signInWithEmailAndPassword(auth, email, password);
-    // businessId = uid (App.tsx onAuthStateChanged reads uid as fallback)
-    set({ user: cred.user, businessId: cred.user.uid, role: null });
+    const businessId = await resolveBusinessId(cred.user.uid);
+    set({ user: cred.user, businessId, role: null });
   },
 
   register: async (email: string, password: string) => {
@@ -46,7 +60,8 @@ export const useAuth = create<AuthState>((set) => ({
       await cred.user.delete();
       throw new Error("Ошибка создания аккаунта. Попробуйте позже.");
     }
-    set({ user: cred.user, businessId: cred.user.uid, role: null });
+    const regBusinessId = await resolveBusinessId(cred.user.uid);
+    set({ user: cred.user, businessId: regBusinessId, role: null });
   },
 
   logout: async () => {

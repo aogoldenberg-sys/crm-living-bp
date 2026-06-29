@@ -8,10 +8,11 @@ export function usePlanExists(businessId: string | null): { loading: boolean; ex
 
   useEffect(() => {
     if (!businessId) { setLoading(false); return; }
-    const colRef = collection(db, `tenants/${businessId}/plan_intakes`);
-    const q = query(colRef, limit(1));
-    getDocs(q).then(snap => {
-      setExists(!snap.empty);
+    Promise.all([
+      getDocs(query(collection(db, `tenants/${businessId}/plan_intakes`), limit(1))),
+      getDocs(query(collection(db, `tenants/${businessId}/plan_versions`), limit(1))),
+    ]).then(([intakesSnap, versionsSnap]) => {
+      setExists(!intakesSnap.empty || !versionsSnap.empty);
       setLoading(false);
     }).catch(() => { setLoading(false); });
   }, [businessId]);

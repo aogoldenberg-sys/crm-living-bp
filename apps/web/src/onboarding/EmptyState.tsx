@@ -1,12 +1,11 @@
-import { useNavigate } from "react-router-dom";
 import "./EmptyState.css";
 
 interface Props {
   onNoplan: () => void;
+  onUpload: () => void;
 }
 
-export function EmptyState({ onNoplan }: Props) {
-  const navigate = useNavigate();
+export function EmptyState({ onNoplan, onUpload }: Props) {
 
   return (
     <div className="empty-state">
@@ -30,7 +29,7 @@ export function EmptyState({ onNoplan }: Props) {
         <button className="es-btn es-btn--primary" onClick={onNoplan}>
           У меня нет плана — создать с нуля
         </button>
-        <button className="es-btn es-btn--secondary" onClick={() => navigate("/dashboard")}>
+        <button className="es-btn es-btn--secondary" onClick={onUpload}>
           У меня есть бизнес-план — загрузить
         </button>
       </div>

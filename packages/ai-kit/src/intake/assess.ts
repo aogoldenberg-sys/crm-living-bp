@@ -1,21 +1,26 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { join, dirname } from "node:path";
 import type { AnthropicClient } from "../client.js";
 import type { ExtractedPlan } from "@crm/core";
 import { type Result, ok, err } from "@crm/core";
 import type { Strength, Concern, VerifiabilityItem } from "@crm/schemas";
 import { AssessmentOutputSchema } from "./schemas.js";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+// Prompt inlined — CF Workers don't support readFileSync / import.meta.url
+const SYSTEM_PROMPT = `Ты — независимый бизнес-аналитик. Тебе дана структура бизнес-плана.
 
-function loadPrompt(): string {
-  return readFileSync(
-    join(__dirname, "../../prompts/intake_assess.md"),
-    "utf-8",
-  );
+Задача: симметричная оценка §20.3 — не льстить и не громить.
+Верни JSON строго по схеме:
+{
+  "strengths": [{ "point": "...", "sectionRef": "...", "evidence": "..." }],
+  "concerns":  [{ "point": "...", "severity": "red"|"yellow", "sectionRef": "...", "rationale": "..." }],
+  "verifiability": [{ "assumption": "...", "howValidated": "...", "dataSourceNeeded": "..." }]
 }
+
+Правила:
+- strengths: минимум 2, максимум 5. Только реальные — если сильных сторон нет, укажи 0.
+- concerns: severity "red" = критический риск, "yellow" = внимание. Минимум 1 если есть.
+- verifiability: для каждой числовой гипотезы из assumptions (assumptions — это объект вида { "<key>": { key, value, unit, origin, ... } }, итерируй по значениям).
+  Для pre-revenue гипотез (verifiableBy: null) — опиши как будет верифицировано ПОСЛЕ открытия.
+Верни ТОЛЬКО валидный JSON без обёрток markdown.`;
 
 export type AssessmentOutput = {
   strengths: Strength[];
@@ -36,7 +41,7 @@ export async function assessPlan(
   client: AnthropicClient,
   extracted: ExtractedPlan,
 ): Promise<Result<AssessmentOutput>> {
-  const systemPrompt = loadPrompt();
+  const systemPrompt = SYSTEM_PROMPT;
 
   const inputJson = JSON.stringify({
     rawSections: extracted.rawSections,

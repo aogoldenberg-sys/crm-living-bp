@@ -1,18 +1,22 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/useAuth";
 import { EmptyState } from "./EmptyState";
 import { Questionnaire } from "./Questionnaire";
+import { UploadPlanButton } from "../dashboard/UploadPlanButton";
 import type { Answers } from "./questions";
 
-type Stage = "empty" | "questionnaire" | "generating";
+type Stage = "empty" | "questionnaire" | "upload" | "generating";
 
 export function OnboardingFlow() {
   const [stage, setStage] = useState<Stage>("empty");
+  const [generateError, setGenerateError] = useState<string | null>(null);
+  const lastAnswers = useRef<Answers>({});
   const { user } = useAuth();
   const navigate = useNavigate();
 
-  async function handleSubmitAnswers(answers: Answers) {
+  async function runGenerate(answers: Answers) {
+    setGenerateError(null);
     setStage("generating");
     try {
       const idToken = await user!.getIdToken();
@@ -26,27 +30,82 @@ export function OnboardingFlow() {
         const d = await res.json().catch(() => ({}));
         throw new Error((d as { error?: string }).error ?? "Ошибка генерации");
       }
-      // Plan created — navigate to dashboard (useIntake will pick it up)
       navigate("/dashboard");
     } catch (e) {
-      setStage("questionnaire");
-      throw e;
+      setGenerateError(e instanceof Error ? e.message : "Ошибка генерации. Попробуйте ещё раз.");
     }
   }
 
+  async function handleSubmitAnswers(answers: Answers) {
+    lastAnswers.current = answers;
+    await runGenerate(answers);
+  }
+
   if (stage === "questionnaire") {
-    return <Questionnaire onSubmit={handleSubmitAnswers} />;
+    return (
+      <Questionnaire
+        onSubmit={handleSubmitAnswers}
+        onHome={() => setStage("empty")}
+      />
+    );
+  }
+
+  if (stage === "upload") {
+    return (
+      <div className="generating-screen">
+        <div style={{ textAlign: "center", marginBottom: "1.5rem" }}>
+          <button
+            className="qs-btn qs-btn--back"
+            style={{ fontSize: "0.875rem" }}
+            onClick={() => setStage("empty")}
+          >
+            ← Назад
+          </button>
+        </div>
+        <h2 style={{ marginBottom: "1rem", textAlign: "center" }}>Загрузите бизнес-план</h2>
+        <UploadPlanButton onSuccess={() => navigate("/dashboard")} />
+      </div>
+    );
   }
 
   if (stage === "generating") {
     return (
       <div className="generating-screen">
-        <p className="generating-text">Генерируем ваш финансовый план…</p>
-        <p className="generating-hint">Обычно занимает 15–30 секунд</p>
+        {generateError ? (
+          <>
+            <p className="generating-text" style={{ color: "var(--color-danger, #e53e3e)" }}>
+              {generateError}
+            </p>
+            <div style={{ display: "flex", gap: "0.75rem", justifyContent: "center", marginTop: "1.5rem" }}>
+              <button
+                className="qs-btn qs-btn--primary"
+                onClick={() => void runGenerate(lastAnswers.current)}
+              >
+                Повторить
+              </button>
+              <button
+                className="qs-btn qs-btn--back"
+                onClick={() => setStage("questionnaire")}
+              >
+                Назад к анкете
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <p className="generating-text">Генерируем ваш финансовый план…</p>
+            <p className="generating-hint">Обычно занимает 15–30 секунд</p>
+          </>
+        )}
       </div>
     );
   }
 
   // stage === "empty"
-  return <EmptyState onNoplan={() => setStage("questionnaire")} />;
+  return (
+    <EmptyState
+      onNoplan={() => setStage("questionnaire")}
+      onUpload={() => setStage("upload")}
+    />
+  );
 }

@@ -39,7 +39,11 @@ function resolveMime(file: File): string {
 
 type Status = "idle" | "uploading" | "done" | "error";
 
-export function UploadPlanButton() {
+interface UploadPlanButtonProps {
+  onSuccess?: () => void;
+}
+
+export function UploadPlanButton({ onSuccess }: UploadPlanButtonProps = {}) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const [status, setStatus] = useState<Status>("idle");
@@ -77,6 +81,7 @@ export function UploadPlanButton() {
 
         setStatus("done");
         setMessage("Анализ завершён — данные появятся на дашборде через несколько секунд.");
+        if (onSuccess) setTimeout(onSuccess, 1500);
       } catch (e) {
         setStatus("error");
         setMessage(e instanceof Error ? e.message : "Неизвестная ошибка загрузки");

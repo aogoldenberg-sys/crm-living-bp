@@ -1,7 +1,8 @@
 import { useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { onAuthStateChanged } from "firebase/auth";
-import { auth } from "./firebase";
+import { doc, getDoc } from "firebase/firestore";
+import { auth, db } from "./firebase";
 import { useAuth } from "./auth/useAuth";
 import type { UserRole } from "./auth/useAuth";
 import { LandingPage } from "./landing/LandingPage";
@@ -24,16 +25,23 @@ export default function App() {
   const { user, _setUser } = useAuth();
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
-        firebaseUser.getIdTokenResult().then((result) => {
-          const businessId =
-            (result.claims["businessId"] as string | undefined) ??
-            firebaseUser.uid ??
-            null;
-          const role = (result.claims["role"] as UserRole | undefined) ?? null;
-          _setUser(firebaseUser, businessId, role);
-        });
+        const result = await firebaseUser.getIdTokenResult();
+        const role = (result.claims["role"] as UserRole | undefined) ?? null;
+        // Prefer custom claim; if absent, resolve from Firestore users/{uid}
+        let businessId = result.claims["businessId"] as string | undefined;
+        if (!businessId) {
+          try {
+            const snap = await getDoc(doc(db, "users", firebaseUser.uid));
+            if (snap.exists()) {
+              businessId = (snap.data() as { businessId?: string }).businessId;
+            }
+          } catch {
+            // ignore — fall through to uid fallback
+          }
+        }
+        _setUser(firebaseUser, businessId ?? firebaseUser.uid, role);
       } else {
         _setUser(null, null, null);
       }
