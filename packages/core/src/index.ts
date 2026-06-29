@@ -16,3 +16,5 @@ export * from "./datasources/index.js";
 export * from "./lifecycle/index.js";
 export * from "./process/escalation.js";
 export * from "./strategy/index.js";
+export * from "./voice/index.js";
+export * from "./autonomy/index.js";
