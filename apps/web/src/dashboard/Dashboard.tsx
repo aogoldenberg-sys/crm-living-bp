@@ -345,21 +345,20 @@ export function Dashboard() {
         <PlanSidebar intake={intake} isOpen={planSidebarOpen} />
       )}
 
-      {/* ── Panels (Риски / Автономия) ───────────────────────────────────── */}
-      {view === "risks" && (
-        <div className="db-body" data-canvas="light">
+      {/* ── Panels (Риски / Автономия) — всегда смонтированы, скрыты через display ── */}
+      {isOwner && (
+        <div className="db-body" data-canvas="light" style={{ display: view === "risks" ? undefined : "none" }}>
           <RisksPanel assessment={intake?.assessment ?? null} />
         </div>
       )}
-      {view === "autonomy" && (
-        <div className="db-body" data-canvas="light">
+      {isOwner && (
+        <div className="db-body" data-canvas="light" style={{ display: view === "autonomy" ? undefined : "none" }}>
           <AutonomyPanel businessId={bid} />
         </div>
       )}
 
       {/* ── Ivory-канвас ──────────────────────────────────────────────────── */}
-      {view === "dashboard" && (
-      <div className="db-body" data-canvas="light">
+      <div className="db-body" data-canvas="light" style={{ display: view === "dashboard" ? undefined : "none" }}>
         {/* Заголовок страницы */}
         <header className="db-page-header">
           <h1 className="db-page-title">Бизнес-план</h1>
@@ -640,7 +639,6 @@ export function Dashboard() {
           </div>
         )}
       </div>
-      )}
     </div>
   );
 }
