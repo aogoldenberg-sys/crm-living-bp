@@ -4,25 +4,35 @@ service cloud.firestore {
 
     // ── Вспомогательные функции ────────────────────────────────────────────────
 
-    /** Пользователь аутентифицирован и принадлежит тенанту.
-     *  Принимает businessId из custom claim ИЛИ из uid (fallback для
-     *  сессий без claim — uid всегда равен businessId в custom token). */
+    /**
+     * Резолвит businessId пользователя через Firestore users/{uid}.
+     * uid ≠ businessId — один тенант может иметь нескольких сотрудников.
+     * Для добавления сотрудника: users/{newUid}.businessId = тот же businessId.
+     */
+    function userBusinessId() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.businessId;
+    }
+
+    /** Пользователь аутентифицирован и принадлежит тенанту. */
     function belongsTo(businessId) {
-      return request.auth != null
-          && (request.auth.token.businessId == businessId
-              || request.auth.uid == businessId);
+      return request.auth != null && userBusinessId() == businessId;
     }
 
     /**
-     * Владелец: role = "owner" ИЛИ role отсутствует (backward compat —
-     * старые токены без role-claim считаются владельцем).
+     * Владелец: role = "owner" в users/{uid} ИЛИ role отсутствует в токене
+     * (backward compat для исторических сессий).
+     * Будущее: проверять role из users/{uid}.role (один get() уже сделан в belongsTo).
      */
     function isOwner(businessId) {
       return belongsTo(businessId)
           && (!("role" in request.auth.token) || request.auth.token.role == "owner");
     }
 
-    /** Менеджер: role = "manager" явно задана. */
+    /**
+     * Менеджер: role = "manager" в токене.
+     * Путь для команды открыт: добавить сотрудника = создать users/{newUid}
+     * с тем же businessId и role:"manager", затем выставить custom claim role через workers.
+     */
     function isManager(businessId) {
       return belongsTo(businessId)
           && "role" in request.auth.token
