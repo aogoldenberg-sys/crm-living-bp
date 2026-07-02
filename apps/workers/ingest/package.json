@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@crm/ai-kit": "workspace:*",
+    "@crm/core": "workspace:*",
     "@crm/schemas": "workspace:*",
     "@crm/firestore-adapter": "workspace:*",
     "mammoth": "^1.8.0"

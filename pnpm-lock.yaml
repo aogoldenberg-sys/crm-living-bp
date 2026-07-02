@@ -103,6 +103,9 @@ importers:
       '@crm/ai-kit':
         specifier: workspace:*
         version: link:../../../packages/ai-kit
+      '@crm/core':
+        specifier: workspace:*
+        version: link:../../../packages/core
       '@crm/firestore-adapter':
         specifier: workspace:*
         version: link:../../../packages/firestore-adapter
