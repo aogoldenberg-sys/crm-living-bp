@@ -12,6 +12,8 @@ const sampleForecast: CashForecast = {
   ],
   gapDate: null,
   gapAmount: null,
+  hardGapDate: null,
+  pessimisticGapDate: null,
   confidence: 0.92,
 };
 

@@ -2,8 +2,9 @@ import type { ActionRequest, AutonomyLimits, JournalEntry, GateVerdict } from "@
 import type { DecisionOutput } from "../risk/index.js";
 
 function newUuid(): string {
-  if (typeof globalThis.crypto?.randomUUID === "function") {
-    return globalThis.crypto.randomUUID();
+  const gc = globalThis as unknown as { crypto?: { randomUUID?(): string } };
+  if (typeof gc.crypto?.randomUUID === "function") {
+    return gc.crypto.randomUUID()!;
   }
   // Fallback for Node.js without Web Crypto
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {

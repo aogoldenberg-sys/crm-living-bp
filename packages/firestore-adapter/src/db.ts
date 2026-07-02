@@ -33,6 +33,7 @@ export interface DocRef {
   readonly id: string;
   get(): Promise<DocSnapshot>;
   set(data: Record<string, unknown>): Promise<void>;
+  collection(path: string): CollectionRef;
 }
 
 export interface Db {

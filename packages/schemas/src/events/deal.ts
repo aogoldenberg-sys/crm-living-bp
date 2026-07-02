@@ -12,8 +12,8 @@ export const DealStageChanged = z.object({
   ts: IsoDateTime,
   dealId: z.string().uuid(),
   leadId: z.string().uuid(),
-  /** Пустая строка недопустима — стадия должна быть именованной, иначе отчёт по воронке сломается. */
-  fromStage: z.string().min(1),
+  /** Пустая строка означает «вход в воронку без предыдущей стадии» (первое событие по сделке). */
+  fromStage: z.string(),
   toStage: z.string().min(1),
   /** Прогнозируемая сумма сделки в копейках; null пока клиент не квалифицирован. */
   estimatedAmount: PositiveKopecks.nullable(),

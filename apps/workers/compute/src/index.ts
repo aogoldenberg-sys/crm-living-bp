@@ -205,7 +205,8 @@ async function runFunnelStep(db: Db, businessId: string): Promise<void> {
   }
 
   for (const funnel of funnelsResult.value) {
-    const metrics = funnelMetrics(deals, funnel);
+    const funnelDeals = reduceDeals(dealEvents, undefined, funnel.funnelId);
+    const metrics = funnelMetrics(funnelDeals, funnel);
     const totalStuck = metrics.stages.reduce((sum, s) => sum + s.stuck.length, 0);
 
     const saveResult = await saveFunnelMetrics(db, businessId, funnel.funnelId, metrics);

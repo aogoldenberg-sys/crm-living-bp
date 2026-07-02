@@ -108,10 +108,12 @@ class FakeQuery {
 }
 
 /** Ссылка на документ — аналог DocumentReference. */
-class FakeDocRef {
+class FakeDocRef implements DocRef {
   constructor(
     private readonly store: Map<string, StoredDoc>,
     readonly id: string,
+    private readonly db: FakeFirestore,
+    private readonly collectionPath: string,
   ) {}
 
   async set(data: DocData): Promise<void> {
@@ -125,16 +127,24 @@ class FakeDocRef {
     }
     return new FakeDocSnapshot(stored.data, true, this.id);
   }
+
+  collection(path: string): CollectionRef {
+    return this.db.collection(`${this.collectionPath}/${this.id}/${path}`);
+  }
 }
 
 /** Ссылка на коллекцию — аналог CollectionReference. */
 class FakeCollectionRef extends FakeQuery {
-  constructor(store: Map<string, StoredDoc>) {
+  constructor(
+    store: Map<string, StoredDoc>,
+    private readonly db: FakeFirestore,
+    private readonly path: string,
+  ) {
     super(store);
   }
 
   doc(id: string): FakeDocRef {
-    return new FakeDocRef(this.store, id);
+    return new FakeDocRef(this.store, id, this.db, this.path);
   }
 }
 
@@ -148,7 +158,7 @@ export class FakeFirestore implements Db {
       this.collections.set(path, new Map());
     }
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    return new FakeCollectionRef(this.collections.get(path)!);
+    return new FakeCollectionRef(this.collections.get(path)!, this, path);
   }
 
   /** Вспомогательный метод для тестов: выбросить при следующей операции. */
@@ -193,6 +203,7 @@ export class ErrorFakeFirestore extends FakeFirestore {
       doc: () => ({
         set: async () => { throw err; },
         get: async () => { throw err; },
+        collection: () => { throw err; },
         id: "fake",
       }),
       get: async () => { throw err; },

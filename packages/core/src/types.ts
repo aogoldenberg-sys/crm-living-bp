@@ -10,7 +10,11 @@ export type DomainError =
   /** Plan = 0 при попытке вычислить отклонение — не период невалидный, а план не задан. */
   | { code: "ZERO_PLAN"; message: string }
   /** Ошибка I/O при работе с внешним хранилищем (Firestore, файловая система и т.д.). */
-  | { code: "STORAGE_ERROR"; message: string };
+  | { code: "STORAGE_ERROR"; message: string }
+  /** Запрошенный объект не найден в хранилище. */
+  | { code: "NOT_FOUND"; message: string }
+  /** Идемпотентный барьер: объект уже принят/обработан ранее. */
+  | { code: "ALREADY_ACCEPTED"; message: string };
 
 export type Result<T> =
   | { ok: true; value: T }

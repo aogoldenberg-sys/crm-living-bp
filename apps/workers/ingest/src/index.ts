@@ -15,6 +15,7 @@ import { BusinessEvent, ExternalSignal } from "@crm/schemas";
 import { createFirestoreRestClient, saveEvents, registerTenant } from "@crm/firestore-adapter";
 import { generatePlan, ExtractedPlanSchema, AssessmentOutputSchema } from "@crm/ai-kit";
 import { REQUIRED_SECTIONS, mapToSections, gateIntake } from "@crm/core";
+import { EXTRACT_SYSTEM, ASSESS_SYSTEM } from "./prompts.generated.js";
 
 interface Env {
   FIREBASE_SERVICE_ACCOUNT_JSON: string;
@@ -219,65 +220,8 @@ async function extractXlsxText(buffer: ArrayBuffer): Promise<string> {
 // Claude API (вызов напрямую через fetch)
 // ══════════════════════════════════════════════════════════════════════════════
 
-// Встроенные промпты (readFileSync недоступен в CF Workers)
-const EXTRACT_SYSTEM = `Ты — аналитик бизнес-планов. Тебе дан текст документа.
-
-Задача: извлечь структурированные данные в JSON строго по схеме ExtractedPlan.
-
-Схема:
-{
-  "businessId": "<оставь пустым, будет заполнено системой>",
-  "rawSections": {
-    "<sectionId>": { "text": "<краткое содержание раздела>", "confidence": <0.0–1.0> }
-  },
-  "assumptions": {
-    "<key>": {
-      "key": "<key>",
-      "value": { "point": <число> } | { "lo": <число>, "hi": <число> },
-      "unit": "<₽ | % | дней | шт | ...>",
-      "origin": "ai_extracted",
-      "confidence": <0.0–1.0>,
-      "sourceSection": "<sectionId или null>",
-      "verifiability": {
-        "verifiableBy": "<способ верификации или null>",
-        "afterEvent": "<событие-триггер или null>"
-      }
-    }
-  }
-}
-
-Денежные значения в value — ЦЕЛЫЕ КОПЕЙКИ (₽ × 100). Пример: 1 500 000 ₽ → 150000000.
-Если значение — диапазон, используй { "lo": ..., "hi": ... }.
-Если точное значение — { "point": ... }.
-Pre-revenue гипотезы: verifiableBy: null, afterEvent: null.
-Гипотезы, верифицируемые после открытия: verifiableBy: "bank_api"/"OTA_stats"/"accounting", afterEvent: "N недель после открытия".
-
-Допустимые sectionId (22 раздела):
-executive_summary, problem, solution, market_size, target_audience,
-value_proposition, competitors, business_model, pricing, product_roadmap,
-go_to_market, sales_channels, marketing_strategy, team, operations,
-finances, unit_economics, risks, legal, kpi_metrics, funding_ask, exit_strategy.
-
-confidence = качество извлечённого содержимого (0.0–1.0).
-Если раздел не найден — не включай в rawSections.
-Верни ТОЛЬКО валидный JSON без обёрток markdown.`;
-
-const ASSESS_SYSTEM = `Ты — независимый бизнес-аналитик. Тебе дана структура бизнес-плана.
-
-Задача: симметричная оценка §20.3 — не льстить и не громить.
-Верни JSON строго по схеме:
-{
-  "strengths": [{ "point": "...", "sectionRef": "...", "evidence": "..." }],
-  "concerns":  [{ "point": "...", "severity": "red"|"yellow", "sectionRef": "...", "rationale": "..." }],
-  "verifiability": [{ "assumption": "...", "howValidated": "...", "dataSourceNeeded": "..." }]
-}
-
-Правила:
-- strengths: минимум 2, максимум 5. Только реальные — если сильных сторон нет, укажи 0.
-- concerns: severity "red" = критический риск, "yellow" = внимание. Минимум 1 если есть.
-- verifiability: для каждой числовой гипотезы из assumptions.
-  Для pre-revenue гипотез (verifiableBy: null) — опиши как будет верифицировано ПОСЛЕ открытия.
-Верни ТОЛЬКО валидный JSON без обёрток markdown.`;
+// Промпты импортируются из prompts.generated.ts (единственный источник — packages/ai-kit/prompts/*.md)
+// Для регенерации: node tools/generate-prompts.mjs
 
 type ClaudeContentBlock =
   | { type: "text"; text: string }

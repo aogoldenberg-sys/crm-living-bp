@@ -214,6 +214,10 @@ class RestDocRef implements DocRef {
   async set(data: Record<string, unknown>): Promise<void> {
     return this.client._setDoc(this.collectionId, this.id, data);
   }
+
+  collection(path: string): CollectionRef {
+    return new RestCollectionRef(this.client, `${this.collectionId}/${this.id}/${path}`);
+  }
 }
 
 // ── FirestoreRestClient ────────────────────────────────────────────────────────
