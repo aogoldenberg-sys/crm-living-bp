@@ -25,6 +25,11 @@ function addDays(date: IsoDate, days: number): IsoDate {
  * исходов вместо одной точки, что позволяет видеть вероятность разрыва,
  * а не просто «будет или нет».
  *
+ * C2: Если среди events есть balance_anchor, используем последний якорь
+ * как начальный баланс вместо суммы исторических событий.
+ *
+ * C5: generatedAt принимается параметром (опционально), по умолчанию plan.startDate.
+ *
  * rng передаётся параметром: функция остаётся чистой и тесты детерминированы.
  */
 export function forecastCash(
@@ -32,6 +37,7 @@ export function forecastCash(
   plan: ForecastPlan,
   config: ForecastConfig,
   rng: () => number,
+  generatedAt?: IsoDate,
 ): Result<CashForecast> {
   if (config.horizonDays <= 0) {
     return err({ code: "INVALID_PERIOD", message: "horizonDays должен быть > 0" });
@@ -40,11 +46,22 @@ export function forecastCash(
     return err({ code: "INVALID_PERIOD", message: "iterations должен быть > 0" });
   }
 
-  // Начальный баланс = net cash за всю историю событий (period = вся история).
-  const aggregateResult = aggregateEvents(events, { from: EPOCH_START, to: plan.startDate });
-  if (!aggregateResult.ok) return aggregateResult;
+  // C2: Use latest balance_anchor as initial balance if available
+  const latestAnchor = events
+    .filter((e): e is Extract<BusinessEvent, { type: "balance_anchor" }> => e.type === "balance_anchor")
+    .sort((a, b) => a.anchorDate.localeCompare(b.anchorDate))
+    .at(-1);
 
-  const initialBalance: number = aggregateResult.value.netCash;
+  let initialBalance: number;
+
+  if (latestAnchor) {
+    initialBalance = latestAnchor.balanceKopecks;
+  } else {
+    // Начальный баланс = net cash за всю историю событий (period = вся история).
+    const aggregateResult = aggregateEvents(events, { from: EPOCH_START, to: plan.startDate });
+    if (!aggregateResult.ok) return aggregateResult;
+    initialBalance = aggregateResult.value.netCash;
+  }
 
   // Матрица: iterations × horizonDays. Транспонируем после симуляций.
   const allRuns: number[][] = [];
@@ -63,6 +80,8 @@ export function forecastCash(
   const dailyBalances: DailyBalance[] = [];
   let gapDate: IsoDate | null = null;
   let gapAmount: Kopecks | null = null;
+  let hardGapDate: IsoDate | null = null;
+  let pessimisticGapDate: IsoDate | null = null;
 
   for (let day = 0; day < config.horizonDays; day++) {
     const dayValues: number[] = allRuns.map((run) => run[day] ?? 0);
@@ -75,21 +94,31 @@ export function forecastCash(
 
     dailyBalances.push({ date, p10: roundedP10, p50: roundedP50, p90: roundedP90 });
 
-    // Первый день где p10 < 0 — кассовый разрыв.
-    if (gapDate === null && roundedP10 < 0) {
+    // C1: Main gap: p50 < 0 (медианный сценарий)
+    if (gapDate === null && roundedP50 < 0) {
       gapDate = date;
-      gapAmount = roundedP10;
+      gapAmount = roundedP50;
+    }
+    // C1: Hard gap: p90 < 0 (оптимистичный сценарий тоже не выживает)
+    if (hardGapDate === null && roundedP90 < 0) {
+      hardGapDate = date;
+    }
+    // C1: Pessimistic gap: p10 < 0 (ранний тревожный сигнал)
+    if (pessimisticGapDate === null && roundedP10 < 0) {
+      pessimisticGapDate = date;
     }
   }
 
   const confidence = noGapCount / config.iterations;
 
   return ok({
-    generatedAt: plan.startDate,
+    generatedAt: generatedAt ?? plan.startDate,
     horizonDays: config.horizonDays,
     dailyBalances,
     gapDate,
     gapAmount,
+    hardGapDate,
+    pessimisticGapDate,
     confidence,
   });
 }

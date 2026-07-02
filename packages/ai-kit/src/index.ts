@@ -6,3 +6,5 @@ export { assessPlan } from "./intake/assess.js";
 export type { AssessmentOutput } from "./intake/assess.js";
 export { generatePlan } from "./plan/generate.js";
 export type { GeneratedPlan, GenerateAnswers } from "./plan/generate.js";
+export { ExtractedPlanSchema } from "./intake/schemas.js";
+export { AssessmentOutputSchema } from "./intake/schemas.js";

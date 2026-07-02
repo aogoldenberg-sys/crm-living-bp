@@ -14,3 +14,8 @@ graphify-out/
 
 # Claude Code session files
 .claude/
+
+# Nested artifacts that should not be tracked
+packages/schemas/node_modules/
+apps/workers/auth/.wrangler/
+apps/workers/auth/test-results/

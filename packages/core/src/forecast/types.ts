@@ -18,15 +18,27 @@ export interface ForecastConfig {
   leadDropoutRate: number;
 }
 
+/** Сделка из реального CRM-пайплайна для детерминированного прогноза. */
+export interface PipelineDeal {
+  /** Expected payment date (best estimate). */
+  expectedPaymentDate: IsoDate;
+  /** Deal amount in kopecks. */
+  amountKopecks: Kopecks;
+  /** Win probability 0..1. */
+  probability: number;
+}
+
 /** Постоянные входные данные для прогноза — не изменяются между итерациями. */
 export interface ForecastPlan {
   startDate: IsoDate;
   /** Постоянный отток: аренда + ФОТ + прочие фиксированные расходы в день. */
   fixedDailyOutflow: Kopecks;
-  /** Ожидаемое среднее число сделок в день. */
+  /** Fallback: ожидаемое среднее число сделок в день (используется если pipeline пуст). */
   expectedDailyDeals: number;
   /** Средний чек в копейках. */
   avgDealAmountKopecks: Kopecks;
+  /** Real pipeline deals from CRM. If provided, used instead of synthetic flow. */
+  pipeline?: PipelineDeal[];
 }
 
 export interface DailyBalance {
@@ -41,18 +53,26 @@ export interface CashForecast {
   horizonDays: number;
   dailyBalances: DailyBalance[];
   /**
-   * Первый день, где p10 < 0.
-   * p10 < 0 = в 10% худших сценариев деньги закончились в этот день.
-   * null = разрыва нет даже в пессимистичном сценарии.
-   * Мерит «когда» — не «как часто». Для «как часто» см. confidence.
+   * Первый день, где p50 < 0 (медианный сценарий — денег не хватает).
+   * Основной сигнал тревоги UI. null = медиана всегда ≥ 0.
    */
   gapDate: IsoDate | null;
-  /** p10-баланс в день разрыва. null если gapDate = null. */
+  /** p50-баланс в день gapDate. null если gapDate = null. */
   gapAmount: Kopecks | null;
+  /**
+   * Первый день, где p90 < 0 (95% сценариев лучше, т.е. разрыв только в 10%).
+   * "Оптимистичный" порог — наступает позже gapDate.
+   * null = даже оптимистичный сценарий не уходит в минус.
+   */
+  hardGapDate: IsoDate | null;
+  /**
+   * Первый день, где p10 < 0 (10% худших сценариев — ранний тревожный сигнал).
+   * "Пессимистичный" порог — наступает раньше gapDate.
+   */
+  pessimisticGapDate: IsoDate | null;
   /**
    * Доля итераций (0..1), где баланс не уходил в минус ни разу за весь горизонт.
    * Мерит «как часто» — не «когда». Возможна ситуация: confidence=0.8, gapDate=null.
-   * Это значит: p10 > 0 во все дни, но 20% прогонов уходят в минус хотя бы раз.
    * UI обязан показывать оба поля вместе: gapDate — сигнал тревоги, confidence — её вероятность.
    */
   confidence: number;

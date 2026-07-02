@@ -1,12 +1,10 @@
 /**
  * Клиент для отправки событий в ingest-воркер.
  *
- * URL и секрет берутся из env — задаются в .env.local, не коммитятся.
- * Для MVP это достаточно: ingest — внутренний инструмент, не публичный API.
+ * URL берётся из env — задаётся в .env.local, не коммитится.
  */
 
 const INGEST_URL = import.meta.env.VITE_INGEST_WORKER_URL as string | undefined;
-const INGEST_SECRET = import.meta.env.VITE_INGEST_SECRET as string | undefined;
 
 export interface IngestResult {
   events: number;
@@ -14,21 +12,22 @@ export interface IngestResult {
 }
 
 /**
- * Отправляет одно или несколько событий в ingest.
- * Throws если URL/секрет не настроены или сервер вернул ошибку.
+ * Отправляет события в ingest /events-user через Firebase ID token.
+ * idToken — результат getIdToken() из Firebase Auth — передаётся снаружи.
  */
-export async function postEvents(events: unknown[]): Promise<IngestResult> {
-  if (!INGEST_URL || !INGEST_SECRET) {
-    throw new Error(
-      "VITE_INGEST_WORKER_URL и VITE_INGEST_SECRET не заданы в .env.local",
-    );
+export async function postEvents(events: unknown[], idToken: string): Promise<IngestResult> {
+  if (!INGEST_URL) {
+    throw new Error("VITE_INGEST_WORKER_URL не задан в .env.local");
+  }
+  if (!idToken) {
+    throw new Error("Firebase ID token required");
   }
 
-  const res = await fetch(INGEST_URL, {
+  const res = await fetch(`${INGEST_URL}/events-user`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "x-api-secret": INGEST_SECRET,
+      "Authorization": `Bearer ${idToken}`,
     },
     body: JSON.stringify(events),
   });

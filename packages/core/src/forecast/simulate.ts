@@ -1,4 +1,4 @@
-import { normalSample } from "./prng.js";
+import { normalSample, poissonSample } from "./prng.js";
 import type { ForecastConfig, ForecastPlan } from "./types.js";
 
 /**
@@ -13,6 +13,12 @@ import type { ForecastConfig, ForecastPlan } from "./types.js";
  * Детерминированный множитель (1-rate) убирал дисперсию — один из ключевых
  * источников риска в MC перестал работать.
  *
+ * C3: Если plan.pipeline задан и не пуст, используем реальные сделки из CRM
+ * вместо синтетического потока. pipeline[].probability определяет стохастику.
+ *
+ * C4: Для синтетического потока используем Poisson вместо normalSample —
+ * дискретное неотрицательное распределение числа сделок.
+ *
  * rng передаётся снаружи — функция чистая и детерминированная при том же rng.
  */
 export function simulateOnce(
@@ -21,31 +27,44 @@ export function simulateOnce(
   config: ForecastConfig,
   rng: () => number,
 ): number[] {
-  const { horizonDays, revenueVolatility, paymentDelayDays, paymentDelayStdDev, leadDropoutRate } = config;
-
-  // A-fix: не генерируем сделки в хвосте окна — их платежи не попадут в горизонт.
-  const dealGenerationHorizon = Math.max(0, horizonDays - Math.ceil(paymentDelayDays));
+  const { horizonDays, paymentDelayDays, paymentDelayStdDev, leadDropoutRate } = config;
 
   const incoming: number[] = new Array(horizonDays).fill(0) as number[];
 
-  for (let dealDay = 0; dealDay < dealGenerationHorizon; dealDay++) {
-    // Волатильность применяется к числу сделок сегодня, а не к сумме:
-    // реальный бизнес-риск — непредсказуемый поток, не размер чека.
-    const sampledDeals = plan.expectedDailyDeals * Math.max(0, 1 + normalSample(0, revenueVolatility, rng));
-    // floor + stochastic fractional part: floor(2.5) = 2 гарантированно,
-    // +1 с вероятностью 0.5. Math.round(2.5) = 3 всегда — систематический перекос.
-    const floorDeals = Math.floor(sampledDeals);
-    const todayDeals = floorDeals + (rng() < (sampledDeals - floorDeals) ? 1 : 0);
+  // C3: Real pipeline deals
+  if (plan.pipeline && plan.pipeline.length > 0) {
+    for (const deal of plan.pipeline) {
+      // Stochastic: deal wins with its probability
+      if (rng() > deal.probability) continue; // lost
 
-    for (let d = 0; d < todayDeals; d++) {
-      // B-fix: каждая сделка независимо может отвалиться до оплаты.
-      if (rng() < leadDropoutRate) continue;
+      // Payment day relative to startDate
+      const paymentMs = new Date(deal.expectedPaymentDate).getTime() - new Date(plan.startDate).getTime();
+      const paymentDay = Math.round(paymentMs / 86_400_000);
 
-      const delay = Math.round(Math.max(0, normalSample(paymentDelayDays, paymentDelayStdDev, rng)));
-      const paymentDay = dealDay + delay;
+      if (paymentDay >= 0 && paymentDay < horizonDays) {
+        incoming[paymentDay] = (incoming[paymentDay] ?? 0) + deal.amountKopecks;
+      }
+    }
+  } else {
+    // Fallback: synthetic deal flow with Poisson
 
-      if (paymentDay < horizonDays) {
-        incoming[paymentDay] = (incoming[paymentDay] ?? 0) + plan.avgDealAmountKopecks;
+    // A-fix: не генерируем сделки в хвосте окна — их платежи не попадут в горизонт.
+    const dealGenerationHorizon = Math.max(0, horizonDays - Math.ceil(paymentDelayDays));
+
+    for (let dealDay = 0; dealDay < dealGenerationHorizon; dealDay++) {
+      // C4: Poisson для дискретного числа сделок (replaces normalSample which gave fractional/negative values)
+      const todayDeals = poissonSample(plan.expectedDailyDeals, rng);
+
+      for (let d = 0; d < todayDeals; d++) {
+        // B-fix: каждая сделка независимо может отвалиться до оплаты.
+        if (rng() < leadDropoutRate) continue;
+
+        const delay = Math.round(Math.max(0, normalSample(paymentDelayDays, paymentDelayStdDev, rng)));
+        const paymentDay = dealDay + delay;
+
+        if (paymentDay < horizonDays) {
+          incoming[paymentDay] = (incoming[paymentDay] ?? 0) + plan.avgDealAmountKopecks;
+        }
       }
     }
   }

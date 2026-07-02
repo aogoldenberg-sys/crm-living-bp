@@ -19,13 +19,11 @@ service cloud.firestore {
     }
 
     /**
-     * Владелец: role = "owner" в users/{uid} ИЛИ role отсутствует в токене
-     * (backward compat для исторических сессий).
-     * Будущее: проверять role из users/{uid}.role (один get() уже сделан в belongsTo).
+     * Владелец: role = "owner" в users/{uid}.
      */
     function isOwner(businessId) {
       return belongsTo(businessId)
-          && (!("role" in request.auth.token) || request.auth.token.role == "owner");
+          && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "owner";
     }
 
     /**

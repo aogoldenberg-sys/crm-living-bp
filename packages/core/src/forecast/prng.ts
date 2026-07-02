@@ -24,3 +24,28 @@ export function normalSample(mean: number, std: number, rng: () => number): numb
   const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
   return mean + std * z;
 }
+
+/**
+ * Knuth algorithm для Poisson с малым λ (λ ≤ 30).
+ * Для λ > 30 используем нормальное приближение (CLT — Poisson → N(λ, λ) при большом λ).
+ *
+ * Почему не normalSample: нормальное распределение даёт непрерывные (дробные) значения
+ * и отрицательные числа сделок. Poisson — дискретное, неотрицательное, точное.
+ */
+export function poissonSample(lambda: number, rng: () => number): number {
+  if (lambda <= 0) return 0;
+  if (lambda > 30) {
+    // Normal approximation: Poisson(λ) ≈ N(λ, √λ) for large λ
+    const sample = Math.round(Math.max(0, normalSample(lambda, Math.sqrt(lambda), rng)));
+    return sample;
+  }
+  // Knuth algorithm
+  const L = Math.exp(-lambda);
+  let k = 0;
+  let p = 1;
+  do {
+    k++;
+    p *= rng();
+  } while (p > L);
+  return k - 1;
+}

@@ -79,6 +79,7 @@ describe("forecastCash", () => {
 
     expect(result.value.gapDate).not.toBeNull();
     expect(result.value.gapAmount).not.toBeNull();
+    expect(result.value.pessimisticGapDate).not.toBeNull();
 
     // gapAmount < 0 (это и есть определение разрыва).
     if (result.value.gapAmount !== null) {
@@ -86,7 +87,7 @@ describe("forecastCash", () => {
     }
   });
 
-  it("gapDate — первый день с p10 < 0", () => {
+  it("gapDate — первый день с p50 < 0", () => {
     const result = forecastCash(noEvents, lossPlan, baseConfig, mulberry32(42));
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -94,11 +95,37 @@ describe("forecastCash", () => {
     const { dailyBalances, gapDate } = result.value;
     if (gapDate === null) return;
 
-    // Все дни до gapDate: p10 >= 0.
+    // Все дни до gapDate: p50 >= 0.
     for (const day of dailyBalances) {
       if (day.date === gapDate) break;
-      expect(day.p10).toBeGreaterThanOrEqual(0);
+      expect(day.p50).toBeGreaterThanOrEqual(0);
     }
+  });
+
+  it("pessimisticGapDate ≤ gapDate ≤ hardGapDate order", () => {
+    const result = forecastCash(noEvents, lossPlan, baseConfig, mulberry32(42));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const { pessimisticGapDate, gapDate, hardGapDate } = result.value;
+
+    // pessimistic <= main <= hard (dates are ISO strings, lexicographic comparison works)
+    if (pessimisticGapDate && gapDate) {
+      expect(pessimisticGapDate <= gapDate).toBe(true);
+    }
+    if (gapDate && hardGapDate) {
+      expect(gapDate <= hardGapDate).toBe(true);
+    }
+  });
+
+  it("profitable plan has all gap dates null", () => {
+    const result = forecastCash(noEvents, profitablePlan, profitableConfig, mulberry32(42));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.value.gapDate).toBeNull();
+    expect(result.value.hardGapDate).toBeNull();
+    expect(result.value.pessimisticGapDate).toBeNull();
   });
 
   it("детерминирован при одном seed", () => {
@@ -157,5 +184,53 @@ describe("forecastCash", () => {
     if (!richDay0 || !emptyDay0) return;
 
     expect(richDay0.p50).toBeGreaterThan(emptyDay0.p50);
+  });
+
+  it("C2: balance_anchor используется как начальный баланс вместо событий", () => {
+    // balance_anchor с большим балансом — должен сдвинуть прогноз вверх
+    const anchorEvents: BusinessEvent[] = [
+      {
+        type: "balance_anchor",
+        eventId: "00000000-0000-0000-0000-000000000002",
+        ts: "2025-12-31T00:00:00Z",
+        anchorDate: "2025-12-31",
+        balanceKopecks: 50_000_000_00, // 50 млн руб
+        source: "manual",
+        businessId: "demo",
+      },
+    ];
+
+    const rng1 = mulberry32(42);
+    const rng2 = mulberry32(42);
+
+    const withAnchor = forecastCash(anchorEvents, lossPlan, baseConfig, rng1);
+    const withEmpty = forecastCash(noEvents, lossPlan, baseConfig, rng2);
+
+    expect(withAnchor.ok).toBe(true);
+    expect(withEmpty.ok).toBe(true);
+    if (!withAnchor.ok || !withEmpty.ok) return;
+
+    const anchorDay0 = withAnchor.value.dailyBalances[0];
+    const emptyDay0 = withEmpty.value.dailyBalances[0];
+    if (!anchorDay0 || !emptyDay0) return;
+
+    expect(anchorDay0.p50).toBeGreaterThan(emptyDay0.p50);
+  });
+
+  it("C5: generatedAt параметр переопределяет plan.startDate", () => {
+    const customDate = "2026-06-01" as import("@crm/schemas").IsoDate;
+    const result = forecastCash(noEvents, profitablePlan, profitableConfig, mulberry32(42), customDate);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.value.generatedAt).toBe(customDate);
+  });
+
+  it("C5: generatedAt без параметра = plan.startDate", () => {
+    const result = forecastCash(noEvents, profitablePlan, profitableConfig, mulberry32(42));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.value.generatedAt).toBe(profitablePlan.startDate);
   });
 });
