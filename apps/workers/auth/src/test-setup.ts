@@ -1,7 +1,8 @@
 // Polyfill: Cloudflare Workers expose `crypto` as a global.
-// In Node.js 18+, it's on globalThis.crypto but not as bare `crypto`.
-// This setup makes `crypto` accessible the same way as in Workers.
+// Node ≥20 has globalThis.crypto natively (read-only getter) — no assignment needed.
+// Node 18: property doesn't exist → Object.defineProperty is safe.
 import { webcrypto } from "node:crypto";
 
-// @ts-expect-error — assigning to global crypto for test environment
-globalThis.crypto = webcrypto;
+if (!globalThis.crypto?.subtle) {
+  Object.defineProperty(globalThis, "crypto", { value: webcrypto, writable: false });
+}
