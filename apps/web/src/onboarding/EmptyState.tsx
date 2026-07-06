@@ -19,7 +19,7 @@ export function EmptyState({ onNoplan, onUpload }: Props) {
           />
           <line x1="3" y1="8" x2="25" y2="20" stroke="currentColor" strokeWidth="1.5" />
         </svg>
-        <span className="empty-state__logo-text">Живой</span>
+        <span className="empty-state__logo-text">Kairos</span>
       </div>
 
       <h1 className="empty-state__title">С чего начнём?</h1>

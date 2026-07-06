@@ -29,9 +29,9 @@ export function LandingPage() {
     <div className="landing">
       {/* ── Хедер с маркой ─────────────────────────────────────────────── */}
       <header className="landing-header">
-        <Link to="/" className="brand" aria-label="Живой — на главную">
-          <BrandGlyph />
-          <span className="brand-wordmark">Живой</span>
+        <Link to="/" className="brand" aria-label="Kairos — на главную">
+          <img src="/crm_life/logo.png" className="brand-logo-img" alt="" aria-hidden="true" />
+          <span className="brand-wordmark">Kairos</span>
         </Link>
       </header>
 
@@ -59,8 +59,7 @@ export function LandingPage() {
           </h1>
 
           <p className="hero-sub">
-            Сверяется с реальностью каждый день.<br />
-            Видит кассовый разрыв раньше вас.
+            Загрузите бизнес-план — система покажет где вы теряете деньги. Прямо сейчас.
           </p>
 
           <div className="hero-cta">

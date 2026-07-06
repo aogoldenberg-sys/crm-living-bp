@@ -19,3 +19,5 @@ graphify-out/
 packages/schemas/node_modules/
 apps/workers/auth/.wrangler/
 apps/workers/auth/test-results/
+.DS_Store
+apps/web.zip

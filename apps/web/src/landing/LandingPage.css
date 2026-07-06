@@ -35,6 +35,13 @@
   opacity: 0.8;
 }
 
+.brand-logo-img {
+  flex-shrink: 0;
+  width: 96px;
+  height: 96px;
+  object-fit: contain;
+}
+
 .brand-glyph {
   flex-shrink: 0;
   color: var(--color-gold);
