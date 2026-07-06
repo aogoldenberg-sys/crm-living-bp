@@ -1,0 +1,348 @@
+.compliance-disclaimer {
+  background: #FFF8E6;
+  border: 1px solid #E8C84A;
+  border-radius: 8px;
+  padding: 12px 16px;
+  font-size: 14px;
+  color: #7A5E00;
+  margin-bottom: 16px;
+}
+.compliance-badge { padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 500; }
+.compliance-badge--green  { background: #E6F5EA; color: #1E6B3A; }
+.compliance-badge--yellow { background: #FFF3CD; color: #7A5E00; }
+.compliance-badge--blue   { background: #E8F0FE; color: #1a5276; }
+.compliance-badge--grey   { background: #F0F0F0; color: #666; }
+.compliance-progress { height: 6px; background: #E8E3DA; border-radius: 3px; overflow: hidden; margin: 16px 0; }
+.compliance-progress-bar { height: 100%; background: linear-gradient(90deg, #8B7355, #C4B89A); transition: width .3s; }
+
+/* ── Upload Step ── */
+.compliance-upload {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 48px 24px;
+}
+
+.compliance-dropzone {
+  width: 100%;
+  max-width: 480px;
+  border: 2px dashed #C4B89A;
+  border-radius: 12px;
+  background: #FDFAF5;
+  padding: 40px 24px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color .2s, background .2s;
+}
+
+.compliance-dropzone:hover,
+.compliance-dropzone--active {
+  border-color: #8B7355;
+  background: #FAF5EC;
+}
+
+.compliance-dropzone-icon {
+  font-size: 36px;
+  margin-bottom: 12px;
+  color: #8B7355;
+}
+
+.compliance-dropzone-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1A1814;
+  margin: 0 0 6px;
+}
+
+.compliance-dropzone-hint {
+  font-size: 13px;
+  color: #8B7355;
+  margin: 0;
+}
+
+.compliance-formats {
+  font-size: 12px;
+  color: #AAA098;
+  margin: 0;
+}
+
+.compliance-file-btn {
+  display: inline-block;
+  padding: 10px 24px;
+  background: linear-gradient(135deg, #8B7355, #C4B89A);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity .2s;
+}
+
+.compliance-file-btn:hover { opacity: 0.88; }
+
+/* ── Extracting ── */
+.compliance-extracting {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 64px 24px;
+}
+
+.compliance-spinner {
+  width: 48px;
+  height: 48px;
+  border: 3px solid #E8E3DA;
+  border-top-color: #8B7355;
+  border-radius: 50%;
+  animation: compliance-spin 0.9s linear infinite;
+}
+
+@keyframes compliance-spin {
+  to { transform: rotate(360deg); }
+}
+
+.compliance-extracting-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #1A1814;
+  margin: 0;
+}
+
+.compliance-extracting-sub {
+  font-size: 13px;
+  color: #8B7355;
+  margin: 0;
+}
+
+/* ── Checklist Step ── */
+.compliance-checklist {
+  padding: 0 0 32px;
+}
+
+.compliance-checklist-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.compliance-checklist-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: #1A1814;
+  margin: 0;
+}
+
+.compliance-group {
+  margin-bottom: 24px;
+}
+
+.compliance-group-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #8B7355;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  margin: 0 0 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #E8E3DA;
+}
+
+.compliance-entry {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #FDFAF5;
+  margin-bottom: 6px;
+}
+
+.compliance-entry:last-child { margin-bottom: 0; }
+
+.compliance-entry-label {
+  flex: 1;
+  font-size: 14px;
+  color: #1A1814;
+  margin: 0;
+  line-height: 1.4;
+}
+
+.compliance-entry-sub {
+  font-size: 12px;
+  color: #8B7355;
+  margin: 2px 0 0;
+}
+
+.compliance-entry-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.compliance-checkbox {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: #8B7355;
+}
+
+.compliance-assemble-btn {
+  margin-top: 24px;
+  padding: 12px 32px;
+  background: linear-gradient(135deg, #8B7355, #C4B89A);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity .2s;
+}
+
+.compliance-assemble-btn:hover { opacity: 0.88; }
+
+/* ── Package Step ── */
+.compliance-package {
+  padding: 0 0 32px;
+}
+
+.compliance-package-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: #1A1814;
+  margin: 0 0 20px;
+}
+
+.compliance-doc-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 20px;
+}
+
+.compliance-doc-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: #FDFAF5;
+  border-radius: 8px;
+  margin-bottom: 6px;
+  font-size: 14px;
+  color: #1A1814;
+}
+
+.compliance-doc-item--duplicate {
+  background: #FFF8E6;
+  color: #7A5E00;
+  font-style: italic;
+}
+
+.compliance-doc-icon { font-size: 14px; }
+
+.compliance-letter-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #8B7355;
+  margin: 0 0 8px;
+}
+
+.compliance-letter {
+  width: 100%;
+  min-height: 160px;
+  border: 1px solid #E8E3DA;
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 14px;
+  font-family: inherit;
+  color: #1A1814;
+  background: #FDFAF5;
+  resize: vertical;
+  box-sizing: border-box;
+  margin-bottom: 16px;
+}
+
+.compliance-letter:focus {
+  outline: none;
+  border-color: #C4B89A;
+}
+
+.compliance-deadline {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  padding: 10px 14px;
+  background: #F5F0E8;
+  border-radius: 8px;
+  font-size: 14px;
+  color: #1A1814;
+}
+
+.compliance-calendar-link {
+  font-size: 12px;
+  color: #8B7355;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.compliance-done-btn {
+  padding: 12px 32px;
+  background: linear-gradient(135deg, #1E6B3A, #2D9653);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity .2s;
+}
+
+.compliance-done-btn:hover { opacity: 0.88; }
+
+/* ── Done View ── */
+.compliance-done {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 64px 24px;
+  text-align: center;
+}
+
+.compliance-done-icon {
+  font-size: 48px;
+}
+
+.compliance-done-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: #1A1814;
+  margin: 0;
+}
+
+.compliance-done-sub {
+  font-size: 14px;
+  color: #8B7355;
+  margin: 0;
+}
+
+.compliance-restart-btn {
+  padding: 10px 24px;
+  background: #F5F0E8;
+  border: 1px solid #C4B89A;
+  border-radius: 8px;
+  font-size: 14px;
+  color: #8B7355;
+  cursor: pointer;
+  transition: background .2s;
+}
+
+.compliance-restart-btn:hover { background: #EDE8DE; }

@@ -24,6 +24,7 @@ const PLAN_SECTIONS = [
 ];
 import { RisksPanel } from "../panels/RisksPanel";
 import { AutonomyPanel } from "../panels/AutonomyPanel";
+import { ComplianceFlow } from "../features/compliance/ComplianceFlow.js";
 import "./Dashboard.css";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -94,6 +95,11 @@ const IcoAuto = () => (
   <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
     <circle cx="8" cy="8" r="5.5"/>
     <path d="M8 5v3.5l2 1.5" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+);
+const IcoShield = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
   </svg>
 );
 const IcoSearch = () => (
@@ -200,7 +206,7 @@ export function Dashboard() {
 
   const isOwner = !role || role === "owner";
 
-  type View = "dashboard" | "pipeline" | "finances" | "intake" | "risks" | "autonomy";
+  type View = "dashboard" | "pipeline" | "finances" | "intake" | "risks" | "autonomy" | "compliance";
   const [view, setView] = useState<View>("dashboard");
   const [activeNav, setActiveNav] = useState(0);
   const [planSidebarOpen, setPlanSidebarOpen] = useState(false);
@@ -270,6 +276,7 @@ export function Dashboard() {
     { label: "Оценка",    icon: <IcoAssess />, view: "intake"    as View, idx: 3 },
     { label: "Риски",     icon: <IcoRisk />,   view: "risks"     as View, idx: 4 },
     { label: "Автономия", icon: <IcoAuto />,   view: "autonomy"  as View, idx: 5 },
+    { label: "Комплаенс", icon: <IcoShield />, view: "compliance" as View, idx: 6 },
   ];
 
   // Demo chart data (из спеки)
@@ -388,6 +395,12 @@ export function Dashboard() {
           {isOwner && (
             <div className="k-body" style={{ display: view === "autonomy" ? undefined : "none" }}>
               <AutonomyPanel businessId={bid} />
+            </div>
+          )}
+          {/* Комплаенс */}
+          {view === "compliance" && (
+            <div className="k-body">
+              <ComplianceFlow businessId={bid} />
             </div>
           )}
 

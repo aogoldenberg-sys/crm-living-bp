@@ -20,6 +20,9 @@ importers:
       '@crm/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@crm/schemas':
+        specifier: workspace:*
+        version: link:../../packages/schemas
       '@tanstack/react-query':
         specifier: ^5.101.0
         version: 5.101.2(react@18.3.1)
