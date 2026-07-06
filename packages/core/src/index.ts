@@ -20,3 +20,5 @@ export * from "./voice/index.js";
 export * from "./autonomy/index.js";
 export * from "./revision/index.js";
 export * from "./compliance/index.js";
+export * from "./documents/xsd.js";
+export * from "./documents/pdf.js";

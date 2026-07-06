@@ -14,7 +14,9 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@crm/schemas": "workspace:*"
+    "@crm/schemas": "workspace:*",
+    "@types/pdfkit": "^0.17.6",
+    "pdfkit": "^0.19.1"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^2.1.1",

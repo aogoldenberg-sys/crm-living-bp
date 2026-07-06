@@ -25,6 +25,7 @@ const PLAN_SECTIONS = [
 import { RisksPanel } from "../panels/RisksPanel";
 import { AutonomyPanel } from "../panels/AutonomyPanel";
 import { ComplianceFlow } from "../features/compliance/ComplianceFlow.js";
+import { KndUploader } from "../features/documents/KndUploader.js";
 import "./Dashboard.css";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -100,6 +101,12 @@ const IcoAuto = () => (
 const IcoShield = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
     <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+  </svg>
+);
+const IcoDoc = () => (
+  <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="1.5" width="10" height="13" rx="1.5"/>
+    <path d="M5.5 5h5M5.5 7.5h5M5.5 10h3"/>
   </svg>
 );
 const IcoSearch = () => (
@@ -206,7 +213,7 @@ export function Dashboard() {
 
   const isOwner = !role || role === "owner";
 
-  type View = "dashboard" | "pipeline" | "finances" | "intake" | "risks" | "autonomy" | "compliance";
+  type View = "dashboard" | "pipeline" | "finances" | "intake" | "risks" | "autonomy" | "compliance" | "documents";
   const [view, setView] = useState<View>("dashboard");
   const [activeNav, setActiveNav] = useState(0);
   const [planSidebarOpen, setPlanSidebarOpen] = useState(false);
@@ -277,6 +284,7 @@ export function Dashboard() {
     { label: "Риски",     icon: <IcoRisk />,   view: "risks"     as View, idx: 4 },
     { label: "Автономия", icon: <IcoAuto />,   view: "autonomy"  as View, idx: 5 },
     { label: "Комплаенс", icon: <IcoShield />, view: "compliance" as View, idx: 6 },
+    { label: "Документы ФНС", icon: <IcoDoc />, view: "documents" as View, idx: 7 },
   ];
 
   // Demo chart data (из спеки)
@@ -401,6 +409,15 @@ export function Dashboard() {
           {view === "compliance" && (
             <div className="k-body">
               <ComplianceFlow businessId={bid} />
+            </div>
+          )}
+          {/* Документы ФНС */}
+          {view === "documents" && (
+            <div className="k-body">
+              <h2 style={{ fontSize: 18, fontWeight: 600, color: "#1A1814", margin: "0 0 20px" }}>
+                Документы ФНС
+              </h2>
+              <KndUploader />
             </div>
           )}
 

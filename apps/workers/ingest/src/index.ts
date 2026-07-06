@@ -12,6 +12,7 @@ import mammoth from "mammoth";
 import { timingSafeEqual } from "node:crypto";
 import type { Db } from "@crm/firestore-adapter";
 import { BusinessEvent, ExternalSignal } from "@crm/schemas";
+import { handleDocuments } from "./documents.js";
 import { createFirestoreRestClient, saveEvents, registerTenant } from "@crm/firestore-adapter";
 import { generatePlan, ExtractedPlanSchema, AssessmentOutputSchema } from "@crm/ai-kit";
 import { REQUIRED_SECTIONS, mapToSections, gateIntake } from "@crm/core";
@@ -825,6 +826,12 @@ export default {
     // ── /events-user — события от аутентифицированного пользователя ───────
     if (request.method === "POST" && url.pathname === "/events-user") {
       return handleEventsUser(request, env);
+    }
+
+    // ── /api/documents — приём КНД XML ───────────────────────────────────
+    if (request.method === "POST" && url.pathname === "/api/documents") {
+      const db = createFirestoreRestClient(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+      return handleDocuments(request, db);
     }
 
     // ── / — события (API secret) ──────────────────────────────────────────
