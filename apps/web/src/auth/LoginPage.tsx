@@ -1,5 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { signInWithCustomToken } from "firebase/auth";
+import { auth } from "../firebase";
 import { useAuth } from "./useAuth";
 import "./LoginPage.css";
 
@@ -60,9 +62,25 @@ export function LoginPage() {
     }
   };
 
+  // Обработка возврата с Яндекс OAuth — Worker редиректит с #yandex_token=...
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (!hash.includes("yandex_token=")) return;
+    const params = new URLSearchParams(hash.slice(1));
+    const token = params.get("yandex_token");
+    if (!token) return;
+    // Очищаем fragment сразу — токен не должен висеть в URL
+    window.history.replaceState(null, "", window.location.pathname);
+    setLoading(true);
+    signInWithCustomToken(auth, token)
+      .then(() => navigate("/dashboard"))
+      .catch(() => setError("Ошибка входа через Яндекс"))
+      .finally(() => setLoading(false));
+  }, [navigate]);
+
   const handleYandexLogin = () => {
-    const YANDEX_CLIENT_ID = "placeholder"; // TODO: вынести в env
-    const redirect = encodeURIComponent(window.location.origin + "/crm_life/auth/yandex/callback");
+    const YANDEX_CLIENT_ID = "da7824d80cd5404ea931e62795edfebf";
+    const redirect = encodeURIComponent("https://crm-auth.aogoldenberg.workers.dev/auth/yandex/callback");
     window.location.href = `https://oauth.yandex.ru/authorize?response_type=code&client_id=${YANDEX_CLIENT_ID}&redirect_uri=${redirect}`;
   };
 

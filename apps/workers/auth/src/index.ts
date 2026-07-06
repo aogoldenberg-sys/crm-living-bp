@@ -190,10 +190,69 @@ function handleYandexRedirect(env: Env, redirectUri: string): Response {
   return Response.redirect(`https://oauth.yandex.ru/authorize?${params}`, 302);
 }
 
-// GET /auth/yandex/callback — обмен code → Firebase Custom Token
-// TODO: реализовать полный обмен (code → Yandex token → профиль → Firebase Custom Token)
-async function handleYandexCallback(_request: Request, _env: Env): Promise<Response> {
-  return corsJson({ error: "Not Implemented", message: "Yandex OAuth callback — TODO" }, 501);
+// GET /auth/yandex/callback — обмен code → Yandex token → профиль → Firebase Custom Token
+async function handleYandexCallback(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  const code = url.searchParams.get("code");
+  const redirectUri = "https://crm-auth.aogoldenberg.workers.dev/auth/yandex/callback";
+
+  if (!code) {
+    return new Response("Yandex OAuth: code отсутствует", { status: 400 });
+  }
+
+  // 1. Обменять code на Yandex OAuth token
+  const tokenRes = await fetch("https://oauth.yandex.ru/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "authorization_code",
+      code,
+      client_id: env.YANDEX_CLIENT_ID,
+      client_secret: env.YANDEX_CLIENT_SECRET,
+      redirect_uri: redirectUri,
+    }).toString(),
+  });
+  if (!tokenRes.ok) {
+    const err = await tokenRes.text();
+    console.error("Yandex token exchange failed:", err);
+    return new Response("Ошибка получения токена Яндекс", { status: 502 });
+  }
+  const { access_token: yandexToken } = (await tokenRes.json()) as { access_token: string };
+
+  // 2. Получить профиль пользователя из Яндекс ID
+  const profileRes = await fetch("https://login.yandex.ru/info?format=json", {
+    headers: { Authorization: `OAuth ${yandexToken}` },
+  });
+  if (!profileRes.ok) {
+    return new Response("Ошибка получения профиля Яндекс", { status: 502 });
+  }
+  const profile = (await profileRes.json()) as {
+    id: string;
+    login: string;
+    default_email?: string;
+    real_name?: string;
+  };
+
+  // 3. uid для Firebase — yandex:{id} (namespace чтобы не конфликтовать с Google/email)
+  const uid = `yandex:${profile.id}`;
+  const businessId = uid; // первый вход — businessId = uid, может быть заменён позже
+
+  // 4. Создать Firebase Custom Token
+  const sa = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT_JSON) as ServiceAccount;
+  let customToken: string;
+  try {
+    customToken = await createCustomToken(sa, uid);
+  } catch (e) {
+    console.error("createCustomToken failed:", e);
+    return new Response("Ошибка создания токена Firebase", { status: 500 });
+  }
+
+  // 5. Редирект во фронтенд с customToken в URL-фрагменте (#)
+  // Фронт читает fragment, вызывает signInWithCustomToken и очищает URL.
+  // РЕШЕНИЕ: fragment не попадает в сервер-логи — безопаснее query param.
+  const appUrl = new URL("https://opentgp.ru/crm_life/");
+  appUrl.hash = `yandex_token=${encodeURIComponent(customToken)}&businessId=${encodeURIComponent(businessId)}`;
+  return Response.redirect(appUrl.toString(), 302);
 }
 
 // ──────────────────────────────────────────
