@@ -4,4 +4,8 @@ import react from '@vitejs/plugin-react'
 export default defineConfig(({ command }) => ({
   plugins: [react()],
   base: command === 'build' ? '/crm_life/' : '/',
+  build: {
+    // heic2any — browser-only, не входит в бандл
+    rollupOptions: { external: ['heic2any'] },
+  },
 }))
