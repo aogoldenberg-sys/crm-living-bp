@@ -55,8 +55,11 @@ export function LoginPage() {
     try {
       await loginWithGoogle();
       navigate("/dashboard");
-    } catch {
-      setError("Ошибка входа через Google");
+    } catch (err) {
+      const code = (err as { code?: string }).code ?? "";
+      const msg = (err as { message?: string }).message ?? String(err);
+      console.error("[GoogleLogin] code:", code, "message:", msg, "raw:", err);
+      setError(`Ошибка входа через Google (${code || "неизвестно"})`);
     } finally {
       setLoading(false);
     }

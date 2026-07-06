@@ -346,3 +346,38 @@
 }
 
 .compliance-restart-btn:hover { background: #EDE8DE; }
+
+/* ── Scan error ── */
+.compliance-scan-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 48px 24px;
+  max-width: 420px;
+  text-align: center;
+}
+.compliance-scan-error-icon { font-size: 36px; }
+.compliance-scan-error-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: #1A1814;
+  margin: 0;
+}
+.compliance-scan-error-hint {
+  font-size: 14px;
+  color: #8B7355;
+  margin: 0;
+}
+
+/* ── Done actions ── */
+.compliance-done-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-top: 8px;
+}
+.compliance-done-btn--secondary {
+  background: linear-gradient(135deg, #8B7355, #C4B89A);
+}

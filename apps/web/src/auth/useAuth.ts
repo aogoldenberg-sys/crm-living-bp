@@ -5,6 +5,7 @@ import {
   sendEmailVerification,
   signInWithEmailAndPassword,
   signInWithPopup,
+  signInWithRedirect,
   signOut,
   type User,
 } from "firebase/auth";
@@ -51,8 +52,24 @@ export const useAuth = create<AuthState>((set) => ({
 
   loginWithGoogle: async () => {
     const provider = new GoogleAuthProvider();
-    await signInWithPopup(auth, provider);
-    // onAuthStateChanged в App.tsx подхватит пользователя автоматически
+    try {
+      await signInWithPopup(auth, provider);
+      // onAuthStateChanged в App.tsx подхватит пользователя автоматически
+    } catch (popupErr) {
+      const code = (popupErr as { code?: string }).code ?? "";
+      console.error("[loginWithGoogle] popup error:", code, popupErr);
+      // Popup заблокирован браузером или отклонён — fallback на redirect
+      if (
+        code === "auth/popup-blocked" ||
+        code === "auth/popup-closed-by-user" ||
+        code === "auth/cancelled-popup-request"
+      ) {
+        console.info("[loginWithGoogle] falling back to signInWithRedirect");
+        await signInWithRedirect(auth, provider);
+        return; // redirect — страница перезагрузится, onAuthStateChanged подхватит
+      }
+      throw popupErr; // прочие ошибки пробрасываем наверх
+    }
   },
 
   register: async (email: string, password: string) => {

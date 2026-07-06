@@ -31,6 +31,38 @@ const SECTIONS = [
 
 const CHART_SECTIONS = new Set(["finance", "forecast", "payments"]);
 
+/**
+ * Маппинг UI-идентификаторов разделов (PlanSectionPage) →
+ * идентификаторов секций из intake экстрактора (REQUIRED_SECTIONS в core).
+ *
+ * БЛОКЕР 4: без этой таблицы mappedSections.find() всегда возвращает null,
+ * потому что экстрактор использует другие ключи (executive_summary, finances…).
+ */
+const SECTION_TO_INTAKE_ID: Record<string, string> = {
+  mission:     "executive_summary",
+  goals:       "executive_summary",
+  priorities:  "executive_summary",
+  contents:    "executive_summary",
+  product:     "solution",
+  markets:     "market_size",
+  marketing:   "marketing_strategy",
+  resources:   "operations",
+  finance:     "finances",
+  forecast:    "finances",
+  payments:    "finances",
+  pest:        "risks",
+  competitors: "competitors",
+  advantages:  "value_proposition",
+  structure:   "team",
+  team:        "team",
+  risks:       "risks",
+  roadmap:     "product_roadmap",
+  kpi:         "kpi_metrics",
+  investment:  "funding_ask",
+  conclusion:  "exit_strategy",
+  appendix:    "exit_strategy",
+};
+
 // Bar chart высотой 7 точек из contentSummary (берём длины слов как прокси-данные)
 function deriveBarHeights(summary: string): number[] {
   const words = summary.trim().split(/\s+/).slice(0, 7);
@@ -73,7 +105,17 @@ export function PlanSectionPage() {
   const idx = SECTIONS.findIndex(s => s.id === sectionId);
   const section = idx >= 0 ? SECTIONS[idx] : null;
 
-  const mapped = intake?.mappedSections.find(s => s.sectionId === sectionId) ?? null;
+  // Переводим UI-id → intake id, затем ищем в mappedSections
+  const intakeId = SECTION_TO_INTAKE_ID[sectionId ?? ""] ?? sectionId;
+  const mapped = intake?.mappedSections.find(s => s.sectionId === intakeId) ?? null;
+
+  // Диагностика: если данные пришли но раздел не найден — логируем
+  if (intake && !mapped && sectionId) {
+    console.debug(
+      `[PlanSection] sectionId="${sectionId}" → intakeId="${intakeId}" — не найден. ` +
+      `Доступные секции: ${intake.mappedSections.filter(s => s.present).map(s => s.sectionId).join(", ")}`,
+    );
+  }
 
   const prevSection = idx > 0 ? SECTIONS[idx - 1] : null;
   const nextSection = idx < SECTIONS.length - 1 ? SECTIONS[idx + 1] : null;

@@ -86,10 +86,80 @@
   background: rgba(180,140,60,.08);
 }
 
-.tax-coming-soon {
-  margin-top: 24px;
-  font-size: 14px;
-  color: #8B7355;
-  opacity: .8;
-  line-height: 1.6;
+.tax-events-count {
+  font-size: 13px;
+  color: #1E6B3A;
+  margin: -12px 0 16px;
 }
+
+/* ── Calc form ── */
+.tax-calc { display: flex; flex-direction: column; gap: 24px; }
+.tax-calc-form { display: flex; flex-direction: column; gap: 14px; max-width: 420px; }
+.tax-field { display: flex; flex-direction: column; gap: 4px; }
+.tax-field--check { flex-direction: row; align-items: center; }
+.tax-label { font-size: 12px; font-weight: 600; color: #8B7355; text-transform: uppercase; letter-spacing: .04em; }
+.tax-label--check { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; text-transform: none; letter-spacing: 0; color: #1A1814; cursor: pointer; }
+.tax-input {
+  padding: 9px 12px;
+  border: 1px solid #E8E3DA;
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+  background: #FDFAF5;
+  color: #1A1814;
+}
+.tax-input:focus { outline: none; border-color: #C4B89A; }
+.tax-no-events {
+  padding: 12px 14px;
+  background: #FFF8E6;
+  border: 1px solid #E8C84A;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #7A5E00;
+  line-height: 1.5;
+}
+.tax-calc-btn {
+  padding: 11px 24px;
+  background: linear-gradient(135deg, #8B7355, #C4B89A);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: opacity .2s;
+  align-self: flex-start;
+}
+.tax-calc-btn:disabled { opacity: .4; cursor: not-allowed; }
+.tax-calc-btn:not(:disabled):hover { opacity: .88; }
+
+/* ── Result ── */
+.tax-result { background: #FDFAF5; border: 1px solid #E8E3DA; border-radius: 12px; padding: 20px; }
+.tax-result-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.tax-result-label { font-size: 14px; color: #8B7355; }
+.tax-result-amount { font-size: 22px; font-weight: 700; color: #1A1814; }
+.tax-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 12px; }
+.tax-table th { text-align: left; padding: 8px 10px; background: #F5F0E8; color: #8B7355; font-weight: 600; }
+.tax-table td { padding: 8px 10px; border-bottom: 1px solid #E8E3DA; color: #1A1814; }
+.tax-table tr:last-child td { border-bottom: none; }
+.tax-result-summary { display: flex; gap: 24px; font-size: 13px; color: #1A1814; margin-top: 12px; }
+.tax-warnings { margin-top: 12px; }
+.tax-warning { font-size: 13px; color: #7A5E00; background: #FFF8E6; padding: 6px 10px; border-radius: 6px; margin: 4px 0; }
+.tax-result-actions { margin-top: 16px; }
+.tax-download-btn {
+  padding: 9px 20px;
+  background: none;
+  border: 1px solid #C4B89A;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #8B7355;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background .15s;
+}
+.tax-download-btn:hover { background: #F5F0E8; }
+.tax-error { font-size: 14px; color: #9B2C2C; padding: 12px; background: #FFF5F5; border-radius: 8px; }
+
+/* ── Zero ── */
+.tax-zero-info { font-size: 14px; color: #1A1814; line-height: 1.6; max-width: 480px; }

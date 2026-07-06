@@ -95,8 +95,10 @@ export function UploadStep({ onComplete }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [processing, setProcessing] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [scanError, setScanError] = useState(false);
 
   async function handleFile(file: File) {
+    setScanError(false);
     setProcessing(true);
 
     // HEIC → convert lazily, then proceed
@@ -111,8 +113,15 @@ export function UploadStep({ onComplete }: Props) {
       }
     }
 
-    // Simulate extraction delay (800 ms)
+    // TODO: заменить на реальный API-вызов extractRequest когда будет Worker endpoint
+    // Сейчас: mock с проверкой на пустой файл (< 500 байт → считаем нечитаемым)
     await new Promise<void>(res => setTimeout(res, 800));
+
+    if (file.size < 500) {
+      setProcessing(false);
+      setScanError(true);
+      return;
+    }
 
     onComplete(makeMockCase());
   }
@@ -130,6 +139,25 @@ export function UploadStep({ onComplete }: Props) {
   }
 
   if (processing) return <ExtractingProgress />;
+
+  if (scanError) {
+    return (
+      <div className="compliance-upload">
+        <div className="compliance-scan-error">
+          <span className="compliance-scan-error-icon">⚠️</span>
+          <p className="compliance-scan-error-title">Не удалось распознать требование.</p>
+          <p className="compliance-scan-error-hint">Загрузите чёткий скан документа с текстом требования ФНС или другого контролирующего органа.</p>
+          <button
+            type="button"
+            className="compliance-file-btn"
+            onClick={() => { setScanError(false); inputRef.current?.click(); }}
+          >
+            Загрузить другой файл
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="compliance-upload">
