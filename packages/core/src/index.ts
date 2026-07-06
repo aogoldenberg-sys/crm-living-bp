@@ -18,3 +18,5 @@ export * from "./process/escalation.js";
 export * from "./strategy/index.js";
 export * from "./voice/index.js";
 export * from "./autonomy/index.js";
+export * from "./revision/index.js";
+export * from "./compliance/index.js";

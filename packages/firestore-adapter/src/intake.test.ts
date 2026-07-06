@@ -27,6 +27,7 @@ function makePlanIntake(overrides?: Partial<PlanIntake>): PlanIntake {
     confidence: 0.85,
     disclaimer: "Анализ выполнен автоматически",
     status: "draft",
+    mode: "document",
     ...overrides,
   };
 }

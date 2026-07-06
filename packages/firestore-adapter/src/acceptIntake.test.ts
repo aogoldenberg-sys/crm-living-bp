@@ -33,6 +33,7 @@ function makeDraftIntake(overrides: Partial<PlanIntake> = {}): PlanIntake {
     confidence: 0.85,
     disclaimer: "Оценка предварительная",
     status: "draft",
+    mode: "document",
     ...overrides,
   };
 }

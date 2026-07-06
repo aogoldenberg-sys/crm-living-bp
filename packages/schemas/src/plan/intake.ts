@@ -96,6 +96,8 @@ export const PlanIntake = z
     confidence: z.number().min(0).max(1),
     disclaimer: z.string(),
     status: z.enum(["draft", "accepted_as_v1"]),
+    /** Режим ревизии. Default "document" для обратной совместимости. */
+    mode: z.enum(["document", "reverse", "hybrid"]).default("document"),
   })
   .strict();
 
