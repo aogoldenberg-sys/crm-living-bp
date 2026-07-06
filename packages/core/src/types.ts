@@ -14,7 +14,9 @@ export type DomainError =
   /** Запрошенный объект не найден в хранилище. */
   | { code: "NOT_FOUND"; message: string }
   /** Идемпотентный барьер: объект уже принят/обработан ранее. */
-  | { code: "ALREADY_ACCEPTED"; message: string };
+  | { code: "ALREADY_ACCEPTED"; message: string }
+  /** Данных недостаточно для выполнения операции (пустой документ, нет событий и т.д.). */
+  | { code: "INSUFFICIENT_DATA"; message: string };
 
 export type Result<T> =
   | { ok: true; value: T }
