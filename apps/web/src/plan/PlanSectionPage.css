@@ -1,0 +1,210 @@
+/* PlanSectionPage — минималистичный, совместим с переменными Dashboard */
+
+.psp-page {
+  font-family: 'Inter', sans-serif;
+  max-width: 820px;
+  margin: 0 auto;
+  padding: 32px 24px 64px;
+  color: #1A1814;
+}
+
+/* Skeleton */
+.psp-skeleton {
+  height: 20px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, rgba(200,160,60,.12) 0%, rgba(200,160,60,.22) 50%, rgba(200,160,60,.12) 100%);
+  background-size: 200% 100%;
+  animation: psp-shimmer 1.4s infinite;
+  margin-bottom: 16px;
+}
+.psp-skeleton--wide { width: 60%; height: 32px; }
+
+@keyframes psp-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Хлебные крошки */
+.psp-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 28px;
+  flex-wrap: wrap;
+}
+
+.psp-back-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  color: #8B7355;
+  padding: 0;
+  font-family: inherit;
+}
+.psp-back-btn:hover { color: #1A1814; }
+
+.psp-section-counter {
+  font-size: 12px;
+  color: #8B7355;
+  background: rgba(180,140,60,.12);
+  padding: 3px 10px;
+  border-radius: 20px;
+}
+
+.psp-nav-inline {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* Заголовок */
+.psp-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.psp-icon { font-size: 28px; }
+
+.psp-title {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 28px;
+  font-weight: 600;
+  margin: 0;
+  color: #1A1814;
+}
+
+/* Бейдж уверенности */
+.psp-badge {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 10px;
+  border-radius: 20px;
+}
+.psp-badge--green  { background: rgba(40,160,80,.12); color: #1A6A38; }
+.psp-badge--yellow { background: rgba(200,140,20,.12); color: #7A5A00; }
+.psp-badge--red    { background: rgba(160,40,40,.10); color: #8B2E3C; }
+
+/* Метрики */
+.psp-metrics {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 28px;
+  flex-wrap: wrap;
+}
+
+.psp-metric-card {
+  flex: 1;
+  min-width: 120px;
+  background: rgba(255,255,255,.65);
+  border: 1px solid rgba(180,140,60,.18);
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  backdrop-filter: blur(10px);
+}
+.psp-metric-card--empty { opacity: .55; }
+
+.psp-metric-label {
+  font-size: 11px;
+  color: #8B7355;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+
+.psp-metric-val {
+  font-size: 20px;
+  font-weight: 600;
+  color: #1A1814;
+}
+
+/* Bar chart */
+.psp-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 80px;
+  margin-bottom: 24px;
+  padding: 0 4px;
+}
+
+.psp-bar {
+  flex: 1;
+  border-radius: 4px 4px 0 0;
+  background: linear-gradient(180deg, #E9B778, #A6771F);
+  min-height: 4px;
+  transition: height .3s ease;
+}
+
+/* Текст раздела */
+.psp-content-block {
+  background: rgba(255,255,255,.55);
+  border: 1px solid rgba(180,140,60,.15);
+  border-radius: 14px;
+  padding: 20px 22px;
+  margin-bottom: 32px;
+}
+
+.psp-content-text {
+  font-size: 14px;
+  line-height: 1.7;
+  color: #3A3228;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.psp-content-text--expanded {
+  display: block;
+  overflow: visible;
+}
+
+.psp-expand-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  color: #A6771F;
+  margin-top: 10px;
+  padding: 0;
+  font-family: inherit;
+}
+.psp-expand-btn:hover { text-decoration: underline; }
+
+/* Навигационные кнопки */
+.psp-nav-btn {
+  background: rgba(255,255,255,.6);
+  border: 1px solid rgba(180,140,60,.25);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: #6B5330;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background .15s;
+}
+.psp-nav-btn:hover { background: rgba(255,255,255,.9); }
+
+.psp-nav-btn--large {
+  padding: 10px 18px;
+  font-size: 13px;
+}
+
+/* Нижняя навигация */
+.psp-footer-nav {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.psp-not-found {
+  color: #8B7355;
+  font-size: 15px;
+  margin-top: 40px;
+}

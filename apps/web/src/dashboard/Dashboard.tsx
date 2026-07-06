@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/useAuth";
 import { useRole } from "../auth/useRole";
 import { useFunnelMetrics } from "./useFunnelMetrics";
@@ -25,7 +26,7 @@ const PLAN_SECTIONS = [
 import { RisksPanel } from "../panels/RisksPanel";
 import { AutonomyPanel } from "../panels/AutonomyPanel";
 import { ComplianceFlow } from "../features/compliance/ComplianceFlow.js";
-import { KndUploader } from "../features/documents/KndUploader.js";
+import { ReportingScreen } from "../features/reporting/ReportingScreen.js";
 import "./Dashboard.css";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -201,6 +202,7 @@ function useBalls() {
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
 export function Dashboard() {
+  const navigate = useNavigate();
   const { businessId, logout, role } = useAuth();
   const bid = businessId ?? "demo";
   const { roleRecord } = useRole(bid);
@@ -284,7 +286,7 @@ export function Dashboard() {
     { label: "Риски",     icon: <IcoRisk />,   view: "risks"     as View, idx: 4 },
     { label: "Автономия", icon: <IcoAuto />,   view: "autonomy"  as View, idx: 5 },
     { label: "Комплаенс", icon: <IcoShield />, view: "compliance" as View, idx: 6 },
-    { label: "Документы ФНС", icon: <IcoDoc />, view: "documents" as View, idx: 7 },
+    { label: "Отчётность", icon: <IcoDoc />, view: "documents" as View, idx: 7 },
   ];
 
   // Demo chart data (из спеки)
@@ -411,13 +413,10 @@ export function Dashboard() {
               <ComplianceFlow businessId={bid} />
             </div>
           )}
-          {/* Документы ФНС */}
+          {/* Отчётность */}
           {view === "documents" && (
             <div className="k-body">
-              <h2 style={{ fontSize: 18, fontWeight: 600, color: "#1A1814", margin: "0 0 20px" }}>
-                Документы ФНС
-              </h2>
-              <KndUploader />
+              <ReportingScreen businessId={bid} />
             </div>
           )}
 
@@ -452,7 +451,10 @@ export function Dashboard() {
                   </button>
                 ))}
                 {/* Бардовая кнопка */}
-                <button className="k-maroon-btn">Приступить к работе</button>
+                <button className="k-maroon-btn" onClick={() => {
+                  const firstSection = intake?.mappedSections[0]?.sectionId ?? "mission";
+                  navigate(`/dashboard/plan/${firstSection}`);
+                }}>Приступить к работе</button>
                 {/* Профиль */}
                 <div className="k-profile-pill">
                   <span className="k-profile-name">

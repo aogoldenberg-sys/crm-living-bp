@@ -209,6 +209,74 @@
   border-color: rgba(232, 223, 208, 0.5);
 }
 
+/* ── OAuth разделитель ───────────────────────────────────────────────────── */
+
+.lf-divider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-6);
+  color: var(--text-muted);
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.lf-divider::before,
+.lf-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border-default);
+}
+
+/* ── OAuth кнопки ────────────────────────────────────────────────────────── */
+
+.lf-oauth {
+  display: flex;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.lf-oauth-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  background: transparent;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  color: var(--color-ivory);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background  var(--duration-base) var(--ease-out),
+    border-color var(--duration-base) var(--ease-out);
+}
+
+.lf-oauth-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.lf-oauth-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.lf-oauth-google:hover:not(:disabled) {
+  border-color: #4285F4;
+}
+
+.lf-oauth-yandex:hover:not(:disabled) {
+  border-color: #FC3F1D;
+}
+
 /* ── Адаптив ──────────────────────────────────────────────────────────────── */
 
 @media (max-width: 480px) {

@@ -5,5 +5,11 @@ compatibility_date = "2024-09-23"
 # Секреты задаются через `wrangler secret put`:
 #   wrangler secret put AUTH_SECRET
 #   wrangler secret put FIREBASE_SERVICE_ACCOUNT_JSON
+#   wrangler secret put YANDEX_CLIENT_SECRET
 #
 # Не хранить в .toml или репозитории — только в Cloudflare dashboard.
+
+[vars]
+YANDEX_CLIENT_ID = "placeholder"
+# РЕШЕНИЕ: YANDEX_CLIENT_SECRET — не здесь, только через wrangler secret put.
+# Здесь только non-secret client_id (placeholder до получения реального ID из Яндекс.OAuth).

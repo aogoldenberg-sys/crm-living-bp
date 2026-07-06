@@ -33,8 +33,16 @@ export interface Assessment {
   assumptionsExtracted: Record<string, AssumptionEntry>;
 }
 
+export interface MappedSection {
+  sectionId: string;
+  present: boolean;
+  contentSummary: string;
+  confidence: number;
+}
+
 export interface PlanIntake {
   assessment: Assessment;
+  mappedSections: MappedSection[];
   disclaimer: string;
   status: string;
   extractedAt?: string;
@@ -103,9 +111,24 @@ function normalizeAssumptions(raw: unknown): Record<string, AssumptionEntry> {
   return result;
 }
 
+function normalizeMappedSections(raw: unknown): MappedSection[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((s) => {
+    if (!s || typeof s !== "object") return [];
+    const obj = s as Record<string, unknown>;
+    return [{
+      sectionId: typeof obj.sectionId === "string" ? obj.sectionId : "",
+      present: Boolean(obj.present),
+      contentSummary: typeof obj.contentSummary === "string" ? obj.contentSummary : "",
+      confidence: typeof obj.confidence === "number" ? obj.confidence : 0,
+    }];
+  });
+}
+
 function normalizeIntake(raw: Record<string, unknown>): PlanIntake {
   const assessment = (raw.assessment as Record<string, unknown> | undefined) ?? {};
   return {
+    mappedSections: normalizeMappedSections(raw.mappedSections),
     assessment: {
       strengths: Array.isArray(assessment.strengths)
         ? (assessment.strengths as unknown[]).map(String)

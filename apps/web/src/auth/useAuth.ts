@@ -1,8 +1,10 @@
 import { create } from "zustand";
 import {
   createUserWithEmailAndPassword,
+  GoogleAuthProvider,
   sendEmailVerification,
   signInWithEmailAndPassword,
+  signInWithPopup,
   signOut,
   type User,
 } from "firebase/auth";
@@ -30,6 +32,7 @@ interface AuthState {
   /** Роль пользователя из кастомного claim токена. null = владелец (default). */
   role: UserRole | null;
   login: (email: string, password: string) => Promise<void>;
+  loginWithGoogle: () => Promise<void>;
   register: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   _setUser: (user: User | null, businessId: string | null, role?: UserRole | null) => void;
@@ -44,6 +47,12 @@ export const useAuth = create<AuthState>((set) => ({
     const cred = await signInWithEmailAndPassword(auth, email, password);
     const businessId = await resolveBusinessId(cred.user.uid);
     set({ user: cred.user, businessId, role: null });
+  },
+
+  loginWithGoogle: async () => {
+    const provider = new GoogleAuthProvider();
+    await signInWithPopup(auth, provider);
+    // onAuthStateChanged в App.tsx подхватит пользователя автоматически
   },
 
   register: async (email: string, password: string) => {

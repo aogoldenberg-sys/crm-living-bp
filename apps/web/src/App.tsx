@@ -9,6 +9,7 @@ import { LandingPage } from "./landing/LandingPage";
 import { LoginPage } from "./auth/LoginPage";
 import { RegisterPage } from "./auth/RegisterPage";
 import { Dashboard } from "./dashboard/Dashboard";
+import { PlanSectionPage } from "./plan/PlanSectionPage";
 import { OnboardingFlow } from "./onboarding/OnboardingFlow";
 import { usePlanExists } from "./onboarding/usePlanExists";
 
@@ -76,6 +77,12 @@ export default function App() {
 
         {/* Дашборд — проверяет наличие плана, иначе редирект на онбординг */}
         <Route path="/dashboard" element={<DashboardOrOnboarding />} />
+
+        {/* Раздел бизнес-плана */}
+        <Route
+          path="/dashboard/plan/:sectionId"
+          element={user ? <PlanSectionPage /> : <Navigate to="/login" replace />}
+        />
 
         {/* Fallback */}
         <Route path="*" element={<Navigate to="/" replace />} />

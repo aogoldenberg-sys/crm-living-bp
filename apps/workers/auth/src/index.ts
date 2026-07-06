@@ -12,6 +12,8 @@
 
 export interface Env {
   FIREBASE_SERVICE_ACCOUNT_JSON: string;
+  YANDEX_CLIENT_ID: string;
+  YANDEX_CLIENT_SECRET: string;
 }
 
 // ──────────────────────────────────────────
@@ -19,7 +21,7 @@ export interface Env {
 // ──────────────────────────────────────────
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
 };
 
@@ -175,6 +177,26 @@ async function createCustomToken(sa: ServiceAccount, businessId: string): Promis
 }
 
 // ──────────────────────────────────────────
+// Yandex OAuth routes
+// ──────────────────────────────────────────
+
+// GET /auth/yandex — редирект на Яндекс для получения code
+function handleYandexRedirect(env: Env, redirectUri: string): Response {
+  const params = new URLSearchParams({
+    response_type: "code",
+    client_id: env.YANDEX_CLIENT_ID,
+    redirect_uri: redirectUri,
+  });
+  return Response.redirect(`https://oauth.yandex.ru/authorize?${params}`, 302);
+}
+
+// GET /auth/yandex/callback — обмен code → Firebase Custom Token
+// TODO: реализовать полный обмен (code → Yandex token → профиль → Firebase Custom Token)
+async function handleYandexCallback(_request: Request, _env: Env): Promise<Response> {
+  return corsJson({ error: "Not Implemented", message: "Yandex OAuth callback — TODO" }, 501);
+}
+
+// ──────────────────────────────────────────
 // Main handler
 // ──────────────────────────────────────────
 export default {
@@ -184,6 +206,16 @@ export default {
     }
 
     const url = new URL(request.url);
+
+    // Yandex OAuth
+    if (url.pathname === "/auth/yandex" && request.method === "GET") {
+      const redirectUri = url.searchParams.get("redirect_uri") ?? "";
+      return handleYandexRedirect(env, redirectUri);
+    }
+    if (url.pathname === "/auth/yandex/callback" && request.method === "GET") {
+      return handleYandexCallback(request, env);
+    }
+
     if (request.method !== "POST" || url.pathname !== "/token") {
       return corsJson({ error: "Not Found" }, 404);
     }
