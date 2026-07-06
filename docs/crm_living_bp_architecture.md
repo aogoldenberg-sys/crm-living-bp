@@ -110,7 +110,7 @@ get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "ow
 
 **Cloudflare Worker (ingest)**:
 1. `tar czf ingest.tar.gz apps/workers/ingest packages/...` (на Mac)
-2. `scp ingest.tar.gz root@5.129.234.111:/opt/crm/`
+2. `scp ingest.tar.gz root@<VPS_IP>:/opt/crm/`
 3. На VPS: распаковать, проверить симлинки в `node_modules/@crm/`, `wrangler deploy`
 
 Симлинки в `node_modules/@crm/` создаются вручную на VPS (pnpm install не всегда создаёт их корректно).

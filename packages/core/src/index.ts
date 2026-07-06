@@ -21,5 +21,6 @@ export * from "./autonomy/index.js";
 export * from "./revision/index.js";
 export * from "./compliance/index.js";
 export * from "./documents/xsd.js";
+export * from "./tax/index.js";
 // pdf.ts не экспортируется отсюда — pdfkit Node-only, нельзя в браузерный бандл
 // import напрямую: import { generatePaymentPdf } from "@crm/core/documents/pdf"

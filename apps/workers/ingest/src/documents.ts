@@ -51,8 +51,7 @@ export async function handleDocuments(request: Request, db: Db): Promise<Respons
   const doc = result.value;
 
   // ── 3. Save to Firestore ──────────────────────────────────────────────────
-  // РЕШЕНИЕ: в Workers crypto — глобальный, в Node/Vitest — через node:crypto
-  const { randomUUID } = await import("node:crypto").catch(() => ({ randomUUID: () => globalThis.crypto.randomUUID() }));
+  const { randomUUID } = await import("node:crypto");
   const docId = randomUUID();
   const record = {
     docId,

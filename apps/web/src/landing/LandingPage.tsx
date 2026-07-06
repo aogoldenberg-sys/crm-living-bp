@@ -42,7 +42,7 @@ export function LandingPage() {
           <HeroMedia
             media={{
               type: "image",
-              src: "/hero-placeholder.svg",
+              src: "/crm_life/hero-placeholder.svg",
               alt: "",
             }}
           />
