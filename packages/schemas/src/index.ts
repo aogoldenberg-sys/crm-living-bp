@@ -19,3 +19,4 @@ export * from "./compliance.js";
 export * from "./knd/index.js";
 export * from "./tax.js";
 export * from "./mgmt.js";
+export * from "./entitlements.js";

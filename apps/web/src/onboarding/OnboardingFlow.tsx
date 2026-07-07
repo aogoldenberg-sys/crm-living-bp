@@ -64,6 +64,13 @@ export function OnboardingFlow() {
         <div className="ob-upload__zone">
           <UploadPlanButton onSuccess={() => navigate("/dashboard")} />
         </div>
+        <button
+          className="qs-btn qs-btn--back"
+          style={{ marginTop: "var(--space-4)" }}
+          onClick={() => setStage("questionnaire")}
+        >
+          Нет плана — создать с нуля
+        </button>
       </div>
     );
   }
@@ -104,8 +111,9 @@ export function OnboardingFlow() {
   // stage === "empty"
   return (
     <EmptyState
-      onNoplan={() => setStage("questionnaire")}
-      onUpload={() => setStage("upload")}
+      onBusiness={() => setStage("upload")}
+      onReporting={() => navigate("/services?tab=tax")}
+      onCompliance={() => navigate("/services?tab=compliance")}
     />
   );
 }

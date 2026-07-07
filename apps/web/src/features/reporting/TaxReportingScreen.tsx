@@ -4,6 +4,102 @@ import { UsnCalcView } from "./UsnCalcView.js";
 import { useBusinessEvents } from "./useBusinessEvents.js";
 import "./TaxReportingScreen.css";
 
+const CURRENT_YEAR = new Date().getFullYear();
+
+function generateZeroXml(inn: string, oktmo: string, year: number, regime: "usn6" | "usn15"): string {
+  const regimeCode = regime === "usn6" ? "1" : "2";
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<!-- КНД 1152017: Декларация по налогу при УСН (нулёвая) -->
+<!-- Сформировано: ${new Date().toLocaleDateString("ru-RU")} | Kairos CRM -->
+<Файл КНД="0000000" ВерсФорм="5.02">
+  <Документ ПериодОтч="34" ОтчетГод="${year}" НомКорр="0" ОКТМО="${oktmo || "00000000"}">
+    <СвНП>
+      <НПИП ИННФЛ="${inn || "000000000000"}" />
+    </СвНП>
+    <СвУСН ОбъектНал="${regimeCode}" НалСтавка="${regime === "usn6" ? "6" : "15"}">
+      <ДохРасх ДохОтч1="0" ДохОтч2="0" ДохОтч3="0" ДохОтч4="0" />
+      ${regime === "usn15" ? '<РасхОтч РасхОтч1="0" РасхОтч2="0" РасхОтч3="0" РасхОтч4="0" />' : ""}
+      <НалИсч НалИсч1="0" НалИсч2="0" НалИсч3="0" НалИсч4="0" />
+      <НалПУ НалПУ1="0" НалПУ2="0" НалПУ3="0" СумНалДокл="0" СумНалУм="0" />
+    </СвУСН>
+  </Документ>
+</Файл>`;
+}
+
+function ZeroView({ onBack }: { onBack: () => void }) {
+  const [inn, setInn] = useState("");
+  const [oktmo, setOktmo] = useState("");
+  const [year, setYear] = useState(CURRENT_YEAR);
+  const [regime, setRegime] = useState<"usn6" | "usn15">("usn6");
+
+  function handleDownload() {
+    const xml = generateZeroXml(inn, oktmo, year, regime);
+    const blob = new Blob([xml], { type: "application/xml" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `УСН_нулёвая_${inn || "ИНН"}_${year}.xml`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function handlePrint() {
+    const xml = generateZeroXml(inn, oktmo, year, regime);
+    const w = window.open("", "_blank", "width=800,height=600");
+    if (!w) return;
+    w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Нулёвая УСН ${year}</title>
+      <style>body{font-family:monospace;font-size:12px;padding:40px}pre{white-space:pre-wrap}</style></head>
+      <body><h2>Нулёвая декларация УСН ${year}</h2><pre>${xml.replace(/</g,"&lt;").replace(/>/g,"&gt;")}</pre></body></html>`);
+    w.document.close();
+    w.print();
+  }
+
+  return (
+    <div className="tax-screen">
+      <button className="tax-back-btn" onClick={onBack}>← Назад к отчётности</button>
+      <h2 className="tax-title">Нулёвая отчётность (КНД 1152017)</h2>
+      <div className="tax-calc-form">
+        <div className="tax-field">
+          <label className="tax-label">Год</label>
+          <select className="tax-input" value={year} onChange={e => setYear(Number(e.target.value))}>
+            {[CURRENT_YEAR, CURRENT_YEAR - 1, CURRENT_YEAR - 2].map(y => (
+              <option key={y} value={y}>{y}</option>
+            ))}
+          </select>
+        </div>
+        <div className="tax-field">
+          <label className="tax-label">ИНН</label>
+          <input className="tax-input" type="text" maxLength={12} placeholder="123456789012"
+            value={inn} onChange={e => setInn(e.target.value)} />
+        </div>
+        <div className="tax-field">
+          <label className="tax-label">ОКТМО</label>
+          <input className="tax-input" type="text" maxLength={11} placeholder="12345678"
+            value={oktmo} onChange={e => setOktmo(e.target.value)} />
+        </div>
+        <div className="tax-field">
+          <label className="tax-label">Режим</label>
+          <select className="tax-input" value={regime} onChange={e => setRegime(e.target.value as "usn6" | "usn15")}>
+            <option value="usn6">УСН 6% (доходы)</option>
+            <option value="usn15">УСН 15% (доходы − расходы)</option>
+          </select>
+        </div>
+        <p style={{ fontSize: 12, color: "#8B7355", marginTop: 8 }}>
+          ⚠️ Нулёвая декларация — при отсутствии доходов и расходов за год. Перед подачей согласуйте с бухгалтером.
+        </p>
+        <div className="tax-result-actions" style={{ marginTop: 16 }}>
+          <button type="button" className="tax-download-btn" onClick={handleDownload}>
+            📥 Скачать XML
+          </button>
+          <button type="button" className="tax-download-btn" onClick={handlePrint} style={{ marginLeft: 8 }}>
+            🖨 Печать
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 type ActionId = "usn" | "zero" | "kudir" | "xml";
 
 const ACTIONS = [
@@ -46,32 +142,7 @@ export function TaxReportingScreen({ businessId }: { businessId: string }) {
   }
 
   if (active === "zero") {
-    return (
-      <div className="tax-screen">
-        <button className="tax-back-btn" onClick={() => setActive(null)}>← Назад к отчётности</button>
-        <h2 className="tax-title">Нулёвая отчётность</h2>
-        <div className="tax-zero-info">
-          <p>Нулёвая декларация подаётся при отсутствии доходов и расходов за период.</p>
-          <p>Нажмите «Скачать XML», чтобы получить шаблон нулёвой декларации УСН.</p>
-          <button
-            type="button"
-            className="tax-download-btn"
-            style={{ marginTop: 16 }}
-            onClick={() => {
-              const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<УСН><Декларация><ИНН/><Период>${new Date().getFullYear()}</Период><Статус>нулёвая</Статус></Декларация></УСН>`;
-              const blob = new Blob([xml], { type: "application/xml" });
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement("a");
-              a.href = url; a.download = `УСН_нулёвая_${new Date().getFullYear()}.xml`; a.click();
-              URL.revokeObjectURL(url);
-            }}
-          >
-            📥 Скачать XML нулёвки
-          </button>
-        </div>
-      </div>
-    );
+    return <ZeroView onBack={() => setActive(null)} />;
   }
 
   return (

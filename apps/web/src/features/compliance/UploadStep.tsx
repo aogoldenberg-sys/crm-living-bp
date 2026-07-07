@@ -1,92 +1,51 @@
 import { useRef, useState } from "react";
-import type { ComplianceCase } from "@crm/schemas";
+import type { ComplianceCase, RequestItem } from "@crm/schemas";
 import { ExtractingProgress } from "./ExtractingProgress";
+import { auth } from "../../firebase";
+import { useAuth } from "../../auth/useAuth";
 import "./ComplianceFlow.css";
 
 interface Props {
   onComplete: (c: ComplianceCase) => void;
 }
 
-function makeMockCase(): ComplianceCase {
+function buildCase(items: RequestItem[], businessId: string): ComplianceCase {
   const now = new Date().toISOString() as `${string}T${string}Z`;
-  const today = now.slice(0, 10) as `${number}-${number}-${number}`;
-
-  const itemId = crypto.randomUUID();
-  const entryId1 = crypto.randomUUID();
-  const entryId2 = crypto.randomUUID();
-  const entryId3 = crypto.randomUUID();
+  const checklist: ComplianceCase["checklist"] = items.flatMap((item) =>
+    item.docKinds.map((docKind) => ({
+      entryId: crypto.randomUUID(),
+      requestItemId: item.itemId,
+      docKind,
+      label: [docKind, item.periodFrom, item.periodTo].filter(Boolean).join(" — "),
+      availability: "missing_no_event" as const,
+      fileRef: null,
+      evidence: [],
+      confirmedByOwner: false,
+    })),
+  );
 
   return {
     caseId: crypto.randomUUID(),
-    businessId: "demo",
+    businessId,
     authority: "fns_kameral",
     createdAt: now,
-    sourceFileRef: "uploaded-file",
-    items: [
-      {
-        itemId,
-        rawText: "Предоставить договоры и акты за период 01.01.2025 – 31.12.2025",
-        docKinds: ["contract", "act"],
-        periodFrom: "2025-01-01",
-        periodTo: "2025-12-31",
-        counterpartyInn: null,
-        counterpartyName: null,
-        extractConfidence: 0.94,
-      },
-    ],
-    checklist: [
-      {
-        entryId: entryId1,
-        requestItemId: itemId,
-        docKind: "contract",
-        label: "Договор №14 от 05.02.2025, ООО Ромашка",
-        availability: "have_file",
-        fileRef: "/docs/contract-14.pdf",
-        evidence: [],
-        confirmedByOwner: false,
-      },
-      {
-        entryId: entryId2,
-        requestItemId: itemId,
-        docKind: "act",
-        label: "Акт выполненных работ №14 от 03.05.2025, ООО Ромашка",
-        availability: "restorable",
-        fileRef: null,
-        evidence: [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()],
-        confirmedByOwner: false,
-      },
-      {
-        entryId: entryId3,
-        requestItemId: itemId,
-        docKind: "invoice_facture",
-        label: "УПД №14 от 03.05.2025",
-        availability: "missing_no_event",
-        fileRef: null,
-        evidence: [],
-        confirmedByOwner: false,
-      },
-    ],
+    sourceFileRef: "uploaded",
+    items,
+    checklist,
     drafts: [],
     response: {
       responseId: crypto.randomUUID(),
       authority: "fns_kameral",
-      incomingRef: {
-        number: "12345",
-        date: today,
-        fileRef: "uploaded-file",
-      },
+      incomingRef: { number: null, date: null, fileRef: "uploaded" },
       letterDraft:
-        "В ответ на Ваше требование сообщаем, что в рамках камеральной налоговой проверки " +
-        "прилагаем запрошенные документы. Оригиналы документов будут представлены по требованию.",
+        "В ответ на Ваше требование сообщаем, что в рамках проверки прилагаем запрошенные документы.",
       legalRefs: ["ст. 93 НК РФ", "ст. 31 НК РФ"],
-      providedEntryIds: [entryId1, entryId2],
-      missingExplained: [
-        { entryId: entryId3, reason: "Документ отсутствует, событие в учёте не зафиксировано" },
-      ],
-      deadline: today,
+      providedEntryIds: [],
+      missingExplained: [],
+      deadline: null,
       status: "draft",
     },
-    completeness: 0.67,
+    completeness: 0,
     status: "checklist_review",
   };
 }
@@ -96,34 +55,59 @@ export function UploadStep({ onComplete }: Props) {
   const [processing, setProcessing] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [scanError, setScanError] = useState(false);
+  const businessId = useAuth((s) => s.businessId) ?? "";
 
   async function handleFile(file: File) {
     setScanError(false);
     setProcessing(true);
 
-    // HEIC → convert lazily, then proceed
-    if (file.type === "image/heic" || file.name.toLowerCase().endsWith(".heic")) {
-      try {
-        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-        // @ts-ignore — heic2any has no bundled types; optional progressive enhancement
-        const mod = await import(/* @vite-ignore */ "heic2any") as { default: (opts: { blob: Blob; toType: string }) => Promise<Blob | Blob[]> };
-        await mod.default({ blob: file, toType: "image/jpeg" });
-      } catch {
-        // conversion failed — proceed anyway, server will handle it
+    try {
+      const user = auth.currentUser;
+      if (!user) throw new Error("Не авторизован");
+      const idToken = await user.getIdToken();
+
+      const mime =
+        file.type ||
+        (file.name.endsWith(".pdf") ? "application/pdf" : "image/jpeg");
+
+      const form = new FormData();
+      form.append("file", file, file.name);
+      form.append("mimeType", mime);
+
+      const workerUrl = import.meta.env.VITE_INGEST_WORKER_URL as string;
+      const res = await fetch(`${workerUrl}/compliance/extract`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${idToken}` },
+        body: form,
+      });
+
+      const data = (await res.json().catch(() => ({}))) as {
+        items?: RequestItem[];
+        code?: string;
+        error?: string;
+      };
+
+      if (res.status === 422 || data.code === "INSUFFICIENT_DATA") {
+        setScanError(true);
+        return;
       }
-    }
+      if (!res.ok) {
+        console.error("[compliance/extract] error:", data.error);
+        setScanError(true);
+        return;
+      }
+      if (!data.items?.length) {
+        setScanError(true);
+        return;
+      }
 
-    // TODO: заменить на реальный API-вызов extractRequest когда будет Worker endpoint
-    // Сейчас: mock с проверкой на пустой файл (< 500 байт → считаем нечитаемым)
-    await new Promise<void>(res => setTimeout(res, 800));
-
-    if (file.size < 500) {
-      setProcessing(false);
+      onComplete(buildCase(data.items, businessId));
+    } catch (e) {
+      console.error("[compliance/extract] fetch failed:", e);
       setScanError(true);
-      return;
+    } finally {
+      setProcessing(false);
     }
-
-    onComplete(makeMockCase());
   }
 
   function onInputChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -146,7 +130,9 @@ export function UploadStep({ onComplete }: Props) {
         <div className="compliance-scan-error">
           <span className="compliance-scan-error-icon">⚠️</span>
           <p className="compliance-scan-error-title">Не удалось распознать требование.</p>
-          <p className="compliance-scan-error-hint">Загрузите чёткий скан документа с текстом требования ФНС или другого контролирующего органа.</p>
+          <p className="compliance-scan-error-hint">
+            Загрузите чёткий скан документа с текстом требования ФНС или другого контролирующего органа.
+          </p>
           <button
             type="button"
             className="compliance-file-btn"

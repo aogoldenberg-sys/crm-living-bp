@@ -12,6 +12,7 @@ import { Dashboard } from "./dashboard/Dashboard";
 import { PlanSectionPage } from "./plan/PlanSectionPage";
 import { OnboardingFlow } from "./onboarding/OnboardingFlow";
 import { usePlanExists } from "./onboarding/usePlanExists";
+import { ServicesPage } from "./services/ServicesPage";
 
 function DashboardOrOnboarding() {
   const { user, businessId } = useAuth();
@@ -62,8 +63,8 @@ export default function App() {
           element={user ? <Navigate to="/dashboard" replace /> : <LoginPage />}
         />
 
-        {/* Регистрация */}
-        <Route path="/register" element={user ? <Navigate to="/dashboard" replace /> : <RegisterPage />} />
+        {/* Регистрация — при живой сессии RegisterPage сам выйдет из аккаунта */}
+        <Route path="/register" element={<RegisterPage />} />
 
         {/* Онбординг — только для авторизованных */}
         <Route
@@ -82,6 +83,12 @@ export default function App() {
         <Route
           path="/dashboard/plan/:sectionId"
           element={user ? <PlanSectionPage /> : <Navigate to="/login" replace />}
+        />
+
+        {/* Сервисы без бизнес-плана: отчётность и комплаенс напрямую */}
+        <Route
+          path="/services"
+          element={user ? <ServicesPage /> : <Navigate to="/login" replace />}
         />
 
         {/* Fallback */}

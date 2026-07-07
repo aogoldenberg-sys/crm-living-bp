@@ -16,7 +16,7 @@ import { useRef, useState, useCallback, type DragEvent } from "react";
 import { auth } from "../firebase";
 
 // Принимаемые расширения (для <input accept> и drag-and-drop)
-const ACCEPTED_EXT = ".pdf,.doc,.docx,.txt,.rtf,.md,.xlsx,.xls";
+const ACCEPTED_EXT = ".pdf,.doc,.docx,.txt,.rtf,.md,.xlsx,.xls,.jpeg,.jpg,.png,.heic";
 
 // MIME-типы → строковый ключ для ветвления на сервере
 const EXT_TO_MIME: Record<string, string> = {
@@ -30,11 +30,13 @@ const EXT_TO_MIME: Record<string, string> = {
   rtf: "text/rtf",
 };
 
-/** MIME из file.type; если пустой — по расширению имени файла */
+/**
+ * MIME из расширения если известен (приоритет над file.type —
+ * браузер может вернуть application/octet-stream для .md/.xlsx).
+ */
 function resolveMime(file: File): string {
-  if (file.type) return file.type.toLowerCase();
   const ext = (file.name.split(".").pop() ?? "").toLowerCase();
-  return EXT_TO_MIME[ext] ?? "application/octet-stream";
+  return EXT_TO_MIME[ext] ?? (file.type || "application/octet-stream").toLowerCase();
 }
 
 type Status = "idle" | "uploading" | "done" | "error";
@@ -74,8 +76,9 @@ export function UploadPlanButton({ onSuccess }: UploadPlanButtonProps = {}) {
           body: form,
         });
 
-        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        const data = (await res.json().catch(() => ({}))) as { error?: string; details?: unknown };
         if (!res.ok) {
+          console.error("[upload-plan] server error:", res.status, data);
           throw new Error(data.error ?? `Сервер вернул ${res.status}`);
         }
 
@@ -83,6 +86,7 @@ export function UploadPlanButton({ onSuccess }: UploadPlanButtonProps = {}) {
         setMessage("Анализ завершён — данные появятся на дашборде через несколько секунд.");
         if (onSuccess) setTimeout(onSuccess, 1500);
       } catch (e) {
+        console.error("[upload-plan] upload failed:", e);
         setStatus("error");
         setMessage(e instanceof Error ? e.message : "Неизвестная ошибка загрузки");
       }

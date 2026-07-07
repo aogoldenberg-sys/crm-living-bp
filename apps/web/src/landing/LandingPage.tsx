@@ -30,7 +30,7 @@ export function LandingPage() {
       {/* ── Хедер с маркой ─────────────────────────────────────────────── */}
       <header className="landing-header">
         <Link to="/" className="brand" aria-label="Kairos — на главную">
-          <img src="/crm_life/logo.png" className="brand-logo-img" alt="" aria-hidden="true" />
+          <img src={import.meta.env.BASE_URL + "logo-badge.png"} className="brand-logo-img" alt="" aria-hidden="true" />
           <span className="brand-wordmark">Kairos</span>
         </Link>
       </header>

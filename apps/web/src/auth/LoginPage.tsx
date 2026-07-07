@@ -106,7 +106,7 @@ export function LoginPage() {
     <div className="login-page">
       {/* Марка вверху */}
       <Link to="/" className="login-brand" aria-label="На главную">
-        <img src="/crm_life/logo.png" className="brand-logo-img" alt="" aria-hidden="true" style={{width:88,height:88,objectFit:'contain'}} />
+        <img src={import.meta.env.BASE_URL + "logo-badge.png"} className="brand-logo-img" alt="" aria-hidden="true" style={{width:88,height:88,objectFit:'contain'}} />
         <span>Kairos</span>
       </Link>
 

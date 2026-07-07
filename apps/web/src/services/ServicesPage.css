@@ -1,0 +1,182 @@
+/* ── Services Page ─────────────────────────────────────────────────────────── */
+
+.svc-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: #FAF8F4;
+}
+
+.svc-header {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 12px 24px;
+  background: #fff;
+  border-bottom: 1px solid rgba(200,160,60,0.15);
+  flex-wrap: wrap;
+}
+
+.svc-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+}
+
+.svc-logo {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+}
+
+.svc-wordmark {
+  font-family: var(--font-serif, Georgia, serif);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: #C8A034;
+}
+
+.svc-tabs {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+}
+
+.svc-tab {
+  padding: 8px 18px;
+  border: 1px solid rgba(200,160,60,0.3);
+  border-radius: 8px;
+  background: transparent;
+  font-size: 14px;
+  font-weight: 500;
+  color: #8B7355;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.svc-tab--active {
+  background: linear-gradient(135deg, #C89A34, #E4C260);
+  border-color: transparent;
+  color: #3A2800;
+  font-weight: 600;
+}
+
+.svc-tab:not(.svc-tab--active):hover {
+  border-color: #C89A34;
+  color: #5A3D00;
+}
+
+.svc-dashboard-link {
+  font-size: 13px;
+  color: #8B7355;
+  text-decoration: none;
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.svc-dashboard-link:hover {
+  color: #C89A34;
+}
+
+.svc-content {
+  flex: 1;
+  padding: 24px;
+  max-width: 900px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* ── Paywall ───────────────────────────────────────────────────────────────── */
+
+.paywall {
+  display: flex;
+  justify-content: center;
+  padding: 48px 16px;
+}
+
+.paywall-card {
+  background: #fff;
+  border: 1px solid rgba(200,160,60,0.2);
+  border-radius: 16px;
+  padding: 40px 32px;
+  max-width: 440px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  text-align: center;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.06);
+}
+
+.paywall-lock {
+  font-size: 40px;
+}
+
+.paywall-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: #1A1814;
+  margin: 0;
+}
+
+.paywall-desc {
+  font-size: 14px;
+  color: #8B7355;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.paywall-price {
+  background: rgba(200,160,60,0.08);
+  border-radius: 10px;
+  padding: 16px 24px;
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.paywall-price-label {
+  font-size: 14px;
+  color: #5A3D00;
+  font-weight: 500;
+}
+
+.paywall-price-amount {
+  font-size: 18px;
+  font-weight: 700;
+  color: #C89A34;
+}
+
+.paywall-btn {
+  width: 100%;
+  padding: 14px;
+  background: linear-gradient(135deg, #C89A34, #E4C260);
+  border: none;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #3A2800;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.paywall-btn:hover {
+  opacity: 0.88;
+}
+
+.paywall-back {
+  background: none;
+  border: none;
+  font-size: 13px;
+  color: #8B7355;
+  cursor: pointer;
+  padding: 0;
+}
+
+.paywall-back:hover {
+  color: #5A3D00;
+}

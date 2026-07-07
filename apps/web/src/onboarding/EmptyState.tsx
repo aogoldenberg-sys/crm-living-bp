@@ -1,36 +1,34 @@
 import "./EmptyState.css";
 
 interface Props {
-  onNoplan: () => void;
-  onUpload: () => void;
+  onBusiness: () => void;   // «Бизнес работает»
+  onReporting: () => void;  // «Подготовить отчётность»
+  onCompliance: () => void; // «Ответить на требование налоговой»
 }
 
-export function EmptyState({ onNoplan, onUpload }: Props) {
-
+export function EmptyState({ onBusiness, onReporting, onCompliance }: Props) {
   return (
     <div className="empty-state">
       <div className="empty-state__logo">
-        <svg width="40" height="40" viewBox="0 0 28 28" fill="none" aria-hidden="true">
-          <polygon
-            points="14,2 25,8 25,20 14,26 3,20 3,8"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            fill="none"
-          />
-          <line x1="3" y1="8" x2="25" y2="20" stroke="currentColor" strokeWidth="1.5" />
-        </svg>
+        <img
+          src={import.meta.env.BASE_URL + "logo-badge.png"}
+          alt="Kairos"
+          className="empty-state__logo-img"
+        />
         <span className="empty-state__logo-text">Kairos</span>
       </div>
 
       <h1 className="empty-state__title">С чего начнём?</h1>
-      <p className="empty-state__subtitle">Выберите способ запустить ваш финансовый план</p>
 
       <div className="empty-state__actions">
-        <button className="es-btn es-btn--primary" onClick={onNoplan}>
-          У меня нет плана — создать с нуля
+        <button className="es-btn es-btn--primary" onClick={onBusiness}>
+          Бизнес работает
         </button>
-        <button className="es-btn es-btn--secondary" onClick={onUpload}>
-          У меня есть бизнес-план — загрузить
+        <button className="es-btn es-btn--secondary" onClick={onReporting}>
+          Подготовить отчётность
+        </button>
+        <button className="es-btn es-btn--secondary" onClick={onCompliance}>
+          Ответить на требование налоговой
         </button>
       </div>
     </div>

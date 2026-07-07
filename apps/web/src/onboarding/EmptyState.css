@@ -29,18 +29,25 @@
   position: relative;
   z-index: 10;
   display: flex;
+  flex-direction: column;
   align-items: center;
   gap: var(--space-2);
   color: var(--color-gold);
-  font-family: var(--font-serif);
-  font-size: var(--text-lg);
-  font-weight: 600;
-  letter-spacing: 0.03em;
   margin-bottom: var(--space-10);
+}
+
+.empty-state__logo-img {
+  width: 120px;
+  height: 120px;
+  object-fit: contain;
 }
 
 .empty-state__logo-text {
   font-family: var(--font-serif);
+  font-size: var(--text-3xl);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--color-gold);
 }
 
 /* ── Заголовок ────────────────────────────────────────────────────────────── */
@@ -57,16 +64,7 @@
   text-align: center;
 }
 
-.empty-state__subtitle {
-  position: relative;
-  z-index: 10;
-  font-family: var(--font-sans);
-  font-size: var(--text-base);
-  color: var(--text-muted);
-  margin-bottom: var(--space-10);
-  text-align: center;
-  line-height: 1.5;
-}
+/* subtitle removed per design */
 
 /* ── Кнопки ───────────────────────────────────────────────────────────────── */
 

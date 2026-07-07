@@ -27,7 +27,27 @@ import { RisksPanel } from "../panels/RisksPanel";
 import { AutonomyPanel } from "../panels/AutonomyPanel";
 import { ComplianceFlow } from "../features/compliance/ComplianceFlow.js";
 import { ReportingScreen } from "../features/reporting/ReportingScreen.js";
+import { useEntitlements } from "../services/useEntitlements.js";
 import "./Dashboard.css";
+
+function LockedFeature({ title }: { title: string }) {
+  return (
+    <div style={{ textAlign: "center", padding: "60px 24px" }}>
+      <div style={{ fontSize: 36, marginBottom: 12 }}>🔒</div>
+      <h3 style={{ margin: "0 0 8px", fontSize: 16, color: "#1A1814" }}>{title}</h3>
+      <p style={{ margin: "0 0 20px", fontSize: 13, color: "#8B7355" }}>
+        Первый раз — бесплатно. Для повторного использования подключите тариф.
+      </p>
+      <a href="/crm_life/services" style={{
+        display: "inline-block", padding: "10px 24px",
+        background: "linear-gradient(135deg,#C89A34,#E4C260)",
+        borderRadius: 8, fontWeight: 700, fontSize: 13, color: "#3A2800", textDecoration: "none",
+      }}>
+        Подключить тариф
+      </a>
+    </div>
+  );
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -206,6 +226,7 @@ export function Dashboard() {
   const { businessId, logout, role } = useAuth();
   const bid = businessId ?? "demo";
   const { roleRecord } = useRole(bid);
+  const { canCompliance, canReport } = useEntitlements(businessId);
   const { entityAccess, dashboardWidgets } = roleRecord;
 
   const { stages, totalDeals: funnelTotalDeals } = useFunnelMetrics(bid);
@@ -410,13 +431,17 @@ export function Dashboard() {
           {/* Комплаенс */}
           {view === "compliance" && (
             <div className="k-body">
-              <ComplianceFlow businessId={bid} />
+              {canCompliance
+                ? <ComplianceFlow businessId={bid} />
+                : <LockedFeature title="Ответ на требование налоговой" />}
             </div>
           )}
           {/* Отчётность */}
           {view === "documents" && (
             <div className="k-body">
-              <ReportingScreen businessId={bid} />
+              {canReport
+                ? <ReportingScreen businessId={bid} />
+                : <LockedFeature title="Налоговая и управленческая отчётность" />}
             </div>
           )}
 
@@ -451,10 +476,9 @@ export function Dashboard() {
                   </button>
                 ))}
                 {/* Бардовая кнопка */}
-                <button className="k-maroon-btn" onClick={() => {
-                  const firstSection = intake?.mappedSections[0]?.sectionId ?? "mission";
-                  navigate(`/dashboard/plan/${firstSection}`);
-                }}>Приступить к работе</button>
+                <button className="k-maroon-btn" onClick={() => navigate("/dashboard/plan/mission")}>
+                  Приступить к работе
+                </button>
                 {/* Профиль */}
                 <div className="k-profile-pill">
                   <span className="k-profile-name">

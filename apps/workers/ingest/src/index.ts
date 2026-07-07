@@ -11,7 +11,7 @@
 import mammoth from "mammoth";
 import { timingSafeEqual } from "node:crypto";
 import type { Db } from "@crm/firestore-adapter";
-import { BusinessEvent, ExternalSignal } from "@crm/schemas";
+import { BusinessEvent, ExternalSignal, RequestItem } from "@crm/schemas";
 import { handleDocuments } from "./documents.js";
 import { createFirestoreRestClient, saveEvents, registerTenant } from "@crm/firestore-adapter";
 import { generatePlan, ExtractedPlanSchema, AssessmentOutputSchema } from "@crm/ai-kit";
@@ -226,7 +226,8 @@ async function extractXlsxText(buffer: ArrayBuffer): Promise<string> {
 
 type ClaudeContentBlock =
   | { type: "text"; text: string }
-  | { type: "document"; source: { type: "base64"; media_type: string; data: string } };
+  | { type: "document"; source: { type: "base64"; media_type: string; data: string } }
+  | { type: "image"; source: { type: "base64"; media_type: string; data: string } };
 
 async function callClaude(
   apiKey: string,
@@ -356,8 +357,20 @@ async function handleIntake(request: Request, env: Env): Promise<Response> {
 
     case mimeType === MIME.XLSX: {
       const buf = await file.arrayBuffer();
-      const text = await extractXlsxText(buf);
-      claudeContent = [{ type: "text", text }];
+      let xlsxText: string;
+      try {
+        xlsxText = await extractXlsxText(buf);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        return jsonCors({ error: `Ошибка чтения Excel: ${msg}. Попробуйте сохранить как PDF или DOCX.` }, 422);
+      }
+      if (xlsxText.startsWith("(Excel:")) {
+        return jsonCors(
+          { error: "Excel-файл не содержит текстовых ячеек. Добавьте описание разделов или экспортируйте в PDF." },
+          422,
+        );
+      }
+      claudeContent = [{ type: "text", text: xlsxText }];
       break;
     }
 
@@ -368,7 +381,9 @@ async function handleIntake(request: Request, env: Env): Promise<Response> {
       break;
     }
 
-    case mimeType.startsWith("text/"): {
+    case mimeType.startsWith("text/"):
+    // text/markdown, text/plain, text/csv and other text/* types
+    case mimeType === "application/octet-stream" && file.name.endsWith(".md"): {
       const text = await file.text();
       if (!text.trim()) return jsonCors({ error: "Файл пустой" }, 422);
       claudeContent = [{ type: "text", text }];
@@ -468,6 +483,92 @@ async function handleIntake(request: Request, env: Env): Promise<Response> {
   }
 
   return jsonCors({ intakeId, status: "ok", sectionsFound: foundSections.size, completeness, confidence });
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// /compliance/extract — разбор требования контролирующего органа
+// ══════════════════════════════════════════════════════════════════════════════
+
+const COMPLIANCE_EXTRACT_SYSTEM = `Роль: юридический аналитик-экстрактор.
+Вход: текст или скан-изображение требования контролирующего органа (PDF/JPEG через vision).
+Задача: разобрать на позиции и вернуть JSON массив RequestItem.
+
+КРИТИЧЕСКОЕ ПРАВИЛО ПРОТИВ ФАБРИКАЦИИ:
+- Если документ пустой, нечитаемый, не является требованием или не содержит явных
+  запросов документов — верни ПУСТОЙ МАССИВ: []
+- НИКОГДА не выдумывай позиции, которых нет в документе
+- НИКОГДА не заполняй поля из общих знаний — только из буквального текста документа
+
+Схема одного элемента:
+{"itemId":"<uuid>","rawText":"<дословно из требования>","docKinds":["contract"|"act"|"invoice_facture"|"payment_order"|"bank_statement"|"account_card"|"waybill"|"invoice"|"order_internal"|"explanatory"|"other"],"periodFrom":"YYYY-MM-DD"|null,"periodTo":"YYYY-MM-DD"|null,"counterpartyInn":"XXXXXXXXXX"|null,"counterpartyName":"..."|null,"extractConfidence":0.0-1.0}
+
+Верни ТОЛЬКО валидный JSON массив, без markdown, без комментариев.`;
+
+async function handleComplianceExtract(request: Request, env: Env): Promise<Response> {
+  const authHeader = request.headers.get("Authorization") ?? "";
+  const idToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  if (!idToken) return jsonCors({ error: "Unauthorized" }, 401);
+
+  const projectId = env.FIREBASE_PROJECT_ID || "crm-living-bp";
+  const claims = await verifyFirebaseIdToken(idToken, projectId);
+  if (!claims) return jsonCors({ error: "Unauthorized" }, 401);
+
+  let form: FormData;
+  try {
+    form = await request.formData();
+  } catch {
+    return jsonCors({ error: "Bad Request: ожидался multipart/form-data" }, 400);
+  }
+
+  const fileEntry = form.get("file");
+  if (!fileEntry || typeof fileEntry === "string") {
+    return jsonCors({ error: "Bad Request: поле file отсутствует" }, 400);
+  }
+  const file = fileEntry as File;
+  const mimeType = ((form.get("mimeType") as string | null) ?? file.type ?? "").toLowerCase();
+
+  let content: ClaudeContentBlock[];
+  if (mimeType === "application/pdf") {
+    const buf = await file.arrayBuffer();
+    content = [
+      { type: "document", source: { type: "base64", media_type: "application/pdf", data: toBase64(buf) } },
+      { type: "text", text: "Разберите требование на позиции RequestItem и верните JSON массив." },
+    ];
+  } else if (mimeType.startsWith("image/")) {
+    const buf = await file.arrayBuffer();
+    const mediaType = mimeType === "image/png" ? "image/png" : "image/jpeg";
+    content = [
+      { type: "image", source: { type: "base64", media_type: mediaType, data: toBase64(buf) } },
+      { type: "text", text: "Разберите требование на позиции RequestItem и верните JSON массив." },
+    ];
+  } else if (mimeType.startsWith("text/")) {
+    const text = await file.text();
+    if (!text.trim()) return jsonCors({ code: "INSUFFICIENT_DATA", message: "Файл пустой" }, 422);
+    content = [{ type: "text", text }];
+  } else {
+    return jsonCors({ error: `Неподдерживаемый тип: ${mimeType}. Используйте PDF, JPEG, PNG.` }, 400);
+  }
+
+  let raw: unknown;
+  try {
+    raw = await callClaude(env.ANTHROPIC_API_KEY, COMPLIANCE_EXTRACT_SYSTEM, content);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[compliance/extract] Claude error:", msg);
+    return jsonCors({ error: `Ошибка извлечения: ${msg}` }, 500);
+  }
+
+  const validated = RequestItem.array().safeParse(raw);
+  if (!validated.success) {
+    console.error("[compliance/extract] schema error:", validated.error.issues);
+    return jsonCors({ error: "Ответ AI не прошёл валидацию", details: validated.error.issues }, 502);
+  }
+
+  if (validated.data.length === 0) {
+    return jsonCors({ code: "INSUFFICIENT_DATA", message: "Требование не распознано" }, 422);
+  }
+
+  return jsonCors({ items: validated.data });
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -796,6 +897,18 @@ async function handleExternal(request: Request, env: Env): Promise<Response> {
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
+    try {
+      return await dispatchRequest(request, env);
+    } catch (e) {
+      // Uncaught exception — ensure CORS headers are always present
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[worker] unhandled error:", msg);
+      return jsonCors({ error: "Внутренняя ошибка сервера" }, 500);
+    }
+  },
+} satisfies ExportedHandler<Env>;
+
+async function dispatchRequest(request: Request, env: Env): Promise<Response> {
     // CORS preflight
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: CORS_HEADERS });
@@ -826,6 +939,11 @@ export default {
     // ── /events-user — события от аутентифицированного пользователя ───────
     if (request.method === "POST" && url.pathname === "/events-user") {
       return handleEventsUser(request, env);
+    }
+
+    // ── /compliance/extract — разбор требования ──────────────────────────
+    if (request.method === "POST" && url.pathname === "/compliance/extract") {
+      return handleComplianceExtract(request, env);
     }
 
     // ── /api/documents — приём КНД XML ───────────────────────────────────
@@ -863,8 +981,7 @@ export default {
       console.error("[ingest] error:", message);
       return json({ error: message }, 500);
     }
-  },
-} satisfies ExportedHandler<Env>;
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 

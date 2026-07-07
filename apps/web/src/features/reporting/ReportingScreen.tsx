@@ -37,7 +37,7 @@ export function ReportingScreen({ businessId }: Props) {
       </div>
 
       {tab === "tax" && taxContent}
-      {tab === "mgmt" && <MgmtReports />}
+      {tab === "mgmt" && <MgmtReports businessId={businessId} />}
     </div>
   );
 }

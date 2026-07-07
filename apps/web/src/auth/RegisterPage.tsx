@@ -1,10 +1,12 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "./useAuth";
 import "./RegisterPage.css";
 
 export function RegisterPage() {
   const register = useAuth((s) => s.register);
+  const logout = useAuth((s) => s.logout);
+  const user = useAuth((s) => s.user);
   const navigate = useNavigate();
 
   const [email, setEmail] = useState("");
@@ -12,6 +14,13 @@ export function RegisterPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Если пришли с живой сессией — выходим, чтобы зарегистрировать новый аккаунт
+  useEffect(() => {
+    if (user) {
+      void logout();
+    }
+  }, [user, logout]);
 
   const mapFirebaseError = (code: string, fallback: string): string => {
     switch (code) {
@@ -55,7 +64,7 @@ export function RegisterPage() {
     <div className="register-page">
       {/* Марка вверху */}
       <Link to="/" className="register-brand" aria-label="На главную">
-        <img src="/crm_life/logo.png" className="brand-logo-img" alt="" aria-hidden="true" style={{width:88,height:88,objectFit:'contain'}} />
+        <img src={import.meta.env.BASE_URL + "logo-badge.png"} className="brand-logo-img" alt="" aria-hidden="true" style={{width:88,height:88,objectFit:'contain'}} />
         <span>Kairos</span>
       </Link>
 
