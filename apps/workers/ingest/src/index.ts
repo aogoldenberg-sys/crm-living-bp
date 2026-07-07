@@ -572,6 +572,79 @@ async function handleComplianceExtract(request: Request, env: Env): Promise<Resp
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// /revision-doc handler — загрузка исходного документа, dedup SHA-256
+// Auth: Firebase ID Token (Bearer)
+// ══════════════════════════════════════════════════════════════════════════════
+
+const VALID_DOC_KINDS = [
+  "bank_statement", "cash_report", "fin_report", "staff_schedule",
+  "doc_registry", "turnover_sheet", "fixed_asset_card", "authority_request", "other",
+] as const;
+
+async function handleRevisionDoc(request: Request, env: Env): Promise<Response> {
+  const authHeader = request.headers.get("Authorization") ?? "";
+  const idToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  if (!idToken) return jsonCors({ error: "Missing token" }, 401);
+
+  const projectId = env.FIREBASE_PROJECT_ID || "crm-living-bp";
+  const claims = await verifyFirebaseIdToken(idToken, projectId);
+  if (!claims) return jsonCors({ error: "Invalid token" }, 401);
+
+  let formData: FormData;
+  try {
+    formData = await request.formData();
+  } catch {
+    return jsonCors({ error: "Invalid multipart form" }, 400);
+  }
+
+  const file = formData.get("file") as File | null;
+  const kind = formData.get("kind") as string | null;
+
+  if (!file || !kind) return jsonCors({ error: "Missing file or kind" }, 400);
+  if (!(VALID_DOC_KINDS as readonly string[]).includes(kind)) {
+    return jsonCors({ error: "Invalid kind" }, 400);
+  }
+
+  const db = createFirestoreRestClient(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+  const userDoc = await db.collection("users").doc(claims.uid).get();
+  if (!userDoc.exists) return jsonCors({ error: "User not registered" }, 400);
+  const { businessId } = userDoc.data() as { businessId: string };
+
+  // SHA-256 dedup
+  const buffer = await file.arrayBuffer();
+  const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
+  const sha256 = Array.from(new Uint8Array(hashBuffer))
+    .map(b => b.toString(16).padStart(2, "0"))
+    .join("");
+
+  const docId = crypto.randomUUID();
+  const now = new Date().toISOString();
+
+  try {
+    await db
+      .collection("tenants")
+      .doc(businessId)
+      .collection("source_docs")
+      .doc(docId)
+      .set({
+        docId,
+        businessId,
+        kind,
+        fileRef: `uploads/${businessId}/${docId}/${file.name}`,
+        uploadedAt: now,
+        pages: 1,          // будет обновлено парсером
+        mappedSections: [],
+        status: "uploaded",
+        sha256,
+      } as unknown as Record<string, unknown>);
+  } catch {
+    return jsonCors({ error: "Failed to save doc record" }, 500);
+  }
+
+  return jsonCors({ docId, businessId, status: "uploaded", sha256 });
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // Существующая бизнес-логика: приём BusinessEvent[]
 // ══════════════════════════════════════════════════════════════════════════════
 
@@ -970,6 +1043,11 @@ async function dispatchRequest(request: Request, env: Env): Promise<Response> {
     // ── /compliance/extract — разбор требования ──────────────────────────
     if (request.method === "POST" && url.pathname === "/compliance/extract") {
       return handleComplianceExtract(request, env);
+    }
+
+    // ── /revision-doc — загрузка исходного документа ревизии, dedup SHA-256
+    if (request.method === "POST" && url.pathname === "/revision-doc") {
+      return handleRevisionDoc(request, env);
     }
 
     // ── /api/documents — приём КНД XML ───────────────────────────────────
