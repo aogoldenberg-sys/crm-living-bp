@@ -1,7 +1,5 @@
-import { useState, useEffect } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { signInWithCustomToken } from "firebase/auth";
-import { auth } from "../firebase";
+import { useState } from "react";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "./useAuth";
 import "./LoginPage.css";
 
@@ -29,12 +27,15 @@ export function LoginPage() {
   const login = useAuth((s) => s.login);
   const loginWithGoogle = useAuth((s) => s.loginWithGoogle);
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPwd, setShowPwd] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Принимаем ошибку из YandexAuthHandler через router state
+  const stateError = (location.state as { error?: string } | null)?.error ?? null;
+  const [error, setError] = useState<string | null>(stateError);
 
   const mapFirebaseError = (code: string): string => {
     switch (code) {
@@ -65,22 +66,6 @@ export function LoginPage() {
       setLoading(false);
     }
   };
-
-  // Обработка возврата с Яндекс OAuth — Worker редиректит с #yandex_token=...
-  useEffect(() => {
-    const hash = window.location.hash;
-    if (!hash.includes("yandex_token=")) return;
-    const params = new URLSearchParams(hash.slice(1));
-    const token = params.get("yandex_token");
-    if (!token) return;
-    // Очищаем fragment сразу — токен не должен висеть в URL
-    window.history.replaceState(null, "", window.location.pathname);
-    setLoading(true);
-    signInWithCustomToken(auth, token)
-      .then(() => navigate("/dashboard"))
-      .catch(() => setError("Ошибка входа через Яндекс"))
-      .finally(() => setLoading(false));
-  }, [navigate]);
 
   const handleYandexLogin = () => {
     const YANDEX_CLIENT_ID = "da7824d80cd5404ea931e62795edfebf";

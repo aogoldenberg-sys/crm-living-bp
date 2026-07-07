@@ -1,6 +1,6 @@
 import { useEffect } from "react";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { onAuthStateChanged } from "firebase/auth";
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from "react-router-dom";
+import { onAuthStateChanged, signInWithCustomToken } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "./firebase";
 import { useAuth } from "./auth/useAuth";
@@ -14,6 +14,39 @@ import { OnboardingFlow } from "./onboarding/OnboardingFlow";
 import { usePlanExists } from "./onboarding/usePlanExists";
 import { ServicesPage } from "./services/ServicesPage";
 import { BusinessPage } from "./features/revision/BusinessPage";
+
+// Обрабатывает #yandex_token= на ЛЮБОМ роуте — Worker редиректит на /crm_life/
+function YandexAuthHandler() {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (!hash.includes("yandex_token=")) return;
+
+    const params = new URLSearchParams(hash.slice(1));
+    const token = params.get("yandex_token");
+    if (!token) return;
+
+    // Проверка exp до обращения к Firebase
+    try {
+      const payload = JSON.parse(atob(token.split(".")[1] ?? ""));
+      if (typeof payload.exp === "number" && payload.exp * 1000 < Date.now()) {
+        window.history.replaceState(null, "", window.location.pathname);
+        navigate("/login", { state: { error: "Ссылка для входа через Яндекс устарела. Войдите ещё раз." } });
+        return;
+      }
+    } catch { /* невалидный JWT — Firebase вернёт ошибку */ }
+
+    window.history.replaceState(null, "", window.location.pathname);
+
+    signInWithCustomToken(auth, token)
+      .then(() => navigate("/dashboard", { replace: true }))
+      .catch(() => navigate("/login", { state: { error: "Ошибка входа через Яндекс. Попробуйте ещё раз." }, replace: true }));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return null;
+}
 
 function DashboardOrOnboarding() {
   const { user, businessId } = useAuth();
@@ -87,6 +120,7 @@ export default function App() {
 
   return (
     <BrowserRouter basename={import.meta.env.BASE_URL.slice(0, -1)}>
+      <YandexAuthHandler />
       <Routes>
         {/* Лендинг — всегда доступен */}
         <Route path="/" element={<LandingPage />} />
