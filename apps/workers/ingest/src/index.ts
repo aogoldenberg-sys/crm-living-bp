@@ -647,13 +647,12 @@ async function handleRegister(request: Request, env: Env): Promise<Response> {
   }
 
   // Idempotent: if users/{uid} already exists, return existing businessId
-  let userDoc: Awaited<ReturnType<typeof db.collection extends (...args: unknown[]) => infer R ? R : never>>;
+  let userDoc;
   try {
     userDoc = await db.collection("users").doc(uid).get();
   } catch (e) {
     const detail = e instanceof Error ? e.message : String(e);
     console.error("[register] GET users/%s threw:", uid, detail);
-    // РЕШЕНИЕ: expose detail in response so we can diagnose from Network tab
     return jsonCors({ error: "Ошибка чтения пользователя из БД", detail }, 500);
   }
 
