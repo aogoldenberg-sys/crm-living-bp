@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import { doc, getDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import type { Entitlements } from "@crm/schemas";
 
@@ -22,14 +22,8 @@ export function useEntitlements(businessId: string | null) {
         if (snap.exists()) {
           setData(snap.data() as Entitlements);
         } else {
-          // First-time: create defaults
-          const init: Entitlements = {
-            ...DEFAULT,
-            businessId,
-            updatedAt: new Date().toISOString() as `${string}T${string}Z`,
-          };
-          void setDoc(ref, init);
-          setData(init);
+          // Doc not yet created by Worker — use in-memory defaults (no client writes per arch rules)
+          setData({ ...DEFAULT, businessId, updatedAt: new Date().toISOString() as `${string}T${string}Z` });
         }
       })
       .finally(() => setLoading(false));

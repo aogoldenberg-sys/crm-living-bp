@@ -1,6 +1,8 @@
 import { useState } from "react";
-import { computePnL, computeCashFlow } from "@crm/core";
+import * as XLSX from "xlsx";
+import { computePnL, computeCashFlow, computeMgmtBalance } from "@crm/core";
 import { useBusinessEvents } from "./useBusinessEvents";
+import "./MgmtReports.print.css";
 
 interface Props {
   businessId: string;
@@ -19,6 +21,13 @@ function downloadCsv(rows: string[][], filename: string) {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+function downloadXlsx(sheetData: unknown[][], filename: string) {
+  const ws = XLSX.utils.aoa_to_sheet(sheetData);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Отчёт");
+  XLSX.writeFile(wb, filename);
 }
 
 function fmtRub(kop: number): string {
@@ -50,15 +59,15 @@ function PnLView({ businessId, events }: { businessId: string; events: Parameter
     const headers = ["Месяц", "Выручка", "Себест.", "Вал. прибыль", "OpEx", "EBITDA", "Чист. прибыль"];
     const data = rows.map((r) => [
       fmtMonth(r.month),
-      String(r.revenue / 100),
-      String(r.cogs / 100),
-      String(r.grossProfit / 100),
-      String(r.opex / 100),
-      String(r.ebitda / 100),
-      String(r.netProfit / 100),
+      r.revenue / 100,
+      r.cogs / 100,
+      r.grossProfit / 100,
+      r.opex / 100,
+      r.ebitda / 100,
+      r.netProfit / 100,
     ]);
-    data.push(["ИТОГО", String(totalRevenue / 100), "", "", "", "", String(totalNetProfit / 100)]);
-    downloadCsv([headers, ...data], `П_и_Л_${YEAR}.csv`);
+    data.push(["ИТОГО", totalRevenue / 100, "", "", "", "", totalNetProfit / 100]);
+    downloadXlsx([headers, ...data], `П_и_Л_${YEAR}.xlsx`);
   }
 
   return (
@@ -70,7 +79,7 @@ function PnLView({ businessId, events }: { businessId: string; events: Parameter
           <span style={{ margin: "0 12px", fontSize: 13, color: "#8B7355" }}>Чист. прибыль: </span>
           <strong style={{ color: totalNetProfit >= 0 ? "#1A6B32" : "#B91C1C" }}>{fmtRub(totalNetProfit)}</strong>
         </div>
-        <button onClick={handleDownload} style={dlBtnStyle}>📥 CSV (Excel)</button>
+        <button onClick={handleDownload} style={dlBtnStyle}>📥 XLSX</button>
       </div>
       <div style={{ overflowX: "auto" }}>
         <table style={tableStyle}>
@@ -118,19 +127,19 @@ function CashFlowView({ businessId, events }: { businessId: string; events: Para
     const headers = ["Месяц", "Опер. CF", "Инвест. CF", "Финанс. CF", "Чист. CF", "Баланс"];
     const data = rows.map((r) => [
       fmtMonth(r.month),
-      String(r.operatingCf / 100),
-      String(r.investingCf / 100),
-      String(r.financingCf / 100),
-      String(r.netCf / 100),
-      String(r.endBalance / 100),
+      r.operatingCf / 100,
+      r.investingCf / 100,
+      r.financingCf / 100,
+      r.netCf / 100,
+      r.endBalance / 100,
     ]);
-    downloadCsv([headers, ...data], `CashFlow_${YEAR}.csv`);
+    downloadXlsx([headers, ...data], `CashFlow_${YEAR}.xlsx`);
   }
 
   return (
     <>
       <div style={{ textAlign: "right", marginBottom: 12 }}>
-        <button onClick={handleDownload} style={dlBtnStyle}>📥 CSV (Excel)</button>
+        <button onClick={handleDownload} style={dlBtnStyle}>📥 XLSX</button>
       </div>
       <div style={{ overflowX: "auto" }}>
         <table style={tableStyle}>
@@ -160,11 +169,12 @@ function CashFlowView({ businessId, events }: { businessId: string; events: Para
 }
 
 function BalanceView({ events }: { events: Parameters<typeof computePnL>[0] }) {
-  // Упрощённый баланс: только кассовая позиция из событий
-  const payments = events.filter((e) => e.type === "payment_in" || e.type === "payment_out") as
-    Array<Extract<(typeof events)[0], { type: "payment_in" | "payment_out" }>>;
+  const asOfIso = new Date().toISOString();
+  const bal = computeMgmtBalance(events, asOfIso);
+  const asOf = new Date().toLocaleDateString("ru-RU");
 
-  if (payments.length === 0) {
+  const hasPayments = events.some((e) => e.type === "payment_in" || e.type === "payment_out");
+  if (!hasPayments) {
     return (
       <p style={{ color: "#8B7355", fontSize: 13, margin: "24px 0" }}>
         Нет платёжных событий. Загрузите банковскую выписку через Дашборд.
@@ -172,58 +182,54 @@ function BalanceView({ events }: { events: Parameters<typeof computePnL>[0] }) {
     );
   }
 
-  let cash = 0;
-  for (const e of payments) {
-    cash += e.type === "payment_in" ? e.amount : -e.amount;
-  }
-
-  const asOf = new Date().toLocaleDateString("ru-RU");
-
   function handleDownload() {
-    downloadCsv(
+    downloadXlsx(
       [
         ["Управленческий баланс (упрощённый)", `на ${asOf}`],
         [],
-        ["АКТИВЫ", ""],
-        ["Денежные средства", String(cash / 100)],
-        ["Дебиторская задолженность", "0"],
-        ["Запасы", "0"],
-        ["Итого активы", String(Math.max(cash, 0) / 100)],
-        [],
-        ["ПАССИВЫ", ""],
-        ["Кредиторская задолженность", "0"],
-        ["Займы", "0"],
-        ["Итого обязательства", "0"],
-        [],
-        ["Собственный капитал", String(Math.max(cash, 0) / 100)],
+        ["Показатель", "Сумма (руб.)"],
+        ["Денежные средства", bal.cash / 100],
+        ["Дебиторская задолженность", bal.ar / 100],
+        ["Кредиторская задолженность", bal.ap / 100],
+        ["Собственный капитал", bal.equity / 100],
       ],
-      `Баланс_${asOf.replace(/\./g, "-")}.csv`,
+      `Баланс_${asOf.replace(/\./g, "-")}.xlsx`,
     );
   }
+
+  const rows = [
+    { label: "Денежные средства", value: bal.cash },
+    { label: "Дебиторская задолж.", value: bal.ar },
+    { label: "Кредиторская задолж.", value: bal.ap },
+    { label: "Собственный капитал", value: bal.equity },
+  ];
 
   return (
     <>
       <div style={{ textAlign: "right", marginBottom: 12 }}>
-        <button onClick={handleDownload} style={dlBtnStyle}>📥 CSV (Excel)</button>
+        <button onClick={handleDownload} style={dlBtnStyle}>📥 XLSX</button>
       </div>
       <p style={{ fontSize: 12, color: "#8B7355", margin: "0 0 16px" }}>
-        Упрощённый баланс — только кассовая позиция по событиям лога. Данные на {asOf}.
+        Упрощённый баланс — кассовая позиция по событиям лога. Данные на {asOf}.
       </p>
-      <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-        {[
-          { label: "Денежные средства", value: cash, color: cash >= 0 ? "#1A6B32" : "#B91C1C" },
-          { label: "Дебиторская задолж.", value: 0, color: "#8B7355" },
-          { label: "Кредиторская задолж.", value: 0, color: "#8B7355" },
-          { label: "Собственный капитал", value: Math.max(cash, 0), color: "#1A6B32" },
-        ].map(({ label, value, color }) => (
-          <div key={label} style={{
-            background: "rgba(255,255,255,0.8)", border: "1px solid rgba(200,160,60,0.2)",
-            borderRadius: 10, padding: "16px 20px", minWidth: 180, flex: 1,
-          }}>
-            <p style={{ margin: "0 0 4px", fontSize: 12, color: "#8B7355" }}>{label}</p>
-            <p style={{ margin: 0, fontSize: 18, fontWeight: 700, color }}>{fmtRub(value)}</p>
-          </div>
-        ))}
+      <div style={{ overflowX: "auto" }}>
+        <table style={tableStyle}>
+          <thead>
+            <tr>
+              {["Показатель", "Сумма"].map((h) => <th key={h} style={thStyle}>{h}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(({ label, value }) => (
+              <tr key={label}>
+                <td style={tdStyle}>{label}</td>
+                <td style={{ ...tdStyle, fontWeight: 600, color: value < 0 ? "#B91C1C" : "#1A1814" }}>
+                  {fmtRub(value)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </>
   );

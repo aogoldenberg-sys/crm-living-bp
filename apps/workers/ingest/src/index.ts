@@ -651,8 +651,10 @@ async function handleRegister(request: Request, env: Env): Promise<Response> {
   try {
     userDoc = await db.collection("users").doc(uid).get();
   } catch (e) {
-    console.error("[register] GET users/%s threw:", uid, e instanceof Error ? e.message : String(e));
-    return jsonCors({ error: "Ошибка чтения пользователя из БД" }, 500);
+    const detail = e instanceof Error ? e.message : String(e);
+    console.error("[register] GET users/%s threw:", uid, detail);
+    // РЕШЕНИЕ: expose detail in response so we can diagnose from Network tab
+    return jsonCors({ error: "Ошибка чтения пользователя из БД", detail }, 500);
   }
 
   if (userDoc.exists) {

@@ -111,7 +111,9 @@ export function OnboardingFlow() {
   // stage === "empty"
   return (
     <EmptyState
-      onBusiness={() => setStage("upload")}
+      onNoplan={() => setStage("questionnaire")}
+      onUpload={() => setStage("upload")}
+      onBusiness={() => navigate("/business")}
       onReporting={() => navigate("/services?tab=tax")}
       onCompliance={() => navigate("/services?tab=compliance")}
     />

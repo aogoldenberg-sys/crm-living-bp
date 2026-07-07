@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { computePnL } from "./pnl.js";
 import { computeCashFlow } from "./cashflow.js";
+import { computeMgmtBalance } from "./balance.js";
 import type { BusinessEvent } from "@crm/schemas";
 
 const NOW = "2026-07-01T00:00:00Z";
@@ -168,5 +169,74 @@ describe("computeCashFlow", () => {
     if (!result.ok) return;
     const may = result.value.rows[0]!;
     expect(may.financingCf).toBe(200_000_00 - 10_000_00);
+  });
+});
+
+// Синтетические данные 12 месяцев 2026
+const MONTHLY_IN  = [90, 110, 85, 120, 95, 130, 100, 75, 140, 105, 115, 160].map((v) => v * 1_000_00);
+const MONTHLY_OUT = [40,  50, 35,  60, 45,  55,  50, 30,  70,  45,  55,  80].map((v) => v * 1_000_00);
+
+const MONTHS_2026 = [
+  "2026-01", "2026-02", "2026-03", "2026-04", "2026-05", "2026-06",
+  "2026-07", "2026-08", "2026-09", "2026-10", "2026-11", "2026-12",
+];
+
+function mk12Events(): BusinessEvent[] {
+  const evts: BusinessEvent[] = [];
+  for (let i = 0; i < 12; i++) {
+    evts.push(mkIn(`y${i}i`, `${MONTHS_2026[i]}-10`, MONTHLY_IN[i]!));
+    evts.push(mkOut(`y${i}o`, `${MONTHS_2026[i]}-20`, MONTHLY_OUT[i]!));
+  }
+  return evts;
+}
+
+describe("computeMgmtBalance — 12 месяцев синтетики", () => {
+  const events = mk12Events();
+  const totalIn  = MONTHLY_IN.reduce((s, v) => s + v, 0);
+  const totalOut = MONTHLY_OUT.reduce((s, v) => s + v, 0);
+
+  it("cash = сумма всех payment_in − payment_out", () => {
+    const bal = computeMgmtBalance(events, NOW);
+    expect(bal.cash).toBe(totalIn - totalOut);
+  });
+
+  it("ar = 0 (нет invoice_issued в схеме)", () => {
+    const bal = computeMgmtBalance(events, NOW);
+    expect(bal.ar).toBe(0);
+  });
+
+  it("ap = 0 (нет события кредиторки)", () => {
+    const bal = computeMgmtBalance(events, NOW);
+    expect(bal.ap).toBe(0);
+  });
+
+  it("equity = cash + ar - ap", () => {
+    const bal = computeMgmtBalance(events, NOW);
+    expect(bal.equity).toBe(bal.cash + bal.ar - bal.ap);
+  });
+
+  it("asOf передаётся без изменений", () => {
+    const bal = computeMgmtBalance(events, NOW);
+    expect(bal.asOf).toBe(NOW);
+  });
+
+  it("пустой массив → cash = 0, equity = 0", () => {
+    const bal = computeMgmtBalance([], NOW);
+    expect(bal.cash).toBe(0);
+    expect(bal.equity).toBe(0);
+  });
+
+  it("только payment_in → cash положительный", () => {
+    const onlyIn = events.filter((e) => e.type === "payment_in");
+    const bal = computeMgmtBalance(onlyIn, NOW);
+    expect(bal.cash).toBe(totalIn);
+    expect(bal.cash).toBeGreaterThan(0);
+  });
+
+  it("только payment_out → cash отрицательный", () => {
+    const onlyOut = events.filter((e) => e.type === "payment_out");
+    const bal = computeMgmtBalance(onlyOut, NOW);
+    expect(bal.cash).toBe(-totalOut);
+    expect(bal.cash).toBeLessThan(0);
   });
 });

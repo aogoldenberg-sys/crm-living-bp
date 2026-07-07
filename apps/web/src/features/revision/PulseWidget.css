@@ -1,0 +1,23 @@
+.pulse-widget {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.pulse-item {
+  flex: 1;
+  min-width: 160px;
+  background: rgba(255,255,255,0.8);
+  border: 1px solid rgba(200,160,60,0.25);
+  border-radius: 12px;
+  padding: 16px 20px;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.pulse-item:hover { border-color: rgba(200,160,60,0.5); }
+.pulse-label { margin: 0 0 4px; font-size: 12px; color: #8B7355; }
+.pulse-value { margin: 0; font-size: 20px; font-weight: 700; color: #1A1814; }
+.pulse-gap { margin: 4px 0 0; font-size: 11px; color: #B91C1C; }
+.pulse-flag { margin: 2px 0 0; font-size: 11px; color: #B91C1C; }

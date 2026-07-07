@@ -51,12 +51,26 @@ export function UploadPlanButton({ onSuccess }: UploadPlanButtonProps = {}) {
   const [status, setStatus] = useState<Status>("idle");
   const [message, setMessage] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [progress, setProgress] = useState<string | null>(null);
 
   const upload = useCallback(
     async (file: File) => {
       setFileName(file.name);
       setStatus("uploading");
       setMessage(null);
+      setProgress("Загружаем документ...");
+
+      const PROGRESS_STEPS = [
+        "Загружаем документ...",
+        "Анализируем структуру...",
+        "Маппинг разделов...",
+        "Финальная проверка...",
+      ];
+      let step = 0;
+      const progressInterval = setInterval(() => {
+        step = Math.min(step + 1, PROGRESS_STEPS.length - 1);
+        setProgress(PROGRESS_STEPS[step]!);
+      }, 2000);
 
       try {
         const user = auth.currentUser;
@@ -79,7 +93,10 @@ export function UploadPlanButton({ onSuccess }: UploadPlanButtonProps = {}) {
         const data = (await res.json().catch(() => ({}))) as { error?: string; details?: unknown };
         if (!res.ok) {
           console.error("[upload-plan] server error:", res.status, data);
-          throw new Error(data.error ?? `Сервер вернул ${res.status}`);
+          const errorText = data.error === "Email not verified"
+            ? "Подтвердите email — письмо было отправлено при регистрации. После подтверждения обновите страницу."
+            : data.error ?? `Сервер вернул ${res.status}`;
+          throw new Error(errorText);
         }
 
         setStatus("done");
@@ -89,6 +106,9 @@ export function UploadPlanButton({ onSuccess }: UploadPlanButtonProps = {}) {
         console.error("[upload-plan] upload failed:", e);
         setStatus("error");
         setMessage(e instanceof Error ? e.message : "Неизвестная ошибка загрузки");
+      } finally {
+        clearInterval(progressInterval);
+        setProgress(null);
       }
     },
     [],
@@ -162,6 +182,8 @@ export function UploadPlanButton({ onSuccess }: UploadPlanButtonProps = {}) {
       <p className="upload-plan-hint">
         PDF, Word, Excel, текст — перетащите или выберите
       </p>
+
+      {progress && <p className="upload-plan-hint">{progress}</p>}
 
       {message && (
         <p

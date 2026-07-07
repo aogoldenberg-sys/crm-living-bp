@@ -45,9 +45,10 @@ async function ensureBusinessId(user: import("firebase/auth").User): Promise<str
 export type UserRole = "owner" | "manager";
 
 interface AuthState {
+  /** true until first onAuthStateChanged fires — used to block routes from rendering prematurely */
+  authReady: boolean;
   businessId: string | null;
   user: User | null;
-  /** Роль пользователя из кастомного claim токена. null = владелец (default). */
   role: UserRole | null;
   login: (email: string, password: string) => Promise<void>;
   loginWithGoogle: () => Promise<void>;
@@ -57,15 +58,15 @@ interface AuthState {
 }
 
 export const useAuth = create<AuthState>((set) => ({
+  authReady: false,
   businessId: null,
   user: null,
   role: null,
 
   login: async (email: string, password: string) => {
     const cred = await signInWithEmailAndPassword(auth, email, password);
-    // /register idempotent: returns existing businessId or creates one on first login
     const businessId = await ensureBusinessId(cred.user);
-    set({ user: cred.user, businessId, role: null });
+    set({ authReady: true, user: cred.user, businessId, role: null });
   },
 
   loginWithGoogle: async () => {
@@ -76,7 +77,6 @@ export const useAuth = create<AuthState>((set) => ({
     } catch (popupErr) {
       const code = (popupErr as { code?: string }).code ?? "";
       console.error("[loginWithGoogle] popup error:", code, popupErr);
-      // Popup заблокирован браузером или отклонён — fallback на redirect
       if (
         code === "auth/popup-blocked" ||
         code === "auth/popup-closed-by-user" ||
@@ -84,9 +84,9 @@ export const useAuth = create<AuthState>((set) => ({
       ) {
         console.info("[loginWithGoogle] falling back to signInWithRedirect");
         await signInWithRedirect(auth, provider);
-        return; // redirect — страница перезагрузится, onAuthStateChanged подхватит
+        return;
       }
-      throw popupErr; // прочие ошибки пробрасываем наверх
+      throw popupErr;
     }
   },
 
@@ -94,13 +94,14 @@ export const useAuth = create<AuthState>((set) => ({
     const cred = await createUserWithEmailAndPassword(auth, email, password);
     await sendEmailVerification(cred.user).catch(() => { /* не критично */ });
     const businessId = await ensureBusinessId(cred.user);
-    set({ user: cred.user, businessId, role: null });
+    set({ authReady: true, user: cred.user, businessId, role: null });
   },
 
   logout: async () => {
     await signOut(auth);
-    set({ user: null, businessId: null, role: null });
+    set({ authReady: true, user: null, businessId: null, role: null });
   },
 
-  _setUser: (user, businessId, role = null) => set({ user, businessId, role }),
+  // Called by onAuthStateChanged — always marks authReady=true after first call
+  _setUser: (user, businessId, role = null) => set({ authReady: true, user, businessId, role }),
 }));

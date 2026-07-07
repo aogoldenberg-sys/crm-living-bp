@@ -89,3 +89,44 @@ export async function assessPlan(
 
   return ok(validated.data);
 }
+
+/**
+ * Оценка конкретного раздела бизнес-плана.
+ * Возвращает strengths/concerns/gaps для одного sectionId.
+ */
+export async function assessSection(
+  client: AnthropicClient,
+  sectionId: string,
+  sectionText: string,
+): Promise<{ strengths: string[]; concerns: string[]; gaps: string[] }> {
+  let responseText: string;
+  try {
+    const message = await client.messages.create({
+      model: "claude-3-5-haiku-latest",
+      max_tokens: 1024,
+      system: `Ты — аналитик бизнес-планов. Оцени раздел "${sectionId}".
+Верни JSON: { "strengths": [...], "concerns": [...], "gaps": [...] }
+Только валидный JSON без markdown-обёрток.`,
+      messages: [{ role: "user", content: sectionText }],
+    });
+
+    const firstBlock = message.content[0];
+    if (!firstBlock || firstBlock.type !== "text") {
+      return { strengths: [], concerns: [], gaps: [] };
+    }
+    responseText = firstBlock.text;
+  } catch {
+    return { strengths: [], concerns: [], gaps: [] };
+  }
+
+  try {
+    const parsed = JSON.parse(responseText) as { strengths?: string[]; concerns?: string[]; gaps?: string[] };
+    return {
+      strengths: Array.isArray(parsed.strengths) ? parsed.strengths : [],
+      concerns: Array.isArray(parsed.concerns) ? parsed.concerns : [],
+      gaps: Array.isArray(parsed.gaps) ? parsed.gaps : [],
+    };
+  } catch {
+    return { strengths: [], concerns: [], gaps: [] };
+  }
+}

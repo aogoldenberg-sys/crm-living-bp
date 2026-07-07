@@ -1,0 +1,70 @@
+.business-page {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.bp-build-cta {
+  background: linear-gradient(135deg, rgba(200,160,60,0.15), rgba(200,160,60,0.05));
+  border: 1px solid rgba(200,160,60,0.4);
+  border-radius: 12px;
+  padding: 16px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 16px 0;
+}
+
+.bp-btn-primary {
+  padding: 10px 20px;
+  background: linear-gradient(135deg, #C89A34, #E4C260);
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  color: #4A3208;
+  cursor: pointer;
+}
+
+.bp-sections {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.bp-section-card {
+  background: rgba(255,255,255,0.7);
+  border: 1px solid rgba(200,160,60,0.2);
+  border-radius: 10px;
+  padding: 14px 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transition: border-color 0.2s;
+}
+
+.bp-section-card:hover {
+  border-color: rgba(200,160,60,0.5);
+}
+
+.bp-section-card--live {
+  border-color: rgba(200,160,60,0.4);
+}
+
+.bp-section-card--empty {
+  opacity: 0.65;
+}
+
+.bp-section-icon { font-size: 18px; flex-shrink: 0; }
+.bp-section-title { font-size: 13px; font-weight: 500; color: #1A1814; flex: 1; }
+.bp-section-dot--gold {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: #C89A34;
+  flex-shrink: 0;
+}
+.bp-section-cta {
+  font-size: 11px;
+  color: #8B7355;
+}

@@ -13,18 +13,20 @@ import { PlanSectionPage } from "./plan/PlanSectionPage";
 import { OnboardingFlow } from "./onboarding/OnboardingFlow";
 import { usePlanExists } from "./onboarding/usePlanExists";
 import { ServicesPage } from "./services/ServicesPage";
+import { BusinessPage } from "./features/revision/BusinessPage";
 
 function DashboardOrOnboarding() {
   const { user, businessId } = useAuth();
   const { loading, exists } = usePlanExists(businessId);
   if (!user) return <Navigate to="/login" replace />;
-  if (loading) return <div className="loading-screen">Загрузка...</div>;
+  // Wait until businessId is resolved AND plan check completes before deciding
+  if (!businessId || loading) return <div className="loading-screen">Загрузка...</div>;
   if (!exists) return <Navigate to="/onboarding" replace />;
   return <Dashboard />;
 }
 
 export default function App() {
-  const { user, _setUser } = useAuth();
+  const { user, authReady, _setUser } = useAuth();
 
   useEffect(() => {
     const workerUrl = import.meta.env.VITE_INGEST_WORKER_URL as string;
@@ -60,16 +62,28 @@ export default function App() {
               const data = (await res.json()) as { businessId?: string };
               businessId = data.businessId;
             }
-          } catch { /* ignore — use uid fallback */ }
+          } catch { /* ignore */ }
         }
 
-        _setUser(firebaseUser, businessId ?? firebaseUser.uid, role);
+        // 4. Preserve existing good businessId on token refresh — don't regress to uid
+        const currentStored = useAuth.getState().businessId;
+        const resolved = businessId
+          ?? (currentStored && currentStored !== firebaseUser.uid ? currentStored : undefined)
+          ?? firebaseUser.uid;
+
+        _setUser(firebaseUser, resolved, role);
       } else {
         _setUser(null, null, null);
       }
     });
     return () => unsubscribe();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [_setUser]);
+
+  // Block all route rendering until Firebase auth state is settled
+  if (!authReady) {
+    return <div className="loading-screen">Загрузка...</div>;
+  }
 
   return (
     <BrowserRouter basename={import.meta.env.BASE_URL.slice(0, -1)}>
@@ -94,6 +108,12 @@ export default function App() {
         <Route
           path="/onboarding/questionnaire"
           element={user ? <OnboardingFlow /> : <Navigate to="/login" replace />}
+        />
+
+        {/* Книга живого бизнеса */}
+        <Route
+          path="/business"
+          element={user ? <BusinessPage /> : <Navigate to="/login" replace />}
         />
 
         {/* Дашборд — проверяет наличие плана, иначе редирект на онбординг */}

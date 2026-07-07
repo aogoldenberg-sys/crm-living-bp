@@ -1,0 +1,9 @@
+@media print {
+  /* Скрыть кнопки, навигацию */
+  button { display: none !important; }
+  /* Таблицы — чёрно-белые */
+  table { border-collapse: collapse; }
+  th, td { border: 1px solid #000; padding: 4px 8px; color: #000 !important; }
+  /* Показать URL */
+  @page { margin: 1.5cm; }
+}

@@ -1,12 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "./useAuth";
 import "./RegisterPage.css";
 
 export function RegisterPage() {
   const register = useAuth((s) => s.register);
-  const logout = useAuth((s) => s.logout);
-  const user = useAuth((s) => s.user);
   const navigate = useNavigate();
 
   const [email, setEmail] = useState("");
@@ -15,13 +13,11 @@ export function RegisterPage() {
   const [showPwd, setShowPwd] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [registered, setRegistered] = useState(false);
 
-  // Если пришли с живой сессией — выходим, чтобы зарегистрировать новый аккаунт
-  useEffect(() => {
-    if (user) {
-      void logout();
-    }
-  }, [user, logout]);
+  // Prevent the old "logout if user exists" pattern — we no longer need it.
+  // After register() the store sets user, but we handle navigation ourselves.
+  const didRegisterRef = useRef(false);
 
   const mapFirebaseError = (code: string, fallback: string): string => {
     switch (code) {
@@ -50,9 +46,11 @@ export function RegisterPage() {
 
     setLoading(true);
     try {
+      didRegisterRef.current = true;
       await register(email.trim(), password);
-      navigate("/dashboard");
+      setRegistered(true);
     } catch (err) {
+      didRegisterRef.current = false;
       const code = (err as { code?: string }).code ?? "";
       const message = err instanceof Error ? err.message : "Ошибка регистрации";
       setError(mapFirebaseError(code, message));
@@ -60,6 +58,39 @@ export function RegisterPage() {
       setLoading(false);
     }
   };
+
+  if (registered) {
+    return (
+      <div className="register-page">
+        <Link to="/" className="register-brand" aria-label="На главную">
+          <img src={import.meta.env.BASE_URL + "logo-badge.png"} className="brand-logo-img" alt="" aria-hidden="true" style={{width:88,height:88,objectFit:'contain'}} />
+          <span>Kairos</span>
+        </Link>
+
+        <div className="register-card verify-card">
+          <div className="verify-icon" aria-hidden="true">✉️</div>
+          <h1 className="register-heading">Подтвердите email</h1>
+          <p className="register-hint">
+            Письмо со ссылкой для подтверждения отправлено на<br />
+            <strong className="verify-email">{email}</strong>
+          </p>
+          <p className="verify-note">
+            Перейдите по ссылке из письма, затем войдите в аккаунт.
+          </p>
+          <button
+            type="button"
+            className="lf-submit"
+            onClick={() => navigate("/login")}
+          >
+            Перейти ко входу
+          </button>
+          <p className="register-footer" style={{marginTop: 'var(--space-4)'}}>
+            Письмо не пришло? Проверьте папку «Спам».
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="register-page">

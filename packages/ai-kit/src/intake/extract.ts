@@ -2,6 +2,7 @@ import type { AnthropicClient } from "../client.js";
 import type { ExtractedPlan } from "@crm/core";
 import { type Result, ok, err } from "@crm/core";
 import { ExtractedPlanSchema } from "./schemas.js";
+import { mapDocumentToSections } from "./rule-mapper.js";
 
 // Prompt inlined — CF Workers don't support readFileSync / import.meta.url
 const SYSTEM_PROMPT = `Ты — аналитик бизнес-планов. Тебе дан текст документа.
@@ -119,4 +120,52 @@ export async function extractPlan(
   };
 
   return ok(result);
+}
+
+// Разделы, обязательные для полноценного бизнес-плана
+const REQUIRED_SECTIONS = ["executive_summary", "finances", "market_size", "team", "risks"] as const;
+
+/**
+ * Двухэтапный экстрактор:
+ * 1. Rule-based: быстро раскидывает страницы по разделам без токенов Claude
+ * 2. Claude: только для обязательных разделов, которые rule-base не нашёл
+ *
+ * pages — массив {pageNum, text} из парсера PDF/XLSX
+ */
+export async function extractPlanWithRuleBase(
+  client: AnthropicClient,
+  businessId: string,
+  pages: Array<{ pageNum: number; text: string }>,
+  onProgress?: (msg: string) => void,
+): Promise<Result<ExtractedPlan>> {
+  onProgress?.(`Анализируем структуру документа (${pages.length} страниц)...`);
+  const ruleResult = mapDocumentToSections(pages);
+
+  const rawSections: ExtractedPlan["rawSections"] = {};
+  const coveredSections = new Set<string>();
+
+  for (const [sectionId, data] of ruleResult.entries()) {
+    rawSections[sectionId] = { text: data.text.slice(0, 2000), confidence: data.confidence };
+    coveredSections.add(sectionId);
+    onProgress?.(`Раздел "${sectionId}" найден на стр. ${data.pages.join(", ")} ✓`);
+  }
+
+  const missing = REQUIRED_SECTIONS.filter(s => !coveredSections.has(s));
+
+  if (missing.length > 0) {
+    onProgress?.(`Claude анализирует непокрытые разделы: ${missing.join(", ")}...`);
+    const fullText = pages.map(p => `[Стр. ${p.pageNum}]\n${p.text}`).join("\n\n");
+    const claudeResult = await extractPlan(client, businessId, fullText);
+
+    if (claudeResult.ok) {
+      for (const [sectionId, data] of Object.entries(claudeResult.value.rawSections)) {
+        if (!coveredSections.has(sectionId)) {
+          rawSections[sectionId] = { ...data, confidence: data.confidence * 0.9 };
+        }
+      }
+      return ok({ businessId, rawSections, assumptions: claudeResult.value.assumptions });
+    }
+  }
+
+  return ok({ businessId, rawSections, assumptions: {} });
 }

@@ -1,4 +1,5 @@
 import type { PlanIntake, AssumptionEntry } from "./useIntake";
+import { useNavigate } from "react-router-dom";
 
 interface Props {
   intake: PlanIntake | null | undefined;
@@ -7,6 +8,8 @@ interface Props {
 // Русские названия разделов бизнес-плана (для пробелов).
 const SECTION_LABELS: Record<string, string> = {
   executive_summary: "Резюме",
+  finances: "Финансы",
+  market_size: "Объём рынка",
   market_analysis: "Анализ рынка",
   target_audience: "Целевая аудитория",
   product_service: "Продукт / услуга",
@@ -99,8 +102,13 @@ export function IntakePanel({ intake }: Props) {
     );
   }
 
+  const navigate = useNavigate();
   const { assessment, disclaimer, narrativeReady } = intake;
   const assumptions = Object.values(assessment.assumptionsExtracted ?? {});
+
+  const REQUIRED_SECTIONS = ["executive_summary", "finances", "market_size", "team", "risks"];
+  const coveredIds = new Set(intake.mappedSections.filter(s => s.present).map(s => s.sectionId));
+  const gaps = REQUIRED_SECTIONS.filter(s => !coveredIds.has(s));
 
   return (
     <div className="panel" style={{ overflow: "auto", maxHeight: 480 }}>
@@ -169,6 +177,27 @@ export function IntakePanel({ intake }: Props) {
               </li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {/* Gaps CTA — обязательные разделы, не найденные в документе */}
+      {gaps.length > 0 && (
+        <div className="intake-section">
+          <p className="intake-section-title">Недостающие разделы</p>
+          {gaps.map(gap => (
+            <div key={gap} className="gap-cta" style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+              <span style={{ fontSize: 13, color: "var(--gray)" }}>
+                Раздел «{sectionLabel(gap)}» не найден.
+              </span>
+              <button
+                type="button"
+                onClick={() => void navigate("/onboarding/questionnaire")}
+                style={{ fontSize: 12, padding: "2px 8px", cursor: "pointer" }}
+              >
+                Дописать через вопросы?
+              </button>
+            </div>
+          ))}
         </div>
       )}
 
