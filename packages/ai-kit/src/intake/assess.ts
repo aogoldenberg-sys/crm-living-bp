@@ -51,7 +51,7 @@ export async function assessPlan(
   let responseText: string;
   try {
     const message = await client.messages.create({
-      model: "claude-3-5-haiku-latest",
+      model: "claude-haiku-4-5-20251001",
       max_tokens: 4096,
       system: systemPrompt,
       messages: [
@@ -102,7 +102,7 @@ export async function assessSection(
   let responseText: string;
   try {
     const message = await client.messages.create({
-      model: "claude-3-5-haiku-latest",
+      model: "claude-haiku-4-5-20251001",
       max_tokens: 1024,
       system: `Ты — аналитик бизнес-планов. Оцени раздел "${sectionId}".
 Верни JSON: { "strengths": [...], "concerns": [...], "gaps": [...] }

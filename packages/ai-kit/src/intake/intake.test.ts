@@ -16,7 +16,7 @@ function makeMockClient(responseText: string): AnthropicClient {
         type: "message",
         role: "assistant",
         content: [{ type: "text", text: responseText }],
-        model: "claude-3-5-haiku-latest",
+        model: "claude-haiku-4-5-20251001",
         stop_reason: "end_turn",
         stop_sequence: null,
         usage: { input_tokens: 10, output_tokens: 10 },

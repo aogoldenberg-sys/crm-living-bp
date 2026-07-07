@@ -65,7 +65,7 @@ export async function draftResponse(
 
   try {
     const message = await client.messages.create({
-      model: "claude-3-5-sonnet-latest",
+      model: "claude-sonnet-4-6",
       max_tokens: 4096,
       system: DRAFT_SYSTEM_PROMPT,
       messages: [

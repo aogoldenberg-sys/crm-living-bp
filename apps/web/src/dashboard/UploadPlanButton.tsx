@@ -75,7 +75,7 @@ export function UploadPlanButton({ onSuccess }: UploadPlanButtonProps = {}) {
       try {
         const user = auth.currentUser;
         if (!user) throw new Error("Не авторизован — обновите страницу и войдите снова.");
-        const idToken = await user.getIdToken();
+        const idToken = await user.getIdToken(true); // force-refresh — иначе email_verified в claim устаревший
 
         const mime = resolveMime(file);
         const form = new FormData();

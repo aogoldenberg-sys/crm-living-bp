@@ -141,7 +141,7 @@ export async function generatePlan(
   const client = new Anthropic({ apiKey });
 
   const msg = await client.messages.create({
-    model: "claude-opus-4-5",
+    model: "claude-opus-4-6",
     max_tokens: 4096,
     system: SYSTEM_PROMPT,
     messages: [

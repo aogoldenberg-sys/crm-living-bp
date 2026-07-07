@@ -42,7 +42,7 @@ export async function extractDocsPages(
   let responseText: string;
   try {
     const msg = await client.messages.create({
-      model: "claude-3-5-haiku-latest",
+      model: "claude-haiku-4-5-20251001",
       max_tokens: 2048,
       system: EXTRACT_PROMPT_V1,
       messages: [{ role: "user", content: `Вид документа: ${docKind}\n\n${pagesText}` }],
