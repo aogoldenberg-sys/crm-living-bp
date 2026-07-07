@@ -1,0 +1,17 @@
+.ac-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
+.ac-card { background: rgba(255,255,255,.55); border: 1px solid rgba(200,180,120,.22); border-radius: 14px; padding: 16px 18px; backdrop-filter: blur(12px); }
+.ac-period { font-family: 'Cormorant Garamond', serif; font-size: 18px; font-weight: 600; color: #1A1814; margin-bottom: 12px; }
+.ac-row { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 8px; color: #5A4E3C; }
+.ac-row--profit { font-weight: 600; font-size: 14px; margin-top: 4px; }
+.ac-divider { height: 1px; background: rgba(160,130,60,.18); margin: 8px 0; }
+.ac-val--in  { color: #1A6B32; font-weight: 500; }
+.ac-val--out { color: #8B2E3C; font-weight: 500; }
+.ac-val--pos { color: #1A6B32; }
+.ac-val--neg { color: #8B2E3C; }
+.ac-empty { font-size: 14px; color: #8B7355; padding: 24px 0; }
+
+/* Print CSS */
+@media print {
+  .ac-card { break-inside: avoid; box-shadow: none; border: 1px solid #ddd; backdrop-filter: none; }
+  .ac-grid { grid-template-columns: repeat(3, 1fr); }
+}

@@ -27,6 +27,7 @@ import { RisksPanel } from "../panels/RisksPanel";
 import { AutonomyPanel } from "../panels/AutonomyPanel";
 import { ComplianceFlow } from "../features/compliance/ComplianceFlow.js";
 import { ReportingScreen } from "../features/reporting/ReportingScreen.js";
+import { AccountingCards } from "../features/accounting/AccountingCards.js";
 import { useEntitlements } from "../services/useEntitlements.js";
 import "./Dashboard.css";
 
@@ -440,7 +441,7 @@ export function Dashboard() {
           {view === "documents" && (
             <div className="k-body">
               {canReport
-                ? <ReportingScreen businessId={bid} />
+                ? <><ReportingScreen businessId={bid} /><AccountingCards /></>
                 : <LockedFeature title="Налоговая и управленческая отчётность" />}
             </div>
           )}
