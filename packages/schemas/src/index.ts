@@ -20,3 +20,4 @@ export * from "./knd/index.js";
 export * from "./tax.js";
 export * from "./mgmt.js";
 export * from "./entitlements.js";
+export * from "./revision/index.js";
