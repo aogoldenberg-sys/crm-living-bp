@@ -27,22 +27,42 @@ export default function App() {
   const { user, _setUser } = useAuth();
 
   useEffect(() => {
+    const workerUrl = import.meta.env.VITE_INGEST_WORKER_URL as string;
+
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
         const result = await firebaseUser.getIdTokenResult();
         const role = (result.claims["role"] as UserRole | undefined) ?? null;
-        // Prefer custom claim; if absent, resolve from Firestore users/{uid}
+
+        // 1. Check custom claim first
         let businessId = result.claims["businessId"] as string | undefined;
+
+        // 2. Firestore direct read
         if (!businessId) {
           try {
             const snap = await getDoc(doc(db, "users", firebaseUser.uid));
             if (snap.exists()) {
               businessId = (snap.data() as { businessId?: string }).businessId;
             }
-          } catch {
-            // ignore — fall through to uid fallback
-          }
+          } catch { /* ignore */ }
         }
+
+        // 3. Call /register (idempotent) — creates mapping for first-time Google OAuth users
+        if (!businessId) {
+          try {
+            const idToken = await firebaseUser.getIdToken();
+            const res = await fetch(`${workerUrl}/register`, {
+              method: "POST",
+              headers: { Authorization: `Bearer ${idToken}`, "Content-Type": "application/json" },
+              body: JSON.stringify({}),
+            });
+            if (res.ok) {
+              const data = (await res.json()) as { businessId?: string };
+              businessId = data.businessId;
+            }
+          } catch { /* ignore — use uid fallback */ }
+        }
+
         _setUser(firebaseUser, businessId ?? firebaseUser.uid, role);
       } else {
         _setUser(null, null, null);

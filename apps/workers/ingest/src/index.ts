@@ -626,39 +626,64 @@ async function handleRegister(request: Request, env: Env): Promise<Response> {
   if (!idToken) return jsonCors({ error: "Missing token" }, 401);
 
   const projectId = env.FIREBASE_PROJECT_ID || "crm-living-bp";
-  const claims = await verifyFirebaseIdToken(idToken, projectId);
+
+  let claims: Awaited<ReturnType<typeof verifyFirebaseIdToken>>;
+  try {
+    claims = await verifyFirebaseIdToken(idToken, projectId);
+  } catch (e) {
+    console.error("[register] verifyToken threw:", e instanceof Error ? e.message : String(e));
+    return jsonCors({ error: "Ошибка верификации токена" }, 500);
+  }
   if (!claims) return jsonCors({ error: "Invalid token" }, 401);
 
   const uid = claims.uid;
-  const db = createFirestoreRestClient(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+
+  let db: ReturnType<typeof createFirestoreRestClient>;
+  try {
+    db = createFirestoreRestClient(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+  } catch (e) {
+    console.error("[register] createFirestoreClient threw:", e instanceof Error ? e.message : String(e));
+    return jsonCors({ error: "Ошибка инициализации БД" }, 500);
+  }
 
   // Idempotent: if users/{uid} already exists, return existing businessId
-  const userDoc = await db.collection("users").doc(uid).get();
+  let userDoc: Awaited<ReturnType<typeof db.collection extends (...args: unknown[]) => infer R ? R : never>>;
+  try {
+    userDoc = await db.collection("users").doc(uid).get();
+  } catch (e) {
+    console.error("[register] GET users/%s threw:", uid, e instanceof Error ? e.message : String(e));
+    return jsonCors({ error: "Ошибка чтения пользователя из БД" }, 500);
+  }
+
   if (userDoc.exists) {
     const data = userDoc.data() as { businessId: string };
     return jsonCors({ businessId: data.businessId });
   }
 
   // New user: businessId = отдельный UUID (никогда не uid)
-  // Это позволяет одному тенанту иметь несколько сотрудников (users с разными uid, один businessId)
   const businessId = crypto.randomUUID();
   const now = new Date().toISOString();
 
-  await db
-    .collection("tenants")
-    .doc(businessId)
-    .collection("_meta")
-    .doc("info")
-    .set({
-      createdAt: now,
-      ownerUid: uid,
-    });
-  await db.collection("users").doc(uid).set({
-    businessId,
-    role: "owner",
-    createdAt: now,
-  });
+  try {
+    await db
+      .collection("tenants")
+      .doc(businessId)
+      .collection("_meta")
+      .doc("info")
+      .set({ createdAt: now, ownerUid: uid });
+  } catch (e) {
+    console.error("[register] SET tenants/%s/_meta/info threw:", businessId, e instanceof Error ? e.message : String(e));
+    return jsonCors({ error: `Ошибка создания тенанта: ${e instanceof Error ? e.message : String(e)}` }, 500);
+  }
 
+  try {
+    await db.collection("users").doc(uid).set({ businessId, role: "owner", createdAt: now });
+  } catch (e) {
+    console.error("[register] SET users/%s threw:", uid, e instanceof Error ? e.message : String(e));
+    return jsonCors({ error: `Ошибка записи пользователя: ${e instanceof Error ? e.message : String(e)}` }, 500);
+  }
+
+  console.log("[register] new user uid=%s businessId=%s", uid, businessId);
   return jsonCors({ businessId });
 }
 

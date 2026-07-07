@@ -12,6 +12,7 @@ export function RegisterPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPwd, setShowPwd] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -91,32 +92,39 @@ export function RegisterPage() {
 
           <div className="lf-group">
             <label htmlFor="rf-password" className="lf-label">Пароль</label>
-            <input
-              id="rf-password"
-              type="password"
-              className="lf-input"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••••••"
-              autoComplete="new-password"
-              minLength={6}
-              required
-            />
+            <div className="lf-pwd-wrap">
+              <input
+                id="rf-password"
+                type={showPwd ? "text" : "password"}
+                className="lf-input lf-input--pwd"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••••••"
+                autoComplete="new-password"
+                minLength={6}
+                required
+              />
+              <button type="button" className="lf-eye" onClick={() => setShowPwd((v) => !v)} aria-label={showPwd ? "Скрыть пароль" : "Показать пароль"}>
+                {showPwd ? "🙈" : "👁️"}
+              </button>
+            </div>
           </div>
 
           <div className="lf-group">
             <label htmlFor="rf-confirm" className="lf-label">Подтвердите пароль</label>
-            <input
-              id="rf-confirm"
-              type="password"
-              className="lf-input"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              placeholder="••••••••••••"
-              autoComplete="new-password"
-              minLength={6}
-              required
-            />
+            <div className="lf-pwd-wrap">
+              <input
+                id="rf-confirm"
+                type={showPwd ? "text" : "password"}
+                className="lf-input lf-input--pwd"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="••••••••••••"
+                autoComplete="new-password"
+                minLength={6}
+                required
+              />
+            </div>
           </div>
 
           {error && (

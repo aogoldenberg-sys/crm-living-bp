@@ -12,17 +12,34 @@ import {
 import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "../firebase";
 
-async function resolveBusinessId(uid: string): Promise<string> {
+/** Calls /register (idempotent) to get or create businessId. Falls back to Firestore direct read. */
+async function ensureBusinessId(user: import("firebase/auth").User): Promise<string> {
   try {
-    const snap = await getDoc(doc(db, "users", uid));
+    const idToken = await user.getIdToken();
+    const workerUrl = import.meta.env.VITE_INGEST_WORKER_URL as string;
+    const res = await fetch(`${workerUrl}/register`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${idToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    if (res.ok) {
+      const data = (await res.json()) as { businessId?: string };
+      if (data.businessId) return data.businessId;
+    }
+  } catch {
+    // network error — fall through to Firestore direct read
+  }
+  // Fallback: read directly from Firestore
+  try {
+    const snap = await getDoc(doc(db, "users", user.uid));
     if (snap.exists()) {
       const bizId = (snap.data() as { businessId?: string }).businessId;
       if (bizId) return bizId;
     }
   } catch {
-    // fall through
+    // ignore
   }
-  return uid; // fallback: uid (new accounts before worker runs)
+  return user.uid; // last resort
 }
 
 export type UserRole = "owner" | "manager";
@@ -46,7 +63,8 @@ export const useAuth = create<AuthState>((set) => ({
 
   login: async (email: string, password: string) => {
     const cred = await signInWithEmailAndPassword(auth, email, password);
-    const businessId = await resolveBusinessId(cred.user.uid);
+    // /register idempotent: returns existing businessId or creates one on first login
+    const businessId = await ensureBusinessId(cred.user);
     set({ user: cred.user, businessId, role: null });
   },
 
@@ -74,23 +92,9 @@ export const useAuth = create<AuthState>((set) => ({
 
   register: async (email: string, password: string) => {
     const cred = await createUserWithEmailAndPassword(auth, email, password);
-    // Отправить письмо подтверждения (Firebase default template — шаблон в Console → Auth → Templates)
-    await sendEmailVerification(cred.user).catch(() => { /* не критично если не отправилось */ });
-    // Call /register to provision Firestore docs
-    const workerUrl = import.meta.env.VITE_INGEST_WORKER_URL as string;
-    const idToken = await cred.user.getIdToken();
-    const res = await fetch(`${workerUrl}/register`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${idToken}`, "Content-Type": "application/json" },
-      body: JSON.stringify({}),
-    });
-    if (!res.ok) {
-      // Roll back: delete the created user
-      await cred.user.delete();
-      throw new Error("Ошибка создания аккаунта. Попробуйте позже.");
-    }
-    const regBusinessId = await resolveBusinessId(cred.user.uid);
-    set({ user: cred.user, businessId: regBusinessId, role: null });
+    await sendEmailVerification(cred.user).catch(() => { /* не критично */ });
+    const businessId = await ensureBusinessId(cred.user);
+    set({ user: cred.user, businessId, role: null });
   },
 
   logout: async () => {
