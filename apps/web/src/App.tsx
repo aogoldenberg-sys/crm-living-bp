@@ -115,6 +115,10 @@ export default function App() {
           path="/business"
           element={user ? <BusinessPage /> : <Navigate to="/login" replace />}
         />
+        <Route
+          path="/business/plan/:sectionId"
+          element={user ? <PlanSectionPage mode="revision" /> : <Navigate to="/login" replace />}
+        />
 
         {/* Дашборд — проверяет наличие плана, иначе редирект на онбординг */}
         <Route path="/dashboard" element={<DashboardOrOnboarding />} />

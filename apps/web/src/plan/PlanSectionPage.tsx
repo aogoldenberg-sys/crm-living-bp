@@ -1,10 +1,12 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/useAuth";
 import { useIntake } from "../dashboard/useIntake";
+import { deriveGaps } from "@crm/core";
+import type { DocMappedSection } from "@crm/schemas";
 import "./PlanSectionPage.css";
 
-const SECTIONS = [
+export const SECTIONS = [
   { id: "mission",     title: "Миссия",                    icon: "🎯" },
   { id: "goals",       title: "Цели",                      icon: "📈" },
   { id: "priorities",  title: "Приоритеты",                icon: "🔢" },
@@ -38,7 +40,7 @@ const CHART_SECTIONS = new Set(["finance", "forecast", "payments"]);
  * БЛОКЕР 4: без этой таблицы mappedSections.find() всегда возвращает null,
  * потому что экстрактор использует другие ключи (executive_summary, finances…).
  */
-const SECTION_TO_INTAKE_ID: Record<string, string> = {
+export const SECTION_TO_INTAKE_ID: Record<string, string> = {
   mission:     "executive_summary",
   goals:       "executive_summary",
   priorities:  "executive_summary",
@@ -95,12 +97,14 @@ function BarChart({ heights }: { heights: number[] }) {
   );
 }
 
-export function PlanSectionPage() {
+export function PlanSectionPage({ mode }: { mode?: "revision" } = {}) {
   const { sectionId } = useParams<{ sectionId: string }>();
   const navigate = useNavigate();
   const { businessId } = useAuth();
   const { data: intake, isLoading } = useIntake(businessId ?? "demo");
   const [expanded, setExpanded] = useState(false);
+
+  const basePath = mode === "revision" ? "/business" : "/dashboard";
 
   const idx = SECTIONS.findIndex(s => s.id === sectionId);
   const section = idx >= 0 ? SECTIONS[idx] : null;
@@ -108,6 +112,17 @@ export function PlanSectionPage() {
   // Переводим UI-id → intake id, затем ищем в mappedSections
   const intakeId = SECTION_TO_INTAKE_ID[sectionId ?? ""] ?? sectionId;
   const mapped = intake?.mappedSections.find(s => s.sectionId === intakeId) ?? null;
+
+  const coveredSections = useMemo((): DocMappedSection[] =>
+    (intake?.mappedSections ?? [])
+      .filter(m => m.present)
+      .map(m => ({ sectionId: m.sectionId, pageRange: [0, 0] as [number, number], confidence: m.confidence })),
+    [intake],
+  );
+  const gapForSection = useMemo(() => {
+    if (mode !== "revision") return null;
+    return deriveGaps(coveredSections).find(g => g.sectionId === intakeId) ?? null;
+  }, [mode, coveredSections, intakeId]);
 
   // Диагностика: если данные пришли но раздел не найден — логируем
   if (intake && !mapped && sectionId) {
@@ -145,7 +160,7 @@ export function PlanSectionPage() {
     <div className="psp-page">
       {/* Хлебные крошки */}
       <div className="psp-breadcrumb">
-        <button className="psp-back-btn" onClick={() => navigate("/dashboard")}>
+        <button className="psp-back-btn" onClick={() => navigate(basePath)}>
           ← Назад к плану
         </button>
         <span className="psp-section-counter">
@@ -155,7 +170,7 @@ export function PlanSectionPage() {
           {prevSection && (
             <button
               className="psp-nav-btn"
-              onClick={() => navigate(`/dashboard/plan/${prevSection.id}`)}
+              onClick={() => navigate(`${basePath}/plan/${prevSection.id}`)}
             >
               ← {prevSection.title}
             </button>
@@ -163,7 +178,7 @@ export function PlanSectionPage() {
           {nextSection && (
             <button
               className="psp-nav-btn"
-              onClick={() => navigate(`/dashboard/plan/${nextSection.id}`)}
+              onClick={() => navigate(`${basePath}/plan/${nextSection.id}`)}
             >
               {nextSection.title} →
             </button>
@@ -222,6 +237,17 @@ export function PlanSectionPage() {
             {expanded ? "Скрыть" : "Показать полностью"}
           </button>
         )}
+        {!mapped && mode === "revision" && gapForSection && (
+          <div className="psp-revision-cta">
+            <p className="psp-revision-cta-label">
+              {gapForSection.canInfer ? "Будет выведено из данных" : "Нужен документ"}
+            </p>
+            <p className="psp-revision-cta-text">{gapForSection.whereToGet}</p>
+            <button className="psp-nav-btn" onClick={() => navigate("/business")}>
+              Загрузить документ →
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Нижняя навигация */}
@@ -229,7 +255,7 @@ export function PlanSectionPage() {
         {prevSection ? (
           <button
             className="psp-nav-btn psp-nav-btn--large"
-            onClick={() => navigate(`/dashboard/plan/${prevSection.id}`)}
+            onClick={() => navigate(`${basePath}/plan/${prevSection.id}`)}
           >
             ← {prevSection.title}
           </button>
@@ -237,7 +263,7 @@ export function PlanSectionPage() {
         {nextSection && (
           <button
             className="psp-nav-btn psp-nav-btn--large"
-            onClick={() => navigate(`/dashboard/plan/${nextSection.id}`)}
+            onClick={() => navigate(`${basePath}/plan/${nextSection.id}`)}
           >
             {nextSection.title} →
           </button>

@@ -208,3 +208,29 @@
   font-size: 15px;
   margin-top: 40px;
 }
+
+/* Revision-mode CTA — отображается когда раздел пуст */
+.psp-revision-cta {
+  margin-top: 16px;
+  padding: 14px 16px;
+  background: rgba(200, 154, 52, 0.08);
+  border: 1px solid rgba(200, 154, 52, 0.28);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.psp-revision-cta-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #7A5E20;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+
+.psp-revision-cta-text {
+  font-size: 13px;
+  color: #3A3228;
+  line-height: 1.5;
+}
