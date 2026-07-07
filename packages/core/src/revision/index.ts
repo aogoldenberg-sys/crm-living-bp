@@ -246,3 +246,13 @@ export function checkConfidenceGate(
   }
   return { verdict: "ok" };
 }
+
+export { classifyPage, classifyDocument } from "./docToSections.js";
+export { deriveGaps } from "./gapAnalysis.js";
+export type { Gap } from "./gapAnalysis.js";
+export { salesFromLedger } from "./salesFromLedger.js";
+export type { MonthlySale } from "./salesFromLedger.js";
+export { strategyFromFact } from "./strategyFromFact.js";
+export type { StrategyResult, StrategyVerdict } from "./strategyFromFact.js";
+export { roadmapFromStrategy } from "./roadmapFromStrategy.js";
+export type { RoadmapResult, RevisionRoadmapItem, HumanTaskSpec } from "./roadmapFromStrategy.js";
