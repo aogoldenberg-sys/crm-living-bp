@@ -649,6 +649,121 @@ async function handleRevisionDoc(request: Request, env: Env): Promise<Response> 
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// /intake-refine — append-only дополнение раздела бизнес-плана
+// POST { planId, sectionId, gapQuestion, answer }
+// Auth: Firebase ID Token (Bearer)
+// ══════════════════════════════════════════════════════════════════════════════
+
+interface RefinementEntry {
+  timestamp: string;
+  question: string;
+  answer: string;
+}
+
+async function handleIntakeRefine(request: Request, env: Env): Promise<Response> {
+  // ── 1. Auth ────────────────────────────────────────────────────────────
+  const authHeader = request.headers.get("Authorization") ?? "";
+  const idToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  if (!idToken) return jsonCors({ error: "Unauthorized" }, 401);
+
+  const projectId = env.FIREBASE_PROJECT_ID || "crm-living-bp";
+  const claims = await verifyFirebaseIdToken(idToken, projectId);
+  if (!claims) return jsonCors({ error: "Unauthorized" }, 401);
+
+  // ── 2. Resolve businessId ──────────────────────────────────────────────
+  const db = createFirestoreRestClient(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+  const userDoc = await db.collection("users").doc(claims.uid).get();
+  if (!userDoc.exists) return jsonCors({ error: "User not registered" }, 400);
+  const { businessId } = userDoc.data() as { businessId: string };
+
+  // ── 3. Parse body ──────────────────────────────────────────────────────
+  let body: { planId?: string; sectionId?: string; gapQuestion?: string; answer?: string };
+  try {
+    body = await request.json() as typeof body;
+  } catch {
+    return jsonCors({ error: "Invalid JSON" }, 400);
+  }
+
+  const { planId, sectionId, gapQuestion, answer } = body;
+  if (!planId || !sectionId || !gapQuestion || !answer?.trim()) {
+    return jsonCors({ error: "Missing required fields: planId, sectionId, gapQuestion, answer" }, 400);
+  }
+
+  // ── 4. Load current section content (append-only: read before write) ──
+  const intakeRef = db.collection(`tenants/${businessId}/plan_intakes`).doc(planId);
+  const intakeDoc = await intakeRef.get();
+  if (!intakeDoc.exists) return jsonCors({ error: "Plan intake not found" }, 404);
+
+  const intakeData = intakeDoc.data() as Record<string, unknown>;
+
+  // Existing changelog (typed array, may be absent on first refinement)
+  const existingChangelog: RefinementEntry[] = Array.isArray(intakeData.refinementChangelog)
+    ? (intakeData.refinementChangelog as RefinementEntry[])
+    : [];
+
+  const timestamp = new Date().toISOString();
+  const attribution = `Дополнено ${timestamp}: ${answer.trim()}`;
+
+  const newEntry: RefinementEntry = {
+    timestamp,
+    question: gapQuestion,
+    answer: answer.trim(),
+  };
+
+  const changelog: RefinementEntry[] = [...existingChangelog, newEntry];
+
+  // ── 5. Append to section content (never overwrite) ────────────────────
+  // sections live in mappedSections[].contentSummary — find and append
+  const mappedSections = Array.isArray(intakeData.mappedSections)
+    ? (intakeData.mappedSections as Array<Record<string, unknown>>)
+    : [];
+
+  let sectionFound = false;
+  const updatedSections = mappedSections.map((s) => {
+    if (s.sectionId !== sectionId) return s;
+    sectionFound = true;
+    const existing = typeof s.contentSummary === "string" ? s.contentSummary : "";
+    return { ...s, contentSummary: existing ? `${existing}\n\n${attribution}` : attribution, present: true };
+  });
+
+  // If section wasn't in mappedSections at all, add it
+  if (!sectionFound) {
+    updatedSections.push({
+      sectionId,
+      present: true,
+      contentSummary: attribution,
+      confidence: 0.5,
+    });
+  }
+
+  // Remove refined gap from assessment.gaps (append-only data stays, UI filter based on changelog)
+  const assessment = typeof intakeData.assessment === "object" && intakeData.assessment !== null
+    ? (intakeData.assessment as Record<string, unknown>)
+    : {};
+
+  const updatedGaps = Array.isArray(assessment.gaps)
+    ? (assessment.gaps as Array<Record<string, unknown>>).filter(
+        (g) => g.missingSection !== sectionId,
+      )
+    : [];
+
+  // ── 6. Save (append-only: existing fields preserved, only gaps+sections updated) ──
+  try {
+    await intakeRef.set({
+      ...intakeData,
+      mappedSections: updatedSections,
+      assessment: { ...assessment, gaps: updatedGaps },
+      refinementChangelog: changelog,
+    } as unknown as Record<string, unknown>);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return jsonCors({ error: `Ошибка сохранения: ${msg}` }, 500);
+  }
+
+  return jsonCors({ sectionId, appended: attribution, changelog });
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // Существующая бизнес-логика: приём BusinessEvent[]
 // ══════════════════════════════════════════════════════════════════════════════
 
@@ -1032,6 +1147,11 @@ async function dispatchRequest(request: Request, env: Env): Promise<Response> {
     // ── /intake — бизнес-план (Firebase auth) ────────────────────────────
     if (request.method === "POST" && url.pathname === "/intake") {
       return handleIntake(request, env);
+    }
+
+    // ── /intake-refine — append-only дополнение раздела ────────────────
+    if (request.method === "POST" && url.pathname === "/intake-refine") {
+      return handleIntakeRefine(request, env);
     }
 
     // ── /external — внешние сигналы §12 (Firebase auth или API key) ───────

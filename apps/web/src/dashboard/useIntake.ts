@@ -41,6 +41,8 @@ export interface MappedSection {
 }
 
 export interface PlanIntake {
+  /** Firestore document id (intakeId) — нужен для /intake-refine */
+  intakeId?: string;
   assessment: Assessment;
   mappedSections: MappedSection[];
   disclaimer: string;
@@ -128,6 +130,7 @@ function normalizeMappedSections(raw: unknown): MappedSection[] {
 function normalizeIntake(raw: Record<string, unknown>): PlanIntake {
   const assessment = (raw.assessment as Record<string, unknown> | undefined) ?? {};
   return {
+    intakeId: typeof raw.intakeId === "string" ? raw.intakeId : undefined,
     mappedSections: normalizeMappedSections(raw.mappedSections),
     assessment: {
       strengths: Array.isArray(assessment.strengths)

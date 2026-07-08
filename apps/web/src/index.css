@@ -270,6 +270,204 @@ body {
   margin-bottom: 16px;
 }
 
+/* ── IntakeAssessment (ia-*) ─────────────────────────────────────────────── */
+
+.ia-panel {
+  padding: 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 16px;
+  position: relative;
+}
+
+.ia-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.ia-list-item {
+  font-size: 13px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.ia-list-item--green {
+  background: rgba(46, 204, 113, 0.10);
+  color: var(--text);
+  border-left: 3px solid var(--green);
+}
+
+.ia-list-item--red {
+  background: rgba(231, 76, 60, 0.10);
+  color: var(--text);
+  border-left: 3px solid var(--red);
+}
+
+.ia-list-item--yellow {
+  background: rgba(243, 156, 18, 0.10);
+  color: var(--text);
+  border-left: 3px solid var(--yellow);
+}
+
+.ia-severity-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 4px;
+}
+
+.ia-severity-dot--red   { background: var(--red); }
+.ia-severity-dot--yellow { background: var(--yellow); }
+
+.ia-gap-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.ia-gap-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+}
+
+.ia-gap-info {
+  font-size: 13px;
+}
+
+.ia-gap-name {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.ia-gap-desc {
+  color: var(--text-muted);
+}
+
+.ia-empty {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-style: italic;
+  margin-top: 6px;
+}
+
+/* Buttons */
+.ia-btn {
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  transition: opacity 0.15s;
+}
+.ia-btn:disabled { opacity: 0.5; cursor: default; }
+
+.ia-btn--primary {
+  background: var(--primary, #2563eb);
+  color: #fff;
+}
+.ia-btn--primary:hover:not(:disabled) { opacity: 0.88; }
+
+.ia-btn--ghost {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+.ia-btn--ghost:hover:not(:disabled) { background: var(--bg); }
+
+.ia-btn--refine {
+  align-self: flex-start;
+  background: transparent;
+  color: var(--primary, #2563eb);
+  border: 1px solid var(--primary, #2563eb);
+  font-size: 12px;
+  padding: 4px 12px;
+}
+.ia-btn--refine:hover { background: rgba(37, 99, 235, 0.06); }
+
+/* Refine dialog */
+.ia-refine-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.ia-refine-question {
+  font-size: 13px;
+  color: var(--text);
+  font-style: italic;
+}
+
+.ia-refine-textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: inherit;
+  resize: vertical;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.ia-refine-textarea:focus {
+  outline: none;
+  border-color: var(--primary, #2563eb);
+}
+
+.ia-refine-error {
+  font-size: 12px;
+  color: var(--red);
+}
+
+.ia-refine-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* Toast */
+.ia-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1a1a2e;
+  color: #fff;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  z-index: 9999;
+  box-shadow: 0 4px 16px rgba(0,0,0,.25);
+}
+
+.ia-toast-close {
+  background: transparent;
+  border: none;
+  color: rgba(255,255,255,.7);
+  cursor: pointer;
+  font-size: 16px;
+  padding: 0;
+  line-height: 1;
+}
+
 /* ── Pipeline ─────────────────────────────────────────────────────────── */
 
 .pipeline-panel {

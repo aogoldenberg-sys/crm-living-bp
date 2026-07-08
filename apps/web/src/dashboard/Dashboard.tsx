@@ -13,6 +13,7 @@ import { RoadmapPanel } from "./RoadmapPanel";
 import { UploadPlanButton } from "./UploadPlanButton";
 import { buildGraph, deriveSWOT, RETAIL_TEMPLATE, selectInitialStrategy } from "@crm/core";
 import { PlanSidebar } from "./PlanSidebar";
+import { IntakeAssessment } from "../components/IntakeAssessment";
 
 // 22 раздела бизнес-плана — для сайдбара
 const PLAN_SECTIONS = [
@@ -449,7 +450,13 @@ export function Dashboard() {
           {/* Оценка */}
           <div className="k-body" style={{ display: view === "intake" ? undefined : "none" }}>
             {intake
-              ? <RoadmapPanel intake={intake} businessId={bid} />
+              ? <>
+                  <IntakeAssessment
+                    intake={intake}
+                    planId={intake.intakeId ?? bid}
+                  />
+                  <RoadmapPanel intake={intake} businessId={bid} />
+                </>
               : <div className="k-empty-state" style={{ height: "60vh" }}>
                   <span style={{ fontSize: 28, opacity: .3 }}>○</span>
                   <p>Загрузите бизнес-план — появится оценка предприятия</p>
