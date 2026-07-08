@@ -21,3 +21,4 @@ export * from "./tax.js";
 export * from "./mgmt.js";
 export * from "./entitlements.js";
 export * from "./revision/index.js";
+export * from "./plan/taxonomy.js";

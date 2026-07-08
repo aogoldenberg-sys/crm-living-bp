@@ -11,7 +11,7 @@
 import mammoth from "mammoth";
 import { timingSafeEqual } from "node:crypto";
 import type { Db } from "@crm/firestore-adapter";
-import { BusinessEvent, ExternalSignal, RequestItem } from "@crm/schemas";
+import { BusinessEvent, ExternalSignal, RequestItem, INTAKE_TO_BOOK_ID, BOOK_SECTION_IDS } from "@crm/schemas";
 import { handleDocuments } from "./documents.js";
 import { createFirestoreRestClient, saveEvents, registerTenant } from "@crm/firestore-adapter";
 import { generatePlan, ExtractedPlanSchema, AssessmentOutputSchema } from "@crm/ai-kit";
@@ -28,6 +28,79 @@ interface Env {
 }
 
 export type IngestResult = { events: number; skipped: number };
+
+// ── Taxonomy: translate intake-IDs → book-IDs, merge collisions ───────────────
+
+/**
+ * Строит массив mappedSections под book-ID.
+ * Несколько intake-секций → один book-ID: contentSummary конкатенируется,
+ * confidence = max. Все 22 book-раздела присутствуют (absent → present:false).
+ */
+function translateToBookSections(
+  rawSections: Record<string, { text: string; confidence: number }>,
+  intakeMapped: Array<{ sectionId: string; present: boolean; confidence: number }>,
+): Array<{ sectionId: string; present: boolean; contentSummary: string; confidence: number }> {
+  const byBookId = new Map<string, { contentSummary: string; confidence: number; present: boolean }>();
+
+  for (const s of intakeMapped) {
+    const bookId = INTAKE_TO_BOOK_ID[s.sectionId];
+    if (!bookId) continue; // неизвестный intake-id — пропустить
+    const text = rawSections[s.sectionId]?.text ?? "";
+    const existing = byBookId.get(bookId);
+
+    if (!existing) {
+      byBookId.set(bookId, { contentSummary: text, confidence: s.confidence, present: s.present });
+    } else if (s.present) {
+      // Мёрж: добавляем контент, берём max confidence
+      byBookId.set(bookId, {
+        contentSummary: existing.contentSummary
+          ? `${existing.contentSummary}\n\n${text}`.trim()
+          : text,
+        confidence: Math.max(existing.confidence, s.confidence),
+        present: true,
+      });
+    }
+  }
+
+  // Заполняем все 22 book-раздела (absent → present:false)
+  return BOOK_SECTION_IDS.map((bookId) => {
+    const d = byBookId.get(bookId);
+    return d
+      ? { sectionId: bookId, ...d }
+      : { sectionId: bookId, contentSummary: "", confidence: 0, present: false };
+  });
+}
+
+// Ключевые слова для инференса sectionId из contentSummary (для миграции)
+const MIGRATE_KEYWORDS: Record<string, string[]> = {
+  executive_summary: ["резюме", "summary", "обзор", "введение", "краткое"],
+  problem:           ["проблема", "боль", "приоритет", "challenge", "pain"],
+  solution:          ["решение", "продукт", "сервис", "solution", "product"],
+  market_size:       ["рынок", "объём", "tam", "sam", "market", "сегмент"],
+  value_proposition: ["ценность", "преимущество", "уникальность", "value"],
+  competitors:       ["конкурент", "competitor", "сравнение"],
+  business_model:    ["модель", "монетизация", "бизнес-модель"],
+  product_roadmap:   ["дорожная карта", "roadmap", "план развития"],
+  marketing_strategy:["маркетинг", "реклама", "продвижение", "marketing"],
+  team:              ["команда", "team", "сотрудник", "директор"],
+  operations:        ["операции", "процесс", "ресурс", "поставщик"],
+  finances:          ["финанс", "выручка", "прибыль", "бюджет", "доход"],
+  risks:             ["риск", "risk", "угроза", "pest", "swot"],
+  kpi_metrics:       ["kpi", "метрика", "показатель", "okr"],
+  funding_ask:       ["инвестиц", "финансирование", "грант", "субсидия"],
+  exit_strategy:     ["выход", "exit", "заключение", "итог"],
+};
+
+function inferIntakeId(text: string): string | null {
+  const t = text.toLowerCase().slice(0, 500); // первые 500 символов достаточно
+  let best: string | null = null;
+  let bestScore = 0;
+  for (const [id, kws] of Object.entries(MIGRATE_KEYWORDS)) {
+    const score = kws.reduce((n, k) => n + (t.includes(k) ? 1 : 0), 0);
+    if (score > bestScore) { bestScore = score; best = id; }
+  }
+  return bestScore >= 1 ? best : null;
+}
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Firebase ID-token verification (WebCrypto, без сторонних зависимостей)
@@ -418,28 +491,35 @@ async function handleIntake(request: Request, env: Env): Promise<Response> {
   }
   const extracted = extractValidated.data;
 
-  // ── 5. Map to canonical 22 sections ─────────────────────────────────────
-  const { sections: mappedSections, gaps } = mapToSections(extracted);
-  const { confidence, disclaimer: gateDisclaimer } = gateIntake(mappedSections, businessId);
+  // ── 5. Map to canonical book sections (BUG-1: store under book-ID) ────────
+  const { sections: intakeSections, gaps } = mapToSections(extracted);
+  const bookSections = translateToBookSections(extracted.rawSections, intakeSections);
+  const { confidence, disclaimer: gateDisclaimer } = gateIntake(intakeSections, businessId);
 
-  // ── 6. Claude: оценка §20.3 ──────────────────────────────────────────────
-  let assessRaw: unknown;
+  // ── 6. Claude: оценка §20.3 (НЕ блокирует сохранение — BUG-5 fix) ──────
+  type Assessed = { strengths: Array<{ point: string }>; concerns: Array<{ point: string; severity: string; rationale: string }>; verifiability: unknown[] };
+  let assessed: Assessed | null = null;
   try {
-    assessRaw = await callClaude(env.ANTHROPIC_API_KEY, ASSESS_SYSTEM, [
+    const assessRaw = await callClaude(env.ANTHROPIC_API_KEY, ASSESS_SYSTEM, [
       { type: "text", text: JSON.stringify({ rawSections: extracted.rawSections, assumptions: extracted.assumptions }) },
     ]);
+    const v = AssessmentOutputSchema.safeParse(assessRaw);
+    if (v.success) {
+      assessed = v.data;
+    } else {
+      console.warn("[intake] assess parse failed, retrying:", v.error.issues.slice(0, 2));
+      const retryRaw = await callClaude(
+        env.ANTHROPIC_API_KEY,
+        ASSESS_SYSTEM + "\n\nВерни ТОЛЬКО валидный JSON без пояснений.",
+        [{ type: "text", text: JSON.stringify({ rawSections: extracted.rawSections, assumptions: extracted.assumptions }) }],
+      );
+      const v2 = AssessmentOutputSchema.safeParse(retryRaw);
+      if (v2.success) assessed = v2.data;
+      else console.error("[intake] assess retry failed:", v2.error.issues.slice(0, 2));
+    }
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return jsonCors({ error: `Ошибка оценки плана: ${msg}` }, 500);
+    console.error("[intake] assess threw:", e instanceof Error ? e.message : String(e));
   }
-
-  // B2: Zod validation at Claude boundary
-  const assessValidated = AssessmentOutputSchema.safeParse(assessRaw);
-  if (!assessValidated.success) {
-    console.error("[intake] assess parse failed:", assessValidated.error.issues);
-    return jsonCors({ error: "AI parse error (assess)", details: assessValidated.error.issues }, 502);
-  }
-  const assessed = assessValidated.data;
 
   // ── 7. Формируем intake-документ §20.2 ──────────────────────────────────
   const intakeId = crypto.randomUUID();
@@ -451,24 +531,19 @@ async function handleIntake(request: Request, env: Env): Promise<Response> {
     intakeId,
     businessId,
     extractedAt,
-    // §20.2 format: mappedSections array
-    mappedSections: mappedSections.map((s) => ({
-      ...s,
-      contentSummary: extracted.rawSections[s.sectionId]?.text ?? "",
-    })),
+    mappedSections: bookSections,   // §20.2: под book-ID (BUG-1 fix)
     completeness,
     confidence,
     assessment: {
-      // Backward compat with useIntake.ts: strengths as string[], concerns as {description, severity, rationale}
-      strengths: assessed.strengths.map((s) => s.point),
-      concerns: assessed.concerns.map((c) => ({
+      strengths: assessed?.strengths.map((s) => s.point) ?? [],
+      concerns: assessed?.concerns.map((c) => ({
         description: c.point,
         severity: c.severity,
         rationale: c.rationale,
-      })),
+      })) ?? [],
       gaps,
       assumptionsExtracted: extracted.assumptions,
-      verifiability: assessed.verifiability,
+      verifiability: assessed?.verifiability ?? [],
     },
     disclaimer: gateDisclaimer,
     status: "draft",
@@ -486,7 +561,16 @@ async function handleIntake(request: Request, env: Env): Promise<Response> {
     return jsonCors({ error: `Ошибка сохранения: ${msg}` }, 500);
   }
 
-  return jsonCors({ intakeId, status: "ok", sectionsFound: foundSections.size, completeness, confidence });
+  const sectionsFound = bookSections.filter(s => s.present).length;
+  return jsonCors({
+    intakeId,
+    status: "ok",
+    sectionsFound,
+    completeness,
+    confidence,
+    message: `Загружено. ${sectionsFound} разделов заполнено.`,
+    assessmentReady: assessed !== null,
+  });
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -646,6 +730,103 @@ async function handleRevisionDoc(request: Request, env: Env): Promise<Response> 
   }
 
   return jsonCors({ docId, businessId, status: "uploaded", sha256 });
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// /intake-migrate — миграция: пустые/intake sectionId → book-ID
+// POST {} — мигрирует последний intake текущего пользователя
+// ══════════════════════════════════════════════════════════════════════════════
+
+const BOOK_IDS_SET = new Set<string>(Object.values(INTAKE_TO_BOOK_ID));
+
+async function handleIntakeMigrate(request: Request, env: Env): Promise<Response> {
+  const authHeader = request.headers.get("Authorization") ?? "";
+  const idToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  if (!idToken) return jsonCors({ error: "Unauthorized" }, 401);
+
+  const projectId = env.FIREBASE_PROJECT_ID || "crm-living-bp";
+  const claims = await verifyFirebaseIdToken(idToken, projectId);
+  if (!claims) return jsonCors({ error: "Unauthorized" }, 401);
+
+  const db = createFirestoreRestClient(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+  const userDoc = await db.collection("users").doc(claims.uid).get();
+  if (!userDoc.exists) return jsonCors({ error: "User not registered" }, 400);
+  const { businessId } = userDoc.data() as { businessId: string };
+
+  // Читаем последний intake
+  const snap = await db
+    .collection(`tenants/${businessId}/plan_intakes`)
+    .orderBy("extractedAt", "desc")
+    .get();
+
+  if (!snap.docs.length) return jsonCors({ migrated: 0, message: "Нет данных для миграции" });
+
+  const doc = snap.docs[0]!;
+  const data = doc.data() as Record<string, unknown>;
+  const sections = Array.isArray(data.mappedSections)
+    ? (data.mappedSections as Array<Record<string, unknown>>)
+    : [];
+
+  let migratedCount = 0;
+  const byBookId = new Map<string, { contentSummary: string; confidence: number; present: boolean }>();
+
+  for (const s of sections) {
+    const rawId = typeof s.sectionId === "string" ? s.sectionId : "";
+    const contentSummary = typeof s.contentSummary === "string" ? s.contentSummary : "";
+    const confidence = typeof s.confidence === "number" ? s.confidence : 0;
+    const present = Boolean(s.present);
+
+    let bookId: string;
+    if (BOOK_IDS_SET.has(rawId)) {
+      bookId = rawId; // уже book-ID
+    } else if (INTAKE_TO_BOOK_ID[rawId]) {
+      bookId = INTAKE_TO_BOOK_ID[rawId]!;
+      migratedCount++;
+    } else if (!rawId && contentSummary) {
+      // Пустой sectionId: инферируем из текста
+      const inferred = inferIntakeId(contentSummary);
+      bookId = (inferred && INTAKE_TO_BOOK_ID[inferred]) ? INTAKE_TO_BOOK_ID[inferred]! : "appendix";
+      migratedCount++;
+    } else {
+      continue; // пустой без контента — пропустить
+    }
+
+    const existing = byBookId.get(bookId);
+    if (!existing) {
+      byBookId.set(bookId, { contentSummary, confidence, present });
+    } else if (present) {
+      byBookId.set(bookId, {
+        contentSummary: existing.contentSummary
+          ? `${existing.contentSummary}\n\n${contentSummary}`.trim()
+          : contentSummary,
+        confidence: Math.max(existing.confidence, confidence),
+        present: true,
+      });
+    }
+  }
+
+  if (migratedCount === 0) {
+    return jsonCors({ migrated: 0, message: "Данные уже в актуальном формате" });
+  }
+
+  const updatedSections = BOOK_SECTION_IDS.map((bookId) => {
+    const d = byBookId.get(bookId);
+    return d
+      ? { sectionId: bookId, ...d }
+      : { sectionId: bookId, contentSummary: "", confidence: 0, present: false };
+  });
+
+  try {
+    await db
+      .collection(`tenants/${businessId}/plan_intakes`)
+      .doc(doc.id)
+      .set({ ...data, mappedSections: updatedSections } as unknown as Record<string, unknown>);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return jsonCors({ error: `Ошибка сохранения: ${msg}` }, 500);
+  }
+
+  return jsonCors({ migrated: migratedCount, total: sections.length, message: `Мигрировано ${migratedCount} разделов` });
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1147,6 +1328,11 @@ async function dispatchRequest(request: Request, env: Env): Promise<Response> {
     // ── /intake — бизнес-план (Firebase auth) ────────────────────────────
     if (request.method === "POST" && url.pathname === "/intake") {
       return handleIntake(request, env);
+    }
+
+    // ── /intake-migrate — однократная миграция: intake-ID → book-ID ───────
+    if (request.method === "POST" && url.pathname === "/intake-migrate") {
+      return handleIntakeMigrate(request, env);
     }
 
     // ── /intake-refine — append-only дополнение раздела ────────────────

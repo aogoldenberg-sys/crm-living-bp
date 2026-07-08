@@ -1,5 +1,43 @@
 /* BusinessPage — revision mode additions */
 
+/* ── Topbar ──────────────────────────────────────────────────────────────── */
+.biz-topbar-left { display: flex; align-items: center; gap: 10px; }
+.biz-topbar-right { display: flex; align-items: center; gap: 12px; }
+.biz-coverage { font-size: 12px; color: #8B7355; font-weight: 600; }
+.biz-hdr-btn { font-size: 12px !important; padding: 5px 12px !important; }
+
+/* ── Section panel ───────────────────────────────────────────────────────── */
+.biz-section-panel { padding: 0 4px; }
+.biz-back-btn { margin-bottom: 20px; }
+.biz-section-header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+.biz-section-icon { font-size: 28px; }
+.biz-section-title { font-size: 22px; font-weight: 700; color: #1A1814; margin: 0; }
+.biz-section-content {
+  font-size: 14px; line-height: 1.7; color: #4A3728;
+  background: rgba(255,255,255,.55); border: 1px solid rgba(160,130,60,.15);
+  border-radius: 12px; padding: 20px 24px;
+}
+
+/* ── Analysis panel ──────────────────────────────────────────────────────── */
+.biz-analysis-panel { padding: 0 4px; }
+.biz-analysis-title { font-size: 20px; font-weight: 700; color: #1A1814; margin-bottom: 20px; }
+.biz-metric-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px; }
+.biz-metric-card { padding: 12px 16px; min-width: 110px; }
+.biz-metric-label { font-size: 11px; color: #8B7355; margin-bottom: 4px; }
+.biz-metric-val { font-size: 20px; font-weight: 700; color: #1A1814; }
+.biz-flags { margin-bottom: 20px; display: flex; flex-direction: column; gap: 6px; }
+.biz-flag-item {
+  background: rgba(180,40,40,.07); border: 1px solid rgba(180,40,40,.18);
+  border-radius: 8px; padding: 8px 12px; font-size: 13px; color: #8B1A1A;
+}
+.biz-strengths { margin-bottom: 20px; }
+.biz-block-title { font-size: 13px; font-weight: 600; color: #1A1814; margin-bottom: 8px; }
+.biz-strength-item { font-size: 13px; color: #4A3728; margin-bottom: 4px; }
+.biz-gaps { display: flex; flex-direction: column; gap: 6px; }
+.biz-gap-item { padding: 10px 14px; display: flex; align-items: center; gap: 8px; }
+.biz-gap-name { font-size: 12px; color: #1A1814; flex: 1; }
+.biz-gap-hint { font-size: 11px; color: #8B7355; }
+
 .biz-section-btn {
   display: flex;
   align-items: center;

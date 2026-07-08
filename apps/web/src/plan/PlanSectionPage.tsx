@@ -4,6 +4,7 @@ import { useAuth } from "../auth/useAuth";
 import { useIntake } from "../dashboard/useIntake";
 import { deriveGaps } from "@crm/core";
 import type { DocMappedSection } from "@crm/schemas";
+import { BOOK_SECTION_ALIAS } from "@crm/schemas";
 import { GrantView } from "../components/GrantView";
 import { UploadPlanButton } from "../dashboard/UploadPlanButton";
 import "./PlanSectionPage.css";
@@ -113,9 +114,11 @@ export function PlanSectionPage({ mode }: { mode?: "revision" } = {}) {
   const idx = SECTIONS.findIndex(s => s.id === sectionId);
   const section = idx >= 0 ? SECTIONS[idx] : null;
 
-  // Переводим UI-id → intake id, затем ищем в mappedSections
-  const intakeId = SECTION_TO_INTAKE_ID[sectionId ?? ""] ?? sectionId;
-  const mapped = intake?.mappedSections.find(s => s.sectionId === intakeId) ?? null;
+  // Ищем раздел: сначала по прямому book-ID, затем по алиасу (goals → mission и т.п.)
+  const aliasId = BOOK_SECTION_ALIAS[sectionId ?? ""];
+  const mapped = intake?.mappedSections.find(s => s.sectionId === sectionId)
+    ?? (aliasId ? intake?.mappedSections.find(s => s.sectionId === aliasId) : undefined)
+    ?? null;
 
   const coveredSections = useMemo((): DocMappedSection[] =>
     (intake?.mappedSections ?? [])
@@ -125,13 +128,13 @@ export function PlanSectionPage({ mode }: { mode?: "revision" } = {}) {
   );
   const gapForSection = useMemo(() => {
     if (mode !== "revision") return null;
-    return deriveGaps(coveredSections).find(g => g.sectionId === intakeId) ?? null;
-  }, [mode, coveredSections, intakeId]);
+    return deriveGaps(coveredSections).find(g => g.sectionId === sectionId || g.sectionId === aliasId) ?? null;
+  }, [mode, coveredSections, sectionId, aliasId]);
 
   // Диагностика: если данные пришли но раздел не найден — логируем
   if (intake && !mapped && sectionId) {
     console.debug(
-      `[PlanSection] sectionId="${sectionId}" → intakeId="${intakeId}" — не найден. ` +
+      `[PlanSection] sectionId="${sectionId}" alias="${aliasId ?? "-"}" — не найден. ` +
       `Доступные секции: ${intake.mappedSections.filter(s => s.present).map(s => s.sectionId).join(", ")}`,
     );
   }

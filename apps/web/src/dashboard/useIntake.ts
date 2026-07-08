@@ -8,6 +8,26 @@ import {
   onSnapshot,
 } from "firebase/firestore";
 import { db } from "../firebase";
+import { INTAKE_TO_BOOK_ID } from "@crm/schemas";
+import { auth } from "../firebase";
+
+const BOOK_IDS_SET = new Set(Object.values(INTAKE_TO_BOOK_ID));
+
+/** Возвращает true если хотя бы одна секция не в book-формате (нужна миграция). */
+function needsMigration(sections: Array<{ sectionId: string }>): boolean {
+  return sections.some(s => !s.sectionId || !BOOK_IDS_SET.has(s.sectionId));
+}
+
+async function triggerMigration(workerUrl: string): Promise<void> {
+  const user = auth.currentUser;
+  if (!user) return;
+  const idToken = await user.getIdToken();
+  await fetch(`${workerUrl}/intake-migrate`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${idToken}`, "Content-Type": "application/json" },
+    body: "{}",
+  }).catch(e => console.warn("[useIntake] migration failed:", e));
+}
 
 export interface Concern {
   description: string;
@@ -160,12 +180,20 @@ export function useIntake(businessId: string) {
     const colRef = collection(db, `tenants/${businessId}/plan_intakes`);
     const q = query(colRef, orderBy("extractedAt", "desc"), limit(1));
 
+    const migratedRef = { current: false };
+    const workerUrl = (import.meta.env.VITE_INGEST_WORKER_URL as string) ?? "";
+
     const unsubscribe = onSnapshot(
       q,
       (snap) => {
         if (!snap.empty && snap.docs[0]) {
           const raw = snap.docs[0].data() as Record<string, unknown>;
-          queryClient.setQueryData(QUERY_KEY(businessId), normalizeIntake(raw));
+          const normalized = normalizeIntake(raw);
+          queryClient.setQueryData(QUERY_KEY(businessId), normalized);
+          if (!migratedRef.current && needsMigration(normalized.mappedSections)) {
+            migratedRef.current = true;
+            void triggerMigration(workerUrl);
+          }
         } else {
           queryClient.setQueryData(QUERY_KEY(businessId), null);
         }
