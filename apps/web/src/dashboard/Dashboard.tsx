@@ -485,7 +485,7 @@ export function Dashboard() {
                   </button>
                 ))}
                 {/* Бардовая кнопка */}
-                <button className="k-maroon-btn" onClick={() => navigate("/dashboard/plan/mission")}>
+                <button className="k-maroon-btn" onClick={() => navigate("/business")}>
                   Приступить к работе
                 </button>
                 {/* Профиль */}
