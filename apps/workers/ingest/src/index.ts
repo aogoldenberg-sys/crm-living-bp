@@ -391,7 +391,11 @@ async function handleIntake(request: Request, env: Env): Promise<Response> {
     }
 
     default:
-      return jsonCors({ error: `Неподдерживаемый тип файла: ${mimeType}` }, 400);
+      // Supported: pdf, docx, xlsx, md, txt (text/*). All other formats are rejected with a clear message.
+      return jsonCors(
+        { error: `Неподдерживаемый тип файла: "${mimeType}". Используйте PDF, DOCX, XLSX, MD или TXT.` },
+        400,
+      );
   }
 
   // ── 4. Claude: извлечение структуры ─────────────────────────────────────

@@ -138,6 +138,7 @@ export async function extractPlanWithRuleBase(
   pages: Array<{ pageNum: number; text: string }>,
   onProgress?: (msg: string) => void,
 ): Promise<Result<ExtractedPlan>> {
+  // Step 1: map sections (no Claude)
   onProgress?.(`Анализируем структуру документа (${pages.length} страниц)...`);
   const ruleResult = mapDocumentToSections(pages);
 
@@ -150,6 +151,7 @@ export async function extractPlanWithRuleBase(
     onProgress?.(`Раздел "${sectionId}" найден на стр. ${data.pages.join(", ")} ✓`);
   }
 
+  // Step 2: assess (optional, Claude) — only for required sections not found by rule-mapper
   const missing = REQUIRED_SECTIONS.filter(s => !coveredSections.has(s));
 
   if (missing.length > 0) {

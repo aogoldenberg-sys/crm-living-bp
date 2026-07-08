@@ -29,17 +29,20 @@ const SECTION_KEYWORDS: Record<string, string[]> = {
   kpi_metrics: ["kpi", "метрика", "показатель", "okr", "цель"],
   funding_ask: ["инвестиц", "финансирование", "грант", "субсидия", "funding"],
   exit_strategy: ["выход", "exit", "заключение", "итог", "вывод"],
+  appendices: ["приложение", "приложения", "appendix", "appendices", "справка", "документы"],
 };
 
 export function mapPageToSection(pageText: string): string | null {
-  const lower = pageText.toLowerCase();
+  const t = pageText.toLowerCase();
+  const header = pageText.slice(0, 80).toLowerCase();
   let best: string | null = null;
   let bestScore = 0;
   for (const [sectionId, keywords] of Object.entries(SECTION_KEYWORDS)) {
-    const score = keywords.filter(kw => lower.includes(kw)).length;
+    let score = keywords.reduce((n, k) => n + (t.includes(k) ? 1 : 0), 0);
+    // Header boost: keyword in first 80 chars counts ×3 (base 1 + bonus 2)
+    score += keywords.reduce((n, k) => n + (header.includes(k) ? 2 : 0), 0);
     if (score > bestScore) { bestScore = score; best = sectionId; }
   }
-  // Минимум 2 ключевых слова для уверенности
   return bestScore >= 2 ? best : null;
 }
 
@@ -49,8 +52,8 @@ export function mapDocumentToSections(
   const result = new Map<string, { pages: number[]; text: string; confidence: number }>();
 
   for (const { pageNum, text } of pages) {
-    const sectionId = mapPageToSection(text);
-    if (!sectionId) continue;
+    // Unmatched pages go to appendices instead of being silently dropped
+    const sectionId = mapPageToSection(text) ?? "appendices";
 
     if (!result.has(sectionId)) {
       result.set(sectionId, { pages: [], text: "", confidence: 0.7 });
