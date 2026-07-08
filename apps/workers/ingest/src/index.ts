@@ -11,11 +11,11 @@
 import mammoth from "mammoth";
 import { timingSafeEqual } from "node:crypto";
 import type { Db } from "@crm/firestore-adapter";
-import { BusinessEvent, ExternalSignal, RequestItem, INTAKE_TO_BOOK_ID, BOOK_SECTION_IDS } from "@crm/schemas";
+import { BusinessEvent, ExternalSignal, RequestItem, INTAKE_TO_BOOK_ID, BOOK_SECTION_IDS, type SourceDocKind } from "@crm/schemas";
 import { handleDocuments } from "./documents.js";
 import { createFirestoreRestClient, saveEvents, registerTenant } from "@crm/firestore-adapter";
 import { generatePlan, ExtractedPlanSchema, AssessmentOutputSchema } from "@crm/ai-kit";
-import { REQUIRED_SECTIONS, mapToSections, gateIntake } from "@crm/core";
+import { REQUIRED_SECTIONS, mapToSections, gateIntake, classifyDocument } from "@crm/core";
 import { EXTRACT_SYSTEM, ASSESS_SYSTEM } from "./prompts.generated.js";
 
 interface Env {
@@ -666,7 +666,8 @@ async function handleComplianceExtract(request: Request, env: Env): Promise<Resp
 
 const VALID_DOC_KINDS = [
   "bank_statement", "cash_report", "fin_report", "staff_schedule",
-  "doc_registry", "turnover_sheet", "fixed_asset_card", "authority_request", "other",
+  "doc_registry", "turnover_sheet", "fixed_asset_card", "authority_request",
+  "business_plan", "other",
 ] as const;
 
 async function handleRevisionDoc(request: Request, env: Env): Promise<Response> {
@@ -708,6 +709,27 @@ async function handleRevisionDoc(request: Request, env: Env): Promise<Response> 
   const docId = crypto.randomUUID();
   const now = new Date().toISOString();
 
+  // Extract text by file type
+  const mime = file.type.toLowerCase();
+  let rawText: string;
+  if (mime.includes("wordprocessingml") || file.name.endsWith(".docx")) {
+    const result = await mammoth.extractRawText({ arrayBuffer: buffer });
+    rawText = result.value;
+  } else if (mime.includes("spreadsheetml") || file.name.endsWith(".xlsx")) {
+    rawText = await extractXlsxText(buffer);
+  } else if (mime.startsWith("text/")) {
+    rawText = new TextDecoder().decode(buffer);
+  } else {
+    rawText = " "; // KIND_BIAS in classifyDocument handles PDF/binary by kind
+  }
+
+  // Split into 600-char page chunks
+  const pages: string[] = [];
+  for (let i = 0; i < rawText.length; i += 600) pages.push(rawText.slice(i, i + 600));
+  if (pages.length === 0) pages.push(" ");
+
+  const docSections = classifyDocument(kind as SourceDocKind, pages);
+
   try {
     await db
       .collection("tenants")
@@ -720,16 +742,33 @@ async function handleRevisionDoc(request: Request, env: Env): Promise<Response> 
         kind,
         fileRef: `uploads/${businessId}/${docId}/${file.name}`,
         uploadedAt: now,
-        pages: 1,          // будет обновлено парсером
-        mappedSections: [],
-        status: "uploaded",
+        pages: pages.length,
+        mappedSections: docSections,
+        status: "mapped",
         sha256,
       } as unknown as Record<string, unknown>);
   } catch {
     return jsonCors({ error: "Failed to save doc record" }, 500);
   }
 
-  return jsonCors({ docId, businessId, status: "uploaded", sha256 });
+  // For business_plan: also write to plan_intakes (non-blocking)
+  if (kind === "business_plan" && docSections.length > 0) {
+    const intakeId = crypto.randomUUID();
+    const bookSecs = translateToBookSections(
+      Object.fromEntries(docSections.map(s => [s.sectionId, { text: "", confidence: s.confidence }])),
+      docSections.map(s => ({ sectionId: s.sectionId, present: true, confidence: s.confidence })),
+    );
+    db.collection("tenants").doc(businessId).collection("plan_intakes").doc(intakeId).set({
+      intakeId,
+      mappedSections: bookSecs,
+      assessment: { strengths: [], concerns: [], gaps: [], assumptionsExtracted: {} },
+      disclaimer: "Загружено как бизнес-план через /revision-doc",
+      status: "mapped",
+      extractedAt: now,
+    } as unknown as Record<string, unknown>).catch(e => console.warn("[revision-doc] plan_intakes write failed:", e));
+  }
+
+  return jsonCors({ docId, sectionsFound: docSections.length, status: "mapped", sha256, message: `Документ обработан, найдено разделов: ${docSections.length}` });
 }
 
 // ══════════════════════════════════════════════════════════════════════════════

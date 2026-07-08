@@ -8,7 +8,7 @@ import type { DocMappedSection, HealthCheck } from "@crm/schemas";
 import { BOOK_SECTION_ALIAS } from "@crm/schemas";
 import { SECTIONS } from "../../plan/PlanSectionPage";
 import { PulseWidget } from "./PulseWidget";
-import { UploadPlanButton } from "../../dashboard/UploadPlanButton";
+import { UploadBusinessDocsButton } from "./UploadBusinessDocsButton";
 import "../../dashboard/Dashboard.css";
 import "../../plan/PlanSectionPage.css";
 import "./BusinessPage.css";
@@ -50,6 +50,7 @@ function BizAnalysisView({ hc, gaps, intake, onBack }: {
   intake: ReturnType<typeof useIntake>["data"];
   onBack: () => void;
 }) {
+  const [uploadKind, setUploadKind] = useState<string | null>(null);
   const burnRub = hc.burn_rate_kopecks != null ? Math.round(hc.burn_rate_kopecks / 100).toLocaleString("ru-RU") : null;
   return (
     <div className="biz-analysis-panel k-fadein">
@@ -89,8 +90,18 @@ function BizAnalysisView({ hc, gaps, intake, onBack }: {
             <div key={g.sectionId} className="k-card k-card--glass biz-gap-item">
               <span className="biz-gap-name">{g.canInfer ? "✦ " : "📄 "}{g.sectionId.replace(/_/g, " ")}</span>
               {g.whereToGet && <span className="biz-gap-hint">{g.whereToGet}</span>}
+              {g.requiredDocKind && (
+                <button className="k-nav-btn biz-gap-upload-btn" onClick={() => setUploadKind(g.requiredDocKind!)}>
+                  Загрузить
+                </button>
+              )}
             </div>
           ))}
+          {uploadKind && (
+            <div style={{ marginTop: 16 }}>
+              <UploadBusinessDocsButton defaultKind={uploadKind} onSuccess={() => setUploadKind(null)} />
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -207,7 +218,7 @@ export function BusinessPage() {
                   <p style={{ fontSize: 12, color: "#8B7355", marginBottom: 14, lineHeight: 1.5 }}>
                     Банковская выписка · Кассовые отчёты · Финансовая отчётность · Штатное расписание · Реестр договоров
                   </p>
-                  <UploadPlanButton />
+                  <UploadBusinessDocsButton />
                 </div>
               </>
             )}

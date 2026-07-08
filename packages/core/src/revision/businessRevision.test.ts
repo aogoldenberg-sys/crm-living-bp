@@ -43,6 +43,18 @@ describe("classifyDocument", () => {
     const result = classifyDocument("staff_schedule", ["штатное расписание директор сотрудник"]);
     expect(result[0]?.sectionId).toBe("team");
   });
+  it("bank_statement → finances section", () => {
+    const sections = classifyDocument("bank_statement", ["оборот выписка"]);
+    expect(sections.length).toBeGreaterThan(0);
+    expect(sections[0]?.sectionId).toBe("finances");
+  });
+  it("business_plan → multiple sections classified", () => {
+    const sections = classifyDocument("business_plan", [
+      "команда: директор Иванов, штат 12 человек",
+      "финансы: выручка 10 млн руб, прибыль 2 млн",
+    ]);
+    expect(sections.length).toBeGreaterThan(0);
+  });
 });
 
 describe("deriveGaps", () => {

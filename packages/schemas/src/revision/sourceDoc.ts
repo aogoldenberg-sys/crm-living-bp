@@ -10,6 +10,7 @@ export const SourceDocKind = z.enum([
   "turnover_sheet",
   "fixed_asset_card",
   "authority_request",
+  "business_plan",
   "other",
 ]);
 export type SourceDocKind = z.infer<typeof SourceDocKind>;
