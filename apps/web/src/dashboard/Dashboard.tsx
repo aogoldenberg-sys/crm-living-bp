@@ -235,6 +235,7 @@ export function Dashboard() {
   const { signals } = useDemandSignals(bid);
   const { data: pipeline } = usePipeline(bid);
   const { data: intake } = useIntake(bid);
+  const uploadRef = useRef<HTMLInputElement>(null);
 
   const isOwner = !role || role === "owner";
 
@@ -498,15 +499,18 @@ export function Dashboard() {
             </header>
 
             {/* H1 */}
-            {/* UploadPlanButton скрыт — нужен только как триггер */}
-            <div style={{ display: "none" }}>{isOwner && <UploadPlanButton />}</div>
+            {/* UploadPlanButton скрыт визуально, ref даёт прямой доступ к <input> */}
+            {isOwner && (
+              <div style={{ display: "none" }}>
+                <UploadPlanButton ref={uploadRef} />
+              </div>
+            )}
             <div className="k-hero k-fadein" style={{ animationDelay: ".1s" }}>
               <h1 className="k-h1">Живой бизнес-план</h1>
               <p className="k-h1-sub">Цифровой двойник вашего бизнеса</p>
               <div className="k-hero-btns">
                 {isOwner && (
-                  <button className="k-gold-btn"
-                    onClick={() => document.querySelector<HTMLElement>(".upload-plan-btn")?.click()}>
+                  <button className="k-gold-btn" onClick={() => uploadRef.current?.click()}>
                     Загрузить бизнес-план
                   </button>
                 )}

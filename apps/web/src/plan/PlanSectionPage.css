@@ -253,3 +253,30 @@
   color: #3A3228;
   line-height: 1.5;
 }
+
+/* Empty state — нет загруженного документа */
+.psp-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 48px 24px;
+  text-align: center;
+}
+.psp-empty-icon {
+  font-size: 48px;
+  line-height: 1;
+}
+.psp-empty-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: #2C2419;
+  margin: 0;
+}
+.psp-empty-text {
+  font-size: 14px;
+  color: #6B5A42;
+  line-height: 1.6;
+  max-width: 360px;
+  margin: 0;
+}

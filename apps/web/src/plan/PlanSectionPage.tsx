@@ -1,10 +1,11 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/useAuth";
 import { useIntake } from "../dashboard/useIntake";
 import { deriveGaps } from "@crm/core";
 import type { DocMappedSection } from "@crm/schemas";
 import { GrantView } from "../components/GrantView";
+import { UploadPlanButton } from "../dashboard/UploadPlanButton";
 import "./PlanSectionPage.css";
 
 export const SECTIONS = [
@@ -105,6 +106,7 @@ export function PlanSectionPage({ mode }: { mode?: "revision" } = {}) {
   const { data: intake, isLoading } = useIntake(businessId ?? "demo");
   const [expanded, setExpanded] = useState(false);
   const [showGrant, setShowGrant] = useState(false);
+  const uploadRef = useRef<HTMLInputElement>(null);
 
   const basePath = mode === "revision" ? "/business" : "/dashboard";
 
@@ -143,6 +145,28 @@ export function PlanSectionPage({ mode }: { mode?: "revision" } = {}) {
         <div className="psp-skeleton" />
         <div className="psp-skeleton psp-skeleton--wide" />
         <div className="psp-skeleton" />
+      </div>
+    );
+  }
+
+  // Нет документа — показываем CTA загрузки вместо пустой страницы
+  if (!intake) {
+    return (
+      <div className="psp-page">
+        <div className="psp-breadcrumb">
+          <button className="psp-back-btn" onClick={() => navigate(basePath)}>
+            ← Назад к плану
+          </button>
+        </div>
+        <div className="psp-empty-state">
+          <span className="psp-empty-icon">📄</span>
+          <h2 className="psp-empty-title">Загрузите бизнес-план</h2>
+          <p className="psp-empty-text">
+            Чтобы увидеть содержимое раздела, загрузите ваш бизнес-план.<br />
+            Поддерживаются PDF, Word, Excel, TXT.
+          </p>
+          <UploadPlanButton ref={uploadRef} />
+        </div>
       </div>
     );
   }

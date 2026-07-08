@@ -10,9 +10,12 @@
  *
  * Загрузка: POST multipart/form-data → ${VITE_INGEST_WORKER_URL}/intake
  * Auth: Firebase ID Token (Authorization: Bearer <token>)
+ *
+ * forwardRef: родитель может получить ref на <input> и вызвать .click()
+ * без querySelector-хака.
  */
 
-import { useRef, useState, useCallback, type DragEvent } from "react";
+import { useRef, useState, useCallback, forwardRef, useImperativeHandle, type DragEvent } from "react";
 import { auth } from "../firebase";
 
 // Принимаемые расширения (для <input accept> и drag-and-drop)
@@ -45,153 +48,158 @@ interface UploadPlanButtonProps {
   onSuccess?: () => void;
 }
 
-export function UploadPlanButton({ onSuccess }: UploadPlanButtonProps = {}) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [fileName, setFileName] = useState<string | null>(null);
-  const [status, setStatus] = useState<Status>("idle");
-  const [message, setMessage] = useState<string | null>(null);
-  const [dragging, setDragging] = useState(false);
-  const [progress, setProgress] = useState<string | null>(null);
+export const UploadPlanButton = forwardRef<HTMLInputElement, UploadPlanButtonProps>(
+  function UploadPlanButton({ onSuccess }, ref) {
+    const inputRef = useRef<HTMLInputElement>(null);
+    // Expose the hidden <input> so Dashboard can call inputRef.current.click()
+    useImperativeHandle(ref, () => inputRef.current!);
 
-  const upload = useCallback(
-    async (file: File) => {
-      setFileName(file.name);
-      setStatus("uploading");
-      setMessage(null);
-      setProgress("Загружаем документ...");
+    const [fileName, setFileName] = useState<string | null>(null);
+    const [status, setStatus] = useState<Status>("idle");
+    const [message, setMessage] = useState<string | null>(null);
+    const [dragging, setDragging] = useState(false);
+    const [progress, setProgress] = useState<string | null>(null);
 
-      const PROGRESS_STEPS = [
-        "Загружаем документ...",
-        "Анализируем структуру...",
-        "Маппинг разделов...",
-        "Финальная проверка...",
-      ];
-      let step = 0;
-      const progressInterval = setInterval(() => {
-        step = Math.min(step + 1, PROGRESS_STEPS.length - 1);
-        setProgress(PROGRESS_STEPS[step]!);
-      }, 2000);
+    const upload = useCallback(
+      async (file: File) => {
+        setFileName(file.name);
+        setStatus("uploading");
+        setMessage(null);
+        setProgress("Загружаем документ...");
 
-      try {
-        const user = auth.currentUser;
-        if (!user) throw new Error("Не авторизован — обновите страницу и войдите снова.");
-        const idToken = await user.getIdToken(true); // force-refresh — иначе email_verified в claim устаревший
+        const PROGRESS_STEPS = [
+          "Загружаем документ...",
+          "Анализируем структуру...",
+          "Маппинг разделов...",
+          "Финальная проверка...",
+        ];
+        let step = 0;
+        const progressInterval = setInterval(() => {
+          step = Math.min(step + 1, PROGRESS_STEPS.length - 1);
+          setProgress(PROGRESS_STEPS[step]!);
+        }, 2000);
 
-        const mime = resolveMime(file);
-        const form = new FormData();
-        form.append("file", file, file.name);
-        // Явно передаём MIME — защита от кириллических имён
-        form.append("mimeType", mime);
+        try {
+          const user = auth.currentUser;
+          if (!user) throw new Error("Не авторизован — обновите страницу и войдите снова.");
+          const idToken = await user.getIdToken(true); // force-refresh — иначе email_verified в claim устаревший
 
-        const workerUrl = import.meta.env.VITE_INGEST_WORKER_URL as string;
-        const res = await fetch(`${workerUrl}/intake`, {
-          method: "POST",
-          headers: { Authorization: `Bearer ${idToken}` },
-          body: form,
-        });
+          const mime = resolveMime(file);
+          const form = new FormData();
+          form.append("file", file, file.name);
+          // Явно передаём MIME — защита от кириллических имён
+          form.append("mimeType", mime);
 
-        const data = (await res.json().catch(() => ({}))) as { error?: string; details?: unknown };
-        if (!res.ok) {
-          console.error("[upload-plan] server error:", res.status, data);
-          const errorText = data.error === "Email not verified"
-            ? "Подтвердите email — письмо было отправлено при регистрации. После подтверждения обновите страницу."
-            : data.error ?? `Сервер вернул ${res.status}`;
-          throw new Error(errorText);
+          const workerUrl = import.meta.env.VITE_INGEST_WORKER_URL as string;
+          const res = await fetch(`${workerUrl}/intake`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${idToken}` },
+            body: form,
+          });
+
+          const data = (await res.json().catch(() => ({}))) as { error?: string; details?: unknown };
+          if (!res.ok) {
+            console.error("[upload-plan] server error:", res.status, data);
+            const errorText = data.error === "Email not verified"
+              ? "Подтвердите email — письмо было отправлено при регистрации. После подтверждения обновите страницу."
+              : data.error ?? `Сервер вернул ${res.status}`;
+            throw new Error(errorText);
+          }
+
+          setStatus("done");
+          setMessage("Анализ завершён — данные появятся на дашборде через несколько секунд.");
+          if (onSuccess) setTimeout(onSuccess, 1500);
+        } catch (e) {
+          console.error("[upload-plan] upload failed:", e);
+          setStatus("error");
+          setMessage(e instanceof Error ? e.message : "Неизвестная ошибка загрузки");
+        } finally {
+          clearInterval(progressInterval);
+          setProgress(null);
         }
+      },
+      [],
+    );
 
-        setStatus("done");
-        setMessage("Анализ завершён — данные появятся на дашборде через несколько секунд.");
-        if (onSuccess) setTimeout(onSuccess, 1500);
-      } catch (e) {
-        console.error("[upload-plan] upload failed:", e);
-        setStatus("error");
-        setMessage(e instanceof Error ? e.message : "Неизвестная ошибка загрузки");
-      } finally {
-        clearInterval(progressInterval);
-        setProgress(null);
-      }
-    },
-    [],
-  );
-
-  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (file) void upload(file);
-    e.target.value = ""; // сбросить чтобы повторный выбор того же файла срабатывал
-  }
-
-  function handleDrop(e: DragEvent<HTMLDivElement>) {
-    e.preventDefault();
-    setDragging(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file) void upload(file);
-  }
-
-  function handleDragOver(e: DragEvent<HTMLDivElement>) {
-    e.preventDefault();
-    setDragging(true);
-  }
-
-  function handleDragLeave(e: DragEvent<HTMLDivElement>) {
-    // Только если уходим за пределы контейнера
-    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-      setDragging(false);
+    function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
+      const file = e.target.files?.[0];
+      if (file) void upload(file);
+      e.target.value = ""; // сбросить чтобы повторный выбор того же файла срабатывал
     }
-  }
 
-  const isLoading = status === "uploading";
+    function handleDrop(e: DragEvent<HTMLDivElement>) {
+      e.preventDefault();
+      setDragging(false);
+      const file = e.dataTransfer.files?.[0];
+      if (file) void upload(file);
+    }
 
-  return (
-    <div
-      className={`upload-plan-group${dragging ? " upload-plan-group--drag" : ""}`}
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
-      role="region"
-      aria-label="Загрузка бизнес-плана"
-    >
-      <input
-        ref={inputRef}
-        type="file"
-        accept={ACCEPTED_EXT}
-        onChange={handleChange}
-        style={{ display: "none" }}
-        aria-label="Выберите файл бизнес-плана"
-        disabled={isLoading}
-      />
+    function handleDragOver(e: DragEvent<HTMLDivElement>) {
+      e.preventDefault();
+      setDragging(true);
+    }
 
-      <button
-        type="button"
-        className="upload-plan-btn"
-        onClick={() => inputRef.current?.click()}
-        disabled={isLoading}
+    function handleDragLeave(e: DragEvent<HTMLDivElement>) {
+      // Только если уходим за пределы контейнера
+      if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+        setDragging(false);
+      }
+    }
+
+    const isLoading = status === "uploading";
+
+    return (
+      <div
+        className={`upload-plan-group${dragging ? " upload-plan-group--drag" : ""}`}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        role="region"
+        aria-label="Загрузка бизнес-плана"
       >
-        {isLoading
-          ? "Анализируется…"
-          : fileName
-          ? "Сменить файл"
-          : "Загрузить план"}
-      </button>
+        <input
+          ref={inputRef}
+          type="file"
+          accept={ACCEPTED_EXT}
+          onChange={handleChange}
+          style={{ display: "none" }}
+          aria-label="Выберите файл бизнес-плана"
+          disabled={isLoading}
+        />
 
-      {fileName && !isLoading && (
-        <span className="upload-plan-filename" title={fileName}>
-          {fileName}
-        </span>
-      )}
-
-      <p className="upload-plan-hint">
-        PDF, Word, Excel, текст — перетащите или выберите
-      </p>
-
-      {progress && <p className="upload-plan-hint">{progress}</p>}
-
-      {message && (
-        <p
-          className={`upload-plan-msg${status === "error" ? " upload-plan-msg--error" : " upload-plan-msg--ok"}`}
+        <button
+          type="button"
+          className="upload-plan-btn"
+          onClick={() => inputRef.current?.click()}
+          disabled={isLoading}
         >
-          {message}
+          {isLoading
+            ? "Анализируется…"
+            : fileName
+            ? "Сменить файл"
+            : "Загрузить план"}
+        </button>
+
+        {fileName && !isLoading && (
+          <span className="upload-plan-filename" title={fileName}>
+            {fileName}
+          </span>
+        )}
+
+        <p className="upload-plan-hint">
+          PDF, Word, Excel, текст — перетащите или выберите
         </p>
-      )}
-    </div>
-  );
-}
+
+        {progress && <p className="upload-plan-hint">{progress}</p>}
+
+        {message && (
+          <p
+            className={`upload-plan-msg${status === "error" ? " upload-plan-msg--error" : " upload-plan-msg--ok"}`}
+          >
+            {message}
+          </p>
+        )}
+      </div>
+    );
+  }
+);
