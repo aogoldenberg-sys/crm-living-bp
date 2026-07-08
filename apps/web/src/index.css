@@ -669,6 +669,109 @@ body {
   cursor: not-allowed;
 }
 
+/* ── @media print — бизнес-план ──────────────────────────────────────── */
+
+@media print {
+  /* Скрываем UI-хром */
+  .k-sidebar,
+  .k-balls-layer,
+  .k-bg,
+  .k-topbar,
+  .k-hero-btns,
+  .psp-breadcrumb,
+  .psp-footer-nav,
+  .psp-action-btns,
+  .psp-expand-btn,
+  .psp-revision-cta,
+  .ia-panel,
+  nav,
+  aside,
+  header,
+  button {
+    display: none !important;
+  }
+
+  body {
+    background: #fff !important;
+    color: #000 !important;
+    font-family: "Times New Roman", Georgia, serif !important;
+    font-size: 12pt !important;
+    line-height: 1.5 !important;
+  }
+
+  /* Титульная страница — автогенерация через ::before на .psp-page */
+  .psp-page::before {
+    content: "БИЗНЕС-ПЛАН\A" attr(data-project) "\A" attr(data-date);
+    white-space: pre;
+    display: block;
+    font-size: 22pt;
+    font-weight: 700;
+    text-align: center;
+    padding: 80pt 0 40pt;
+    page-break-after: always;
+    border-bottom: 2px solid #000;
+    margin-bottom: 40pt;
+  }
+
+  /* Каждый раздел — с новой страницы */
+  .psp-content-block {
+    page-break-before: always;
+    border: none !important;
+    background: transparent !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* Раскрываем весь текст */
+  .psp-content-text {
+    display: block !important;
+    overflow: visible !important;
+    -webkit-line-clamp: unset !important;
+    font-size: 12pt;
+    line-height: 1.5;
+    color: #000;
+  }
+
+  /* Заголовок раздела */
+  .psp-header {
+    margin-bottom: 12pt;
+  }
+  .psp-title {
+    font-size: 18pt !important;
+    color: #000 !important;
+  }
+  .psp-icon { display: none; }
+  .psp-badge { display: none; }
+
+  /* Метрики — компактно */
+  .psp-metrics {
+    margin-bottom: 12pt;
+  }
+  .psp-metric-card {
+    background: transparent !important;
+    border: 1px solid #ccc !important;
+    backdrop-filter: none !important;
+  }
+  .psp-metric-label,
+  .psp-metric-val {
+    color: #000 !important;
+  }
+
+  /* Гант-вью водяной знак виден на печати */
+  .grant-view::before {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  /* Разделы грант-вью с разрывом */
+  .gv-section {
+    page-break-before: always;
+  }
+  .gv-section:first-child {
+    page-break-before: avoid;
+  }
+}
+
 .error-banner {
   background: rgba(231, 76, 60, 0.15);
   border: 1px solid rgba(231, 76, 60, 0.4);

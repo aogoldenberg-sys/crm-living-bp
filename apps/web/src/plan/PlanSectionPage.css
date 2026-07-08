@@ -177,6 +177,25 @@
 }
 .psp-expand-btn:hover { text-decoration: underline; }
 
+/* Кнопки действий (печать / гранты) */
+.psp-action-btns {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.psp-btn--print {
+  background: rgba(255,255,255,.6);
+  border-color: rgba(100,100,100,.2);
+}
+
+.psp-btn--grant {
+  background: rgba(232,196,100,.15);
+  border-color: rgba(180,140,60,.35);
+  color: #7A5A00;
+}
+.psp-btn--grant:hover { background: rgba(232,196,100,.28); }
+
 /* Навигационные кнопки */
 .psp-nav-btn {
   background: rgba(255,255,255,.6);

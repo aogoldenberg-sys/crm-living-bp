@@ -4,6 +4,7 @@ import { useAuth } from "../auth/useAuth";
 import { useIntake } from "../dashboard/useIntake";
 import { deriveGaps } from "@crm/core";
 import type { DocMappedSection } from "@crm/schemas";
+import { GrantView } from "../components/GrantView";
 import "./PlanSectionPage.css";
 
 export const SECTIONS = [
@@ -103,6 +104,7 @@ export function PlanSectionPage({ mode }: { mode?: "revision" } = {}) {
   const { businessId } = useAuth();
   const { data: intake, isLoading } = useIntake(businessId ?? "demo");
   const [expanded, setExpanded] = useState(false);
+  const [showGrant, setShowGrant] = useState(false);
 
   const basePath = mode === "revision" ? "/business" : "/dashboard";
 
@@ -156,6 +158,19 @@ export function PlanSectionPage({ mode }: { mode?: "revision" } = {}) {
   const showChart = CHART_SECTIONS.has(section.id) && mapped?.present;
   const barHeights = showChart ? deriveBarHeights(mapped!.contentSummary) : [];
 
+  if (showGrant && intake) {
+    return (
+      <div className="psp-page">
+        <div className="psp-breadcrumb">
+          <button className="psp-back-btn" onClick={() => setShowGrant(false)}>
+            ← Назад к разделу
+          </button>
+        </div>
+        <GrantView intake={intake} planId={intake.intakeId ?? businessId ?? "demo"} />
+      </div>
+    );
+  }
+
   return (
     <div className="psp-page">
       {/* Хлебные крошки */}
@@ -181,6 +196,24 @@ export function PlanSectionPage({ mode }: { mode?: "revision" } = {}) {
               onClick={() => navigate(`${basePath}/plan/${nextSection.id}`)}
             >
               {nextSection.title} →
+            </button>
+          )}
+        </div>
+        <div className="psp-action-btns">
+          <button
+            className="psp-nav-btn psp-btn--print"
+            onClick={() => window.print()}
+            title="Распечатать бизнес-план"
+          >
+            🖨️ Печать
+          </button>
+          {intake && (
+            <button
+              className="psp-nav-btn psp-btn--grant"
+              onClick={() => setShowGrant(true)}
+              title="Версия для субсидий и грантов"
+            >
+              📋 Для субсидий и грантов
             </button>
           )}
         </div>
