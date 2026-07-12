@@ -200,6 +200,109 @@ function applyPhaseFilter(
   }
 }
 
+// ── Русские названия разделов ─────────────────────────────────────────────────
+
+const SECTION_RU: Record<string, string> = {
+  mission: "Миссия", goals: "Цели", priorities: "Приоритеты", contents: "Содержание",
+  product: "Ценностный продукт", markets: "Целевые рынки", marketing: "Маркетинговый план",
+  resources: "Ключевые ресурсы", finance: "Финансовый анализ", forecast: "Прогноз продаж",
+  payments: "Календарь платежей", pest: "Внешняя экономика", competitors: "Конкурентный анализ",
+  advantages: "Конкурентные преимущества", structure: "Схема компании", team: "Кадры",
+  risks: "Риски", roadmap: "Дорожная карта", kpi: "KPI и метрики", investment: "Инвестиции",
+  conclusion: "Заключение", appendix: "Приложения",
+  executive_summary: "Резюме проекта", finances: "Финансы", market_size: "Объём рынка",
+  market_analysis: "Анализ рынка", target_audience: "Целевая аудитория",
+  product_service: "Продукт / Услуга", competitive_analysis: "Конкурентный анализ",
+  marketing_strategy: "Маркетинговая стратегия", financial_model: "Финансовая модель",
+  investment_plan: "Инвестиционный план", legal_structure: "Правовая структура",
+  grants_subsidies: "Гранты и субсидии", exit_strategy: "Стратегия выхода",
+};
+
+function sectionRu(id: string): string {
+  return SECTION_RU[id] ?? id.replace(/_/g, " ");
+}
+
+// ── Пробелы плана с доработкой ────────────────────────────────────────────────
+
+function GapsSection({ gaps, planId }: { gaps: Gap[]; planId: string }) {
+  const { user } = useAuth();
+  const [activeGap, setActiveGap] = useState<string | null>(null);
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [done, setDone] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const visible = gaps.filter(g => !done.has(g.missingSection));
+  if (visible.length === 0) return null;
+
+  async function submit(gap: Gap) {
+    const answer = answers[gap.missingSection] ?? "";
+    if (!answer.trim()) return;
+    setLoading(true); setError(null);
+    try {
+      const idToken = await user!.getIdToken();
+      const res = await fetch(`${import.meta.env.VITE_INGEST_WORKER_URL as string}/intake-refine`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${idToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ planId, sectionId: gap.missingSection, answer: answer.trim() }),
+      });
+      if (!res.ok) throw new Error(`Ошибка ${res.status}`);
+      setDone(prev => new Set([...prev, gap.missingSection]));
+      setActiveGap(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Ошибка");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <section className="rm-phase">
+      <h3 className="rm-phase-title">
+        Пробелы плана
+        <span className="rm-phase-count">{visible.length}</span>
+      </h3>
+      <div className="rm-rows">
+        {visible.map(g => (
+          <div key={g.missingSection} className="rm-row">
+            <div className="rm-row-left"><span className="rm-dot rm-dot--medium" /></div>
+            <div className="rm-row-body">
+              <div className="rm-row-title">{sectionRu(g.missingSection)}</div>
+              {g.description && <div className="rm-row-desc">{g.description}</div>}
+              {activeGap === g.missingSection ? (
+                <>
+                  <textarea
+                    className="ia-refine-textarea"
+                    rows={3}
+                    placeholder="Опишите этот раздел…"
+                    value={answers[g.missingSection] ?? ""}
+                    onChange={e => setAnswers(prev => ({ ...prev, [g.missingSection]: e.target.value }))}
+                    disabled={loading}
+                    style={{ marginTop: 8, width: "100%", fontSize: 13 }}
+                  />
+                  {error && <p style={{ fontSize: 12, color: "#8B1A1A", margin: "4px 0" }}>{error}</p>}
+                  <div className="rm-row-actions" style={{ marginTop: 6 }}>
+                    <button type="button" className="rm-action-btn" onClick={() => void submit(g)} disabled={loading || !(answers[g.missingSection] ?? "").trim()}>
+                      {loading ? "Сохраняем…" : "Отправить"}
+                    </button>
+                    <button type="button" className="rm-action-btn" onClick={() => setActiveGap(null)}>Отмена</button>
+                  </div>
+                </>
+              ) : (
+                <div className="rm-row-actions">
+                  <button type="button" className="rm-action-btn" onClick={() => setActiveGap(g.missingSection)}>
+                    Доработать
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 // ── Панель ────────────────────────────────────────────────────────────────────
 
 interface Props {
@@ -344,6 +447,7 @@ export function RoadmapPanel({ intake, businessId, creditsAvailable = false }: P
           )}
         </section>
       )}
+
     </div>
   );
 }

@@ -16,7 +16,7 @@ import { BOOK_SECTION_ALIAS } from "@crm/schemas";
 import { PlanSidebar } from "./PlanSidebar";
 import { IntakePanel } from "./IntakePanel";
 import { SECTIONS, SECTION_TO_INTAKE_ID } from "../plan/PlanSectionPage";
-import type { MappedSection, HolisticAssessment, GeneratedRoadmap } from "./useIntake";
+import type { MappedSection, HolisticAssessment, GeneratedRoadmap, GrantType, GrantResult } from "./useIntake";
 import { RisksPanel } from "../panels/RisksPanel";
 import { AutonomyPanel } from "../panels/AutonomyPanel";
 import { ComplianceFlow } from "../features/compliance/ComplianceFlow.js";
@@ -344,6 +344,159 @@ function AiRoadmapView({ gr }: { gr: GeneratedRoadmap }) {
           <div style={{ fontSize: 12, color: "#2E5016", fontWeight: 600 }}>✓ {ph.deliverable}</div>
         </div>
       ))}
+    </div>
+  );
+}
+
+// ── Grant module ──────────────────────────────────────────────────────────────
+
+const GRANT_OPTIONS: { value: GrantType; label: string; maxRub: string }[] = [
+  { value: "minek",       label: "Минэкономразвития «Мой бизнес»",         maxRub: "500 тыс. ₽" },
+  { value: "agrostartup", label: "Агростартап (МСХП)",                     maxRub: "3 млн ₽" },
+  { value: "governor",    label: "Губернаторский грант",                    maxRub: "по региону" },
+  { value: "minvostok",   label: "Минвостокразвития (ДФО)",                 maxRub: "5 млн ₽" },
+  { value: "skolkovo",    label: "Сколково",                                maxRub: "до 5 млн ₽" },
+  { value: "fondprez",    label: "Президентский фонд культ. инициатив",    maxRub: "по конкурсу" },
+];
+
+function GrantPanel({ planId, adaptations }: { planId: string; adaptations?: Record<string, GrantResult> }) {
+  const { user } = useAuth();
+  const [selected, setSelected] = useState<GrantType>("minek");
+  const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
+  const [err, setErr] = useState<string | null>(null);
+  const [openGrant, setOpenGrant] = useState<string | null>(null);
+
+  async function runAdapt() {
+    if (!user) return;
+    setStatus("loading"); setErr(null);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch(`${import.meta.env.VITE_INGEST_WORKER_URL as string}/plan-grant`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ planId, grantType: selected }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({})) as { error?: string };
+        throw new Error(d.error ?? `Ошибка ${res.status}`);
+      }
+      setStatus("idle");
+    } catch (e) {
+      setStatus("error");
+      setErr(e instanceof Error ? e.message : "Ошибка");
+    }
+  }
+
+  const result = adaptations?.[selected];
+  const score = result?.readinessScore ?? 0;
+  const scoreColor = score >= 75 ? "#2E7D32" : score >= 50 ? "#E65100" : "#C62828";
+
+  return (
+    <div style={{ marginBottom: 24 }}>
+      <h3 style={{ margin: "0 0 12px", fontSize: 15, fontWeight: 700, color: "#1A1814" }}>Грантовый модуль Kairos</h3>
+
+      {/* Selector + button */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 16 }}>
+        <select
+          value={selected}
+          onChange={e => { setSelected(e.target.value as GrantType); setErr(null); }}
+          style={{ fontSize: 13, padding: "6px 10px", borderRadius: 8, border: "1px solid #C89A34", background: "rgba(200,154,52,.06)", color: "#3A2800", cursor: "pointer" }}
+        >
+          {GRANT_OPTIONS.map(g => (
+            <option key={g.value} value={g.value}>{g.label} — до {g.maxRub}</option>
+          ))}
+        </select>
+        <button
+          type="button"
+          onClick={() => void runAdapt()}
+          disabled={status === "loading"}
+          style={{ fontSize: 12, padding: "6px 16px", borderRadius: 8, border: "none", background: "linear-gradient(135deg,#C89A34,#E4C260)", color: "#3A2800", cursor: "pointer", fontWeight: 700 }}
+        >
+          {status === "loading" ? "Анализируем…" : "⚡ Проверить готовность"}
+        </button>
+        {err && <span style={{ fontSize: 12, color: "#C62828" }}>{err}</span>}
+      </div>
+
+      {/* Result for selected grant */}
+      {result && (
+        <div style={{ border: "1px solid rgba(200,154,52,.25)", borderRadius: 10, overflow: "hidden" }}>
+          {/* Header */}
+          <div style={{ padding: "12px 16px", background: "rgba(200,154,52,.06)", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: "#3A2800", flex: 1 }}>{result.grantLabel}</span>
+            <span style={{ fontSize: 20, fontWeight: 800, color: scoreColor }}>{score}%</span>
+            <span style={{ fontSize: 11, color: "#888" }}>готовности</span>
+          </div>
+
+          {/* Summary */}
+          {result.grantSummary && (
+            <div style={{ padding: "10px 16px", fontSize: 13, color: "#3A2E1E", lineHeight: 1.6, borderBottom: "1px solid rgba(200,154,52,.15)" }}>
+              {result.grantSummary}
+            </div>
+          )}
+
+          {/* Missing / weak */}
+          <div style={{ padding: "10px 16px", display: "flex", gap: 16, flexWrap: "wrap" }}>
+            {result.missingSections.length > 0 && (
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#C62828", marginBottom: 4 }}>Отсутствуют разделы</div>
+                {result.missingSections.map(s => (
+                  <div key={s} style={{ fontSize: 12, color: "#721C24" }}>✗ {s}</div>
+                ))}
+              </div>
+            )}
+            {result.weakSections.length > 0 && (
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#E65100", marginBottom: 4 }}>Слабые разделы (&lt;60%)</div>
+                {result.weakSections.map(s => (
+                  <div key={s} style={{ fontSize: 12, color: "#8B3A00" }}>⚠ {s}</div>
+                ))}
+              </div>
+            )}
+            {result.missingSections.length === 0 && result.weakSections.length === 0 && (
+              <div style={{ fontSize: 12, color: "#2E7D32", fontWeight: 600 }}>✓ Все обязательные разделы заполнены</div>
+            )}
+          </div>
+
+          {/* Adapted sections accordion */}
+          {Object.keys(result.adaptedSections).length > 0 && (
+            <div style={{ borderTop: "1px solid rgba(200,154,52,.15)" }}>
+              <button
+                type="button"
+                onClick={() => setOpenGrant(openGrant === selected ? null : selected)}
+                style={{ width: "100%", padding: "8px 16px", background: "none", border: "none", cursor: "pointer", textAlign: "left", fontSize: 12, color: "#8B6914", fontWeight: 600 }}
+              >
+                {openGrant === selected ? "▲ Скрыть адаптированный план" : "▼ Показать адаптированный план"}
+              </button>
+              {openGrant === selected && (
+                <div style={{ padding: "0 16px 16px" }}>
+                  {Object.entries(result.adaptedSections).map(([sid, txt]) => (
+                    <div key={sid} style={{ marginBottom: 12 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#8B6914", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>{sid}</div>
+                      <p style={{ margin: 0, fontSize: 13, color: "#3A2E1E", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{txt}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          <div style={{ padding: "6px 16px 10px", fontSize: 11, color: "#aaa" }}>
+            {new Date(result.generatedAt).toLocaleDateString("ru-RU")}
+          </div>
+        </div>
+      )}
+
+      {/* Previously run grants */}
+      {adaptations && Object.keys(adaptations).filter(k => k !== selected).length > 0 && (
+        <div style={{ marginTop: 10, display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {Object.entries(adaptations).filter(([k]) => k !== selected).map(([k, r]) => (
+            <button key={k} type="button" onClick={() => setSelected(k as GrantType)}
+              style={{ fontSize: 11, padding: "3px 10px", borderRadius: 6, border: "1px solid #C89A34", background: "transparent", color: "#8B6914", cursor: "pointer" }}>
+              {k} — {r.readinessScore}%
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -918,6 +1071,9 @@ export function Dashboard() {
                       <HolisticResultView ha={intake.holisticAssessment} planId={intake.intakeId ?? bid} />
                     )}
                     <IntakePanel intake={intake} businessId={bid} />
+                    {isOwner && (
+                      <GrantPanel planId={intake.intakeId ?? bid} adaptations={intake.grantAdaptations} />
+                    )}
                   </>
               : <div className="k-empty-state" style={{ height: "60vh" }}>
                   <span style={{ fontSize: 28, opacity: .3 }}>○</span>

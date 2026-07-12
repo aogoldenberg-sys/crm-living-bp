@@ -46,10 +46,13 @@ type Status = "idle" | "uploading" | "done" | "error";
 
 interface UploadPlanButtonProps {
   onSuccess?: () => void;
+  onUploadStart?: () => void;
+  onUploadProgress?: (msg: string) => void;
+  onUploadError?: (msg: string) => void;
 }
 
 export const UploadPlanButton = forwardRef<HTMLInputElement, UploadPlanButtonProps>(
-  function UploadPlanButton({ onSuccess }, ref) {
+  function UploadPlanButton({ onSuccess, onUploadStart, onUploadProgress, onUploadError }, ref) {
     const inputRef = useRef<HTMLInputElement>(null);
     // Expose the hidden <input> so Dashboard can call inputRef.current.click()
     useImperativeHandle(ref, () => inputRef.current!);
@@ -66,28 +69,35 @@ export const UploadPlanButton = forwardRef<HTMLInputElement, UploadPlanButtonPro
         setStatus("uploading");
         setMessage(null);
         setProgress("Загружаем документ...");
+        onUploadStart?.();
+        onUploadProgress?.("Загружаем документ...");
 
+        // Динамические шаги: первые 4 — быстрые, потом "AI анализирует" до конца
         const PROGRESS_STEPS = [
           "Загружаем документ...",
           "Анализируем структуру...",
           "Маппинг разделов...",
-          "Финальная проверка...",
+          "AI анализирует план... (30–90 сек)",
         ];
         let step = 0;
         const progressInterval = setInterval(() => {
-          step = Math.min(step + 1, PROGRESS_STEPS.length - 1);
+          if (step < PROGRESS_STEPS.length - 1) step++;
           setProgress(PROGRESS_STEPS[step]!);
-        }, 2000);
+          onUploadProgress?.(PROGRESS_STEPS[step]!);
+        }, 3000);
+
+        // Таймаут 120 сек — два вызова Claude по ~30-60 сек каждый
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 120_000);
 
         try {
           const user = auth.currentUser;
           if (!user) throw new Error("Не авторизован — обновите страницу и войдите снова.");
-          const idToken = await user.getIdToken(true); // force-refresh — иначе email_verified в claim устаревший
+          const idToken = await user.getIdToken(true);
 
           const mime = resolveMime(file);
           const form = new FormData();
           form.append("file", file, file.name);
-          // Явно передаём MIME — защита от кириллических имён
           form.append("mimeType", mime);
 
           const workerUrl = import.meta.env.VITE_INGEST_WORKER_URL as string;
@@ -95,6 +105,7 @@ export const UploadPlanButton = forwardRef<HTMLInputElement, UploadPlanButtonPro
             method: "POST",
             headers: { Authorization: `Bearer ${idToken}` },
             body: form,
+            signal: controller.signal,
           });
 
           const data = (await res.json().catch(() => ({}))) as { error?: string; details?: unknown };
@@ -107,13 +118,21 @@ export const UploadPlanButton = forwardRef<HTMLInputElement, UploadPlanButtonPro
           }
 
           setStatus("done");
-          setMessage("Анализ завершён — данные появятся на дашборде через несколько секунд.");
+          const doneMsg = "Анализ завершён — данные появятся через несколько секунд.";
+          setMessage(doneMsg);
+          onUploadProgress?.(doneMsg);
           if (onSuccess) setTimeout(onSuccess, 1500);
         } catch (e) {
           console.error("[upload-plan] upload failed:", e);
           setStatus("error");
-          setMessage(e instanceof Error ? e.message : "Неизвестная ошибка загрузки");
+          const isTimeout = e instanceof Error && (e.name === "AbortError" || e.message.includes("abort"));
+          const errMsg = isTimeout
+            ? "AI анализ занял более 2 минут. Попробуйте PDF или DOCX — они обрабатываются быстрее."
+            : e instanceof Error ? e.message : "Неизвестная ошибка загрузки";
+          setMessage(errMsg);
+          onUploadError?.(errMsg);
         } finally {
+          clearTimeout(timeoutId);
           clearInterval(progressInterval);
           setProgress(null);
         }

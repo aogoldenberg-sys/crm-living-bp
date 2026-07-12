@@ -422,12 +422,13 @@ async function callClaudeAssess(apiKey: string, planText: string): Promise<unkno
       "Content-Type": "application/json",
       "x-api-key": apiKey,
       "anthropic-version": "2023-06-01",
+      "anthropic-beta": "prompt-caching-2024-07-31",
     },
     body: JSON.stringify({
       model: "claude-sonnet-4-6",
       max_tokens: 10000,
       thinking: { type: "enabled", budget_tokens: 5000 },
-      system: PLAN_ASSESS_SYSTEM,
+      system: [{ type: "text", text: PLAN_ASSESS_SYSTEM, cache_control: { type: "ephemeral" } }],
       messages: [{ role: "user", content: planText }],
     }),
   });
@@ -743,6 +744,161 @@ async function handlePlanRoadmap(request: Request, env: Env): Promise<Response> 
   }
 
   return jsonCors({ planId, generatedRoadmap });
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// /plan-grant — адаптация плана под грантовую программу
+// POST { planId, grantType }
+// ══════════════════════════════════════════════════════════════════════════════
+
+type GrantType = "minek" | "agrostartup" | "governor" | "minvostok" | "skolkovo" | "fondprez";
+
+const GRANT_META: Record<GrantType, { label: string; maxRub: string; required: string[] }> = {
+  minek:       { label: "Минэкономразвития «Мой бизнес»", maxRub: "500 000 ₽",  required: ["mission", "markets", "finance", "team", "kpi"] },
+  agrostartup: { label: "Агростартап (МСХП)",             maxRub: "3 000 000 ₽", required: ["mission", "resources", "finance", "team", "kpi"] },
+  governor:    { label: "Губернаторский грант",            maxRub: "по региону",  required: ["mission", "markets", "team", "kpi", "investment"] },
+  minvostok:   { label: "Минвостокразвития (ДФО)",         maxRub: "5 000 000 ₽", required: ["mission", "markets", "finance", "team", "resources", "risks"] },
+  skolkovo:    { label: "Сколково",                        maxRub: "до 5 млн ₽",  required: ["mission", "markets", "team", "investment"] },
+  fondprez:    { label: "Президентский фонд культурных инициатив", maxRub: "по конкурсу", required: ["mission", "marketing", "team", "investment"] },
+};
+
+const GRANT_ADAPT_SYSTEM = (meta: typeof GRANT_META[GrantType]) =>
+  `Ты — эксперт по российским грантовым программам (${meta.label}, до ${meta.maxRub}).
+Тебе дан бизнес-план. Переформатируй его под требования этой программы:
+- Используй официальную терминологию фонда
+- Разделы, которых не хватает, добавь с пометкой "[ТРЕБУЕТ ЗАПОЛНЕНИЯ]"
+- Выдели социальный и экономический эффект — это критично для грантового комитета
+- Укажи соответствие критериям отбора программы
+- Обоснуй запрашиваемую сумму конкретными статьями расходов
+
+Верни ТОЛЬКО валидный JSON без markdown:
+{
+  "readinessScore": 0–100,
+  "missingSections": ["sectionId", ...],
+  "weakSections": ["sectionId", ...],
+  "adaptedSections": { "<sectionId>": "<переформатированный текст или [ТРЕБУЕТ ЗАПОЛНЕНИЯ]>" },
+  "grantSummary": "Краткое резюме готовности плана под эту программу (3-4 предложения)"
+}`;
+
+async function handlePlanGrant(request: Request, env: Env): Promise<Response> {
+  const authHeader = request.headers.get("Authorization") ?? "";
+  const idToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  if (!idToken) return jsonCors({ error: "Unauthorized" }, 401);
+
+  const claims = await verifyFirebaseIdToken(idToken, env.FIREBASE_PROJECT_ID || "crm-living-bp");
+  if (!claims) return jsonCors({ error: "Unauthorized" }, 401);
+
+  const db = createFirestoreRestClient(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+  const userDoc = await db.collection("users").doc(claims.uid).get();
+  if (!userDoc.exists) return jsonCors({ error: "User not registered" }, 400);
+  const { businessId } = userDoc.data() as { businessId: string };
+
+  let body: { planId?: string; grantType?: string };
+  try {
+    body = await request.json() as typeof body;
+  } catch {
+    return jsonCors({ error: "Invalid JSON" }, 400);
+  }
+  const { planId, grantType } = body;
+  if (!planId) return jsonCors({ error: "Missing planId" }, 400);
+  if (!grantType || !(grantType in GRANT_META)) {
+    return jsonCors({ error: `Неверный grantType. Допустимые: ${Object.keys(GRANT_META).join(", ")}` }, 400);
+  }
+
+  const meta = GRANT_META[grantType as GrantType];
+
+  const intakeRef = db.collection(`tenants/${businessId}/plan_intakes`).doc(planId);
+  const intakeDoc = await intakeRef.get();
+  if (!intakeDoc.exists) return jsonCors({ error: "Plan not found" }, 404);
+
+  const intakeData = intakeDoc.data() as Record<string, unknown>;
+  const sections = Array.isArray(intakeData.mappedSections)
+    ? (intakeData.mappedSections as Array<Record<string, unknown>>)
+    : [];
+
+  // Check readiness without LLM first
+  const required = meta.required;
+  const presentIds = new Set(sections.filter(s => Boolean(s.present)).map(s => String(s.sectionId)));
+  const missingSections = required.filter(id => !presentIds.has(id));
+  const weakSections = sections
+    .filter(s => Boolean(s.present) && required.includes(String(s.sectionId)) && (Number(s.confidence) || 0) < 0.6)
+    .map(s => String(s.sectionId));
+
+  const planText = sections
+    .filter(s => Boolean(s.present) && typeof s.contentSummary === "string" && (s.contentSummary as string).length > 10)
+    .map(s => `[${s.sectionId}]:\n${s.contentSummary}`)
+    .join("\n\n---\n\n");
+
+  if (!planText) return jsonCors({ error: "Нет данных для адаптации" }, 422);
+
+  let result: {
+    readinessScore?: number;
+    missingSections?: string[];
+    weakSections?: string[];
+    adaptedSections?: Record<string, string>;
+    grantSummary?: string;
+  };
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": env.ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+        "anthropic-beta": "prompt-caching-2024-07-31",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        max_tokens: 8000,
+        system: [{ type: "text", text: GRANT_ADAPT_SYSTEM(meta), cache_control: { type: "ephemeral" } }],
+        messages: [{ role: "user", content: `Программа: ${meta.label}\nТребуемые разделы: ${required.join(", ")}\n\n${planText}` }],
+      }),
+    });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => "");
+      throw new Error(`Claude grant ${res.status}: ${txt.slice(0, 200)}`);
+    }
+    const msg = (await res.json()) as { content: Array<{ type: string; text?: string }> };
+    const raw = msg.content
+      .filter(b => b.type === "text" && b.text)
+      .map(b => b.text!)
+      .join("\n\n")
+      .replace(/^```(?:json)?\n?/i, "")
+      .replace(/\n?```$/i, "")
+      .trim();
+    result = JSON.parse(raw) as typeof result;
+  } catch (e) {
+    return jsonCors({ error: `Ошибка AI: ${e instanceof Error ? e.message : String(e)}` }, 500);
+  }
+
+  // Merge pre-computed missing/weak with LLM result
+  const grantResult = {
+    grantType,
+    grantLabel: meta.label,
+    maxRub: meta.maxRub,
+    readinessScore: result.readinessScore ?? (missingSections.length === 0 ? 75 : Math.max(0, 75 - missingSections.length * 15)),
+    missingSections: result.missingSections ?? missingSections,
+    weakSections: result.weakSections ?? weakSections,
+    adaptedSections: result.adaptedSections ?? {},
+    grantSummary: result.grantSummary ?? "",
+    generatedAt: new Date().toISOString(),
+  };
+
+  // Save under grantAdaptations map keyed by grantType
+  const existing = typeof intakeData.grantAdaptations === "object" && intakeData.grantAdaptations !== null
+    ? (intakeData.grantAdaptations as Record<string, unknown>)
+    : {};
+
+  try {
+    await intakeRef.set({
+      ...intakeData,
+      grantAdaptations: { ...existing, [grantType]: grantResult },
+    } as unknown as Record<string, unknown>);
+  } catch (e) {
+    return jsonCors({ error: `Ошибка сохранения: ${e instanceof Error ? e.message : String(e)}` }, 500);
+  }
+
+  return jsonCors({ planId, grantType, result: grantResult });
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1972,6 +2128,11 @@ async function dispatchRequest(request: Request, env: Env): Promise<Response> {
     // ── /plan-roadmap — LLM-дорожная карта из финального плана ─────────
     if (request.method === "POST" && url.pathname === "/plan-roadmap") {
       return handlePlanRoadmap(request, env);
+    }
+
+    // ── /plan-grant — адаптация под грантовую программу ────────────────
+    if (request.method === "POST" && url.pathname === "/plan-grant") {
+      return handlePlanGrant(request, env);
     }
 
     // ── /external — внешние сигналы §12 (Firebase auth или API key) ───────

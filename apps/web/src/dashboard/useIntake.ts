@@ -72,6 +72,20 @@ export interface CrossIssue {
   issue: string;
 }
 
+export type GrantType = "minek" | "agrostartup" | "governor" | "minvostok" | "skolkovo" | "fondprez";
+
+export interface GrantResult {
+  grantType: GrantType;
+  grantLabel: string;
+  maxRub: string;
+  readinessScore: number;
+  missingSections: string[];
+  weakSections: string[];
+  adaptedSections: Record<string, string>;
+  grantSummary: string;
+  generatedAt: string;
+}
+
 export interface RoadmapPhase {
   phase: number;
   title: string;
@@ -121,6 +135,7 @@ export interface PlanIntake {
   logoUrl?: string;
   holisticAssessment?: HolisticAssessment;
   generatedRoadmap?: GeneratedRoadmap;
+  grantAdaptations?: Record<string, GrantResult>;
 }
 
 const QUERY_KEY = (businessId: string) => ["intake", businessId];
@@ -252,6 +267,9 @@ function normalizeIntake(raw: Record<string, unknown>, docId?: string): PlanInta
     logoUrl: typeof raw.logoUrl === "string" ? raw.logoUrl : undefined,
     holisticAssessment: normalizeHolisticAssessment(raw.holisticAssessment),
     generatedRoadmap: normalizeGeneratedRoadmap(raw.generatedRoadmap),
+    grantAdaptations: (raw.grantAdaptations && typeof raw.grantAdaptations === "object")
+      ? (raw.grantAdaptations as Record<string, GrantResult>)
+      : undefined,
   };
 }
 

@@ -1,260 +1,241 @@
-import type { PlanIntake, AssumptionEntry } from "./useIntake";
-import { useNavigate } from "react-router-dom";
+/**
+ * IntakePanel — оценка бизнес-плана §20.3.
+ * Merged from IntakePanel + IntakeAssessment (RefineDialog, Toast).
+ */
 
-interface Props {
-  intake: PlanIntake | null | undefined;
-}
+import { useState } from "react";
+import { useAuth } from "../auth/useAuth";
+import type { AssumptionEntry, Gap, PlanIntake } from "./useIntake";
 
-// Русские названия разделов бизнес-плана (для пробелов).
+// ── Section labels — book-IDs (primary) + intake-IDs (backward-compat) ──────
+
 const SECTION_LABELS: Record<string, string> = {
-  executive_summary: "Резюме",
-  finances: "Финансы",
-  market_size: "Объём рынка",
-  market_analysis: "Анализ рынка",
-  target_audience: "Целевая аудитория",
-  product_service: "Продукт / услуга",
-  business_model: "Бизнес-модель",
-  competitive_analysis: "Конкурентный анализ",
-  marketing_strategy: "Маркетинговая стратегия",
-  sales_strategy: "Стратегия продаж",
-  operations: "Операционный план",
-  team: "Команда",
-  technology: "Технологии",
-  financial_model: "Финансовая модель",
-  investment_plan: "Инвестиционный план",
+  // Book-IDs
+  mission:        "Миссия / Резюме",
+  goals:          "Цели",
+  markets:        "Целевые рынки / ЦА",
+  product:        "Продукт / Услуга",
+  marketing:      "Маркетинг / Каналы",
+  finance:        "Финансы / Деньги",
+  team:           "Команда / Кадры",
+  operations:     "Операционный план",
+  technology:     "Технологии",
+  investment:     "Инвестиционный план",
   unit_economics: "Юнит-экономика",
-  risks: "Риски",
-  legal_structure: "Правовая структура",
-  grants_subsidies: "Гранты и субсидии",
-  roadmap: "Дорожная карта",
-  kpis: "KPI",
-  exit_strategy: "Стратегия выхода",
-  appendices: "Приложения",
+  risks:          "Риски",
+  legal:          "Правовая структура",
+  grants:         "Гранты и субсидии",
+  roadmap:        "Дорожная карта",
+  kpis:           "KPI",
+  exit:           "Стратегия выхода",
+  appendices:     "Приложения",
   sustainability: "Устойчивость",
+  competitive:    "Конкурентный анализ",
+  swot:           "SWOT-анализ",
+  business_model: "Бизнес-модель",
+  // Intake-IDs (backward-compat for data written before migration)
+  executive_summary:    "Миссия / Резюме",
+  finances:             "Финансы / Деньги",
+  market_size:          "Объём рынка",
+  market_analysis:      "Анализ рынка",
+  target_audience:      "Целевая аудитория",
+  product_service:      "Продукт / Услуга",
+  competitive_analysis: "Конкурентный анализ",
+  marketing_strategy:   "Маркетинговая стратегия",
+  sales_channels:       "Каналы продаж",
+  go_to_market:         "Выход на рынок",
+  sales_strategy:       "Стратегия продаж",
+  financial_model:      "Финансовая модель",
+  investment_plan:      "Инвестиционный план",
+  legal_structure:      "Правовая структура",
+  grants_subsidies:     "Гранты и субсидии",
+  exit_strategy:        "Стратегия выхода",
 };
 
 function sectionLabel(key: string): string {
-  return SECTION_LABELS[key] ?? key;
+  return SECTION_LABELS[key] ?? key.replace(/_/g, " ");
 }
 
-// Человекочитаемые названия гипотез на русском.
-// Если key есть в Firestore но не в этом маппинге — показываем key как есть.
+function gapToQuestion(gap: Gap): string {
+  if (gap.description) return `Расскажите подробнее: ${gap.description}`;
+  return `Опишите раздел «${sectionLabel(gap.missingSection)}» — ключевые факты, цифры, договорённости.`;
+}
+
+// ── Assumption display ────────────────────────────────────────────────────────
+
 const ASSUMPTION_LABELS: Record<string, string> = {
-  adr_blended: "Средняя цена/ночь (смешанная)",
-  adr_peak: "Цена/ночь в пиковый сезон",
-  bep_occupancy: "Загрузка для безубыточности",
-  cac: "Стоимость привлечения клиента",
-  capex_total: "Капвложения (итого)",
-  ebitda_margin_base: "Маржа EBITDA (базовый сценарий)",
-  ebitda_year2_base: "EBITDA год 2 (базовый сценарий)",
-  grant_agrostartup: "Грант АгроСтартап",
-  grant_minek: "Грант Минэка",
-  grant_minvostok: "Грант Минвостокразвития",
-  modules_count: "Количество модулей",
-  occupancy_annual: "Загрузка среднегодовая",
-  occupancy_peak: "Загрузка в пиковый сезон",
-  occupancy_shoulder: "Загрузка в межсезонье",
-  occupancy_winter: "Загрузка зимой",
-  payback_months: "Срок окупаемости",
-  revenue_year1: "Выручка год 1",
-  revenue_year2_base: "Выручка год 2 (базовый сценарий)",
-  trip_check: "Средний чек поездки",
+  adr_blended:        "Средний тариф/ночь",
+  adr_peak:           "Тариф пиковый/ночь",
+  bep_occupancy:      "Загрузка для БЕП",
+  cac:                "CAC",
+  capex_total:        "Капвложения (итого)",
+  ebitda_margin_base: "Маржа EBITDA",
+  ebitda_year2_base:  "EBITDA год 2",
+  grant_agrostartup:  "Грант АгроСтартап",
+  grant_minek:        "Грант Минэка",
+  grant_minvostok:    "Грант Минвостокразвития",
+  modules_count:      "Количество модулей",
+  occupancy_annual:   "Загрузка среднегодовая",
+  occupancy_peak:     "Загрузка пиковая",
+  occupancy_shoulder: "Загрузка межсезонье",
+  occupancy_winter:   "Загрузка зимой",
+  payback_months:     "Срок окупаемости",
+  revenue_year1:      "Выручка год 1",
+  revenue_year2_base: "Выручка год 2",
+  trip_check:         "Средний чек",
 };
-
-function assumptionLabel(key: string): string {
-  return ASSUMPTION_LABELS[key] ?? key;
-}
 
 function formatAssumptionValue(entry: AssumptionEntry): string {
   const { value, unit } = entry;
   const isKopecks = unit === "kopecks" || unit === "₽";
-
-  const fmt = (n: number) => {
-    if (isKopecks) {
-      // kopecks → рубли с разделителем тысяч
-      return (n / 100).toLocaleString("ru-RU", { maximumFractionDigits: 0 }) + " ₽";
-    }
-    return n.toLocaleString("ru-RU") + (unit ? ` ${unit}` : "");
-  };
-
+  const fmt = (n: number) =>
+    isKopecks
+      ? (n / 100).toLocaleString("ru-RU", { maximumFractionDigits: 0 }) + " ₽"
+      : n.toLocaleString("ru-RU") + (unit ? ` ${unit}` : "");
   if (value.point !== undefined) return fmt(value.point);
-  if (value.lo !== undefined && value.hi !== undefined) {
-    return `${fmt(value.lo)} – ${fmt(value.hi)}`;
-  }
+  if (value.lo !== undefined && value.hi !== undefined) return `${fmt(value.lo)} – ${fmt(value.hi)}`;
   return "—";
 }
 
-export function IntakePanel({ intake }: Props) {
-  if (intake === undefined) {
-    return (
-      <div className="panel">
-        <p className="panel-title">Оценка бизнес-плана</p>
-        <p className="loading">Загрузка...</p>
-      </div>
-    );
-  }
-  if (intake === null) {
-    return (
-      <div className="panel">
-        <p className="panel-title">Оценка бизнес-плана</p>
-        <p className="loading">Оценка не найдена</p>
-      </div>
-    );
-  }
+// ── RefineDialog ──────────────────────────────────────────────────────────────
 
-  const navigate = useNavigate();
-  const { assessment, disclaimer, narrativeReady } = intake;
-  const assumptions = Object.values(assessment.assumptionsExtracted ?? {});
+interface RefineDialogProps { gap: Gap; planId: string; onDone: (sectionId: string) => void; onCancel: () => void; }
 
-  const REQUIRED_SECTIONS = ["executive_summary", "finances", "market_size", "team", "risks"];
-  const coveredIds = new Set(intake.mappedSections.filter(s => s.present).map(s => s.sectionId));
-  const gaps = REQUIRED_SECTIONS.filter(s => !coveredIds.has(s));
+function RefineDialog({ gap, planId, onDone, onCancel }: RefineDialogProps) {
+  const { user } = useAuth();
+  const [answer, setAnswer] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const question = gapToQuestion(gap);
+
+  async function submit() {
+    if (!answer.trim()) return;
+    setLoading(true); setError(null);
+    try {
+      const idToken = await user!.getIdToken();
+      const res = await fetch(`${import.meta.env.VITE_INGEST_WORKER_URL as string}/intake-refine`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${idToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ planId, sectionId: gap.missingSection, gapQuestion: question, answer: answer.trim() }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({})) as { error?: string };
+        throw new Error(d.error ?? `Ошибка ${res.status}`);
+      }
+      const data = await res.json() as { sectionId: string };
+      onDone(data.sectionId);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Неизвестная ошибка");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   return (
-    <div className="panel" style={{ overflow: "auto", maxHeight: 480 }}>
-      <p className="panel-title">Оценка бизнес-плана</p>
+    <div className="ia-refine-dialog">
+      <p className="ia-refine-question">{question}</p>
+      <textarea className="ia-refine-textarea" value={answer} onChange={e => setAnswer(e.target.value)}
+        rows={4} placeholder="Введите ответ…" disabled={loading}
+        // eslint-disable-next-line jsx-a11y/no-autofocus
+        autoFocus />
+      {error && <p className="ia-refine-error">{error}</p>}
+      <div className="ia-refine-actions">
+        <button type="button" className="ia-btn ia-btn--primary" onClick={() => void submit()} disabled={loading || !answer.trim()}>
+          {loading ? "Сохраняем…" : "Отправить"}
+        </button>
+        <button type="button" className="ia-btn ia-btn--ghost" onClick={onCancel} disabled={loading}>Отмена</button>
+      </div>
+    </div>
+  );
+}
 
-      {/* Disclaimer §20.4 — безусловно первым */}
-      <p className="disclaimer">{disclaimer}</p>
+// ── Toast ─────────────────────────────────────────────────────────────────────
 
-      {/* Нарративный слой — если ещё не готов (TODO) */}
+function Toast({ message, onClose }: { message: string; onClose: () => void }) {
+  return (
+    <div className="ia-toast" role="status" aria-live="polite">
+      <span>{message}</span>
+      <button type="button" className="ia-toast-close" onClick={onClose} aria-label="Закрыть">×</button>
+    </div>
+  );
+}
+
+// ── IntakePanel ───────────────────────────────────────────────────────────────
+
+interface Props {
+  intake: PlanIntake | null | undefined;
+  businessId?: string;
+}
+
+// Required book-ID sections for gap check
+const REQUIRED = ["mission", "finance", "markets", "team", "risks"];
+
+export function IntakePanel({ intake, businessId }: Props) {
+  const [refinedSections, setRefinedSections] = useState<Set<string>>(new Set());
+  const [activeGap, setActiveGap] = useState<Gap | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+
+  if (intake === undefined) return <div className="ia-panel"><p className="ia-empty">Загрузка…</p></div>;
+  if (intake === null) return <div className="ia-panel"><p className="ia-empty">Оценка не найдена</p></div>;
+
+  const planId = intake.intakeId ?? businessId ?? "";
+  const { assessment, disclaimer, narrativeReady } = intake;
+
+  const coveredIds = new Set(intake.mappedSections.filter(s => s.present).map(s => s.sectionId));
+  const missingRequired = REQUIRED.filter(s => !coveredIds.has(s));
+  const visibleGaps = assessment.gaps.filter(g => !refinedSections.has(g.missingSection));
+
+  function handleDone(sectionId: string) {
+    setRefinedSections(prev => new Set([...prev, sectionId]));
+    setActiveGap(null);
+    setToast("Раздел дополнен");
+    setTimeout(() => setToast(null), 3000);
+  }
+
+  return (
+    <div className="ia-panel">
+      <p className="disclaimer">{disclaimer || "«Факт-данных нет, оценка предварительная»"}</p>
       {!narrativeReady && (
-        <p
-          style={{
-            fontSize: 12,
-            color: "var(--text-muted)",
-            margin: "4px 0 12px",
-            fontStyle: "italic",
-          }}
-        >
-          Качественный разбор готовится (ждёт API-кредитов)
+        <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "4px 0 12px", fontStyle: "italic" }}>
+          Качественный разбор готовится
         </p>
       )}
 
-      {/* Strengths */}
-      {assessment.strengths.length > 0 && (
-        <div className="intake-section">
-          <p className="intake-section-title">Сильные стороны</p>
-          <div className="chip-list">
-            {assessment.strengths.map((s, i) => (
-              <span key={i} className="chip chip-green">
-                {s}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Concerns */}
-      {assessment.concerns.length > 0 && (
-        <div className="intake-section">
-          <p className="intake-section-title">Риски</p>
-          <div className="chip-list">
-            {assessment.concerns.map((c, i) => (
-              <span
-                key={i}
-                className={`chip ${c.severity === "red" ? "chip-red" : "chip-yellow"}`}
-                title={c.rationale ?? undefined}
-              >
-                {c.description}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Gaps */}
-      {assessment.gaps.length > 0 && (
-        <div className="intake-section">
-          <p className="intake-section-title">Пробелы в плане</p>
-          <ul style={{ paddingLeft: 16, color: "var(--gray)", fontSize: 13 }}>
-            {assessment.gaps.map((g, i) => (
-              <li key={i} style={{ marginBottom: 4 }}>
-                <span style={{ fontWeight: 500 }}>{sectionLabel(g.missingSection)}</span>
-                {g.description && (
-                  <span style={{ color: "var(--text-muted)" }}> — {g.description}</span>
+      {/* §1 Пробелы плана */}
+      {visibleGaps.length > 0 && (
+        <section className="intake-section">
+          <p className="intake-section-title">📋 Пробелы плана</p>
+          <ul className="ia-gap-list">
+            {visibleGaps.map(g => (
+              <li key={g.missingSection} className="ia-gap-item">
+                <div className="ia-gap-info">
+                  <span className="ia-gap-name">{sectionLabel(g.missingSection)}</span>
+                  {g.description && <span className="ia-gap-desc"> — {g.description}</span>}
+                </div>
+                {activeGap?.missingSection === g.missingSection ? (
+                  <RefineDialog gap={g} planId={planId} onDone={handleDone} onCancel={() => setActiveGap(null)} />
+                ) : (
+                  <button type="button" className="ia-btn ia-btn--refine" onClick={() => setActiveGap(g)}>Доработать</button>
                 )}
               </li>
             ))}
           </ul>
-        </div>
+        </section>
       )}
 
-      {/* Gaps CTA — обязательные разделы, не найденные в документе */}
-      {gaps.length > 0 && (
-        <div className="intake-section">
+      {/* §2 Недостающие обязательные разделы */}
+      {missingRequired.length > 0 && (
+        <section className="intake-section">
           <p className="intake-section-title">Недостающие разделы</p>
-          {gaps.map(gap => (
-            <div key={gap} className="gap-cta" style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-              <span style={{ fontSize: 13, color: "var(--gray)" }}>
-                Раздел «{sectionLabel(gap)}» не найден.
-              </span>
-              <button
-                type="button"
-                onClick={() => void navigate("/onboarding/questionnaire")}
-                style={{ fontSize: 12, padding: "2px 8px", cursor: "pointer" }}
-              >
-                Дописать через вопросы?
-              </button>
+          {missingRequired.map(sec => (
+            <div key={sec} style={{ marginBottom: 6, fontSize: 13, color: "var(--gray)" }}>
+              Раздел «{sectionLabel(sec)}» не найден в загруженном документе
             </div>
           ))}
-        </div>
+        </section>
       )}
 
-      {/* Assumptions table */}
-      {assumptions.length > 0 && (
-        <div className="intake-section">
-          <p className="intake-section-title">Извлечённые гипотезы</p>
-          <table
-            style={{
-              width: "100%",
-              borderCollapse: "collapse",
-              fontSize: 12,
-            }}
-          >
-            <thead>
-              <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                <th style={{ textAlign: "left", padding: "4px 8px", fontWeight: 600 }}>
-                  Параметр
-                </th>
-                <th style={{ textAlign: "right", padding: "4px 8px", fontWeight: 600 }}>
-                  Значение
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {assumptions.map((a, i) => (
-                <tr
-                  key={i}
-                  style={{
-                    borderBottom: "1px solid var(--border)",
-                    background: i % 2 === 0 ? "transparent" : "rgba(0,0,0,0.02)",
-                  }}
-                >
-                  <td
-                    style={{
-                      padding: "3px 8px",
-                      color: "var(--text-muted)",
-                      fontSize: 12,
-                    }}
-                  >
-                    {assumptionLabel(a.key)}
-                  </td>
-                  <td
-                    style={{
-                      padding: "3px 8px",
-                      textAlign: "right",
-                      fontWeight: 500,
-                    }}
-                  >
-                    {formatAssumptionValue(a)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      {toast && <Toast message={toast} onClose={() => setToast(null)} />}
     </div>
   );
 }
