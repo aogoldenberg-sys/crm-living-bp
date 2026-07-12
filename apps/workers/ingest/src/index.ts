@@ -215,7 +215,40 @@ function toBase64(buffer: ArrayBuffer): string {
  * извлекаем xl/sharedStrings.xml и xl/worksheets/sheet1.xml.
  * Новые зависимости не нужны — только Web API.
  */
-async function extractXlsxText(buffer: ArrayBuffer): Promise<string> {
+// Sheet name → book-ID mapping (fuzzy: any included keyword wins)
+const SHEET_TO_BOOK: Array<{ kw: string[]; id: string }> = [
+  { kw: ["миссия", "стратегия", "резюме", "summary", "vision", "обзор"], id: "mission" },
+  { kw: ["цели", "goals", "задачи", "objectives"], id: "goals" },
+  { kw: ["приоритет", "priorities"], id: "priorities" },
+  { kw: ["продукт", "услуга", "product", "service", "решение", "предложение"], id: "product" },
+  { kw: ["рынок", "market", "аудитория", "сегмент", "целевая"], id: "markets" },
+  { kw: ["маркетинг", "marketing", "продвижение", "реклама", "канал"], id: "marketing" },
+  { kw: ["ресурс", "resource", "операц", "operation", "процесс"], id: "resources" },
+  { kw: ["финанс", "finance", "деньг", "бюджет", "budget", "p&l", "прибыл", "убыток"], id: "finance" },
+  { kw: ["прогноз продаж", "forecast", "выручк", "план продаж"], id: "forecast" },
+  { kw: ["платеж", "payment", "календарь", "график"], id: "payments" },
+  { kw: ["pest", "внешн", "макро", "external", "среда"], id: "pest" },
+  { kw: ["конкурент", "competitor", "анализ рынка", "competitive"], id: "competitors" },
+  { kw: ["преимущество", "advantage", "уникальн", "value proposition"], id: "advantages" },
+  { kw: ["структура компани", "схема", "организаци"], id: "structure" },
+  { kw: ["команда", "кадры", "team", "сотрудник", "персонал", "staff", "hr", "штат"], id: "team" },
+  { kw: ["риск", "risk", "угроза", "swot"], id: "risks" },
+  { kw: ["дорожная карта", "roadmap", "план развития", "milestone", "этап"], id: "roadmap" },
+  { kw: ["kpi", "метрик", "показател", "okr"], id: "kpi" },
+  { kw: ["инвестиц", "investment", "финансирование", "грант", "субсидия"], id: "investment" },
+  { kw: ["заключен", "conclusion", "итог", "выход", "exit"], id: "conclusion" },
+  { kw: ["приложен", "appendix", "прилож", "дополнение"], id: "appendix" },
+];
+
+function matchSheetToBookId(sheetName: string): string | null {
+  const lower = sheetName.toLowerCase().trim();
+  for (const { kw, id } of SHEET_TO_BOOK) {
+    if (kw.some(k => lower.includes(k))) return id;
+  }
+  return null;
+}
+
+async function extractXlsxText(buffer: ArrayBuffer): Promise<{ text: string; sheetNames: string[] }> {
   const bytes = new Uint8Array(buffer);
   const view = new DataView(buffer);
 
@@ -236,7 +269,7 @@ async function extractXlsxText(buffer: ArrayBuffer): Promise<string> {
   async function readZipEntry(targetName: string): Promise<string | null> {
     let pos = cdOffset;
     while (pos < cdOffset + cdSize) {
-      if (view.getUint32(pos, true) !== 0x02014b50) break; // central dir signature
+      if (view.getUint32(pos, true) !== 0x02014b50) break;
       const method = view.getUint16(pos + 10, true);
       const compSize = view.getUint32(pos + 20, true);
       const fnLen = view.getUint16(pos + 28, true);
@@ -253,9 +286,8 @@ async function extractXlsxText(buffer: ArrayBuffer): Promise<string> {
       const dataStart = localOff + 30 + localFnLen + localExtraLen;
       const compressed = bytes.slice(dataStart, dataStart + compSize);
 
-      if (method === 0) return new TextDecoder().decode(compressed); // stored
+      if (method === 0) return new TextDecoder().decode(compressed);
       if (method === 8) {
-        // DEFLATE
         const ds = new DecompressionStream("deflate-raw");
         const w = ds.writable.getWriter();
         await w.write(compressed);
@@ -263,31 +295,39 @@ async function extractXlsxText(buffer: ArrayBuffer): Promise<string> {
         const out = await new Response(ds.readable).arrayBuffer();
         return new TextDecoder().decode(out);
       }
-      return null; // неизвестный метод
+      return null;
     }
     return null;
+  }
+
+  // Sheet names from workbook.xml
+  const wbXml = await readZipEntry("xl/workbook.xml");
+  const sheetNames: string[] = [];
+  if (wbXml) {
+    const re = /<sheet\b[^>]*\bname="([^"]*)"/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(wbXml)) !== null) {
+      if (m[1]) sheetNames.push(m[1]);
+    }
   }
 
   // sharedStrings.xml содержит все строковые значения ячеек
   const ssXml = await readZipEntry("xl/sharedStrings.xml");
 
-  // sheet1.xml — первый лист с порядком ячеек
-  const sheetXml = await readZipEntry("xl/worksheets/sheet1.xml");
-
-  if (!ssXml && !sheetXml) return "(Excel: нет текстовых данных)";
+  if (!ssXml) return { text: "(Excel: нет текстовых данных)", sheetNames };
 
   const texts: string[] = [];
-
-  if (ssXml) {
-    const re = /<t[^>]*>([\s\S]*?)<\/t>/g;
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(ssXml)) !== null) {
-      const t = m[1]?.trim();
-      if (t) texts.push(t);
-    }
+  const re = /<t[^>]*>([\s\S]*?)<\/t>/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(ssXml)) !== null) {
+    const t = m[1]?.trim();
+    if (t) texts.push(t);
   }
 
-  return texts.length > 0 ? texts.join(" | ") : "(Excel: только числа, текстовых строк нет)";
+  return {
+    text: texts.length > 0 ? texts.join(" | ") : "(Excel: только числа, текстовых строк нет)",
+    sheetNames,
+  };
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -313,11 +353,12 @@ async function callClaude(
       "Content-Type": "application/json",
       "x-api-key": apiKey,
       "anthropic-version": "2023-06-01",
+      "anthropic-beta": "prompt-caching-2024-07-31",
     },
     body: JSON.stringify({
       model: "claude-haiku-4-5-20251001",
       max_tokens: 16000,
-      system,
+      system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
       messages: [{ role: "user", content }],
     }),
   });
@@ -337,6 +378,371 @@ async function callClaude(
   // Strip markdown wrappers
   const raw = rawText.replace(/^```(?:json)?\n?/i, "").replace(/\n?```$/i, "").trim();
   return JSON.parse(raw);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// /plan-assess — холистическая оценка всего плана одним вызовом Claude
+// ══════════════════════════════════════════════════════════════════════════════
+
+const PLAN_ASSESS_SYSTEM = `Ты — независимый эксперт по due diligence бизнес-планов (методология Пола Хейга, 50 фреймворков).
+Тебе дают бизнес-план, разложенный по стандартным разделам. Для КАЖДОГО заполненного раздела оцени три параметра:
+
+1. ОБЪЕКТИВНОСТЬ — утверждения опираются на факты/расчёты или это оптимистичные декларации без основания?
+2. РЕАЛИСТИЧНОСТЬ — соответствуют ли цифры, сроки и допущения типичным отраслевым бенчмаркам? Нет ли внутренних противоречий с цифрами из ДРУГИХ разделов?
+3. ОБОСНОВАННОСТЬ — за каждой ключевой цифрой есть прослеживаемый расчёт/источник, или число "с потолка"?
+
+ПРАВИЛА:
+- Если раздел объективен, реалистичен и обоснован — verdict: "approved", comments: [].
+- Если есть проблемы — verdict: "flagged", перечисли конкретные comments с точной цитатой (quote), степенью серьёзности (severity: low/medium/high) и конкретным предложением (suggested_fix) — не общими словами, а тем, что можно сразу подставить в текст.
+- В cross_section_issues перечисли противоречия МЕЖДУ разделами с указанием, какие именно конфликтуют.
+- Не занижай оценку из вежливости — это настоящий критический разбор, как от независимого инвестора.
+- Отвечай только валидным JSON без markdown-разметки.
+
+ФОРМАТ:
+{
+  "sections": [
+    {
+      "section_key": "finance",
+      "verdict": "flagged",
+      "scores": { "objectivity": 0.6, "realism": 0.4, "justification": 0.5 },
+      "comments": [
+        { "issue": "...", "quote": "...", "severity": "high", "suggested_fix": "..." }
+      ]
+    }
+  ],
+  "cross_section_issues": [
+    { "sections": ["finance", "markets"], "issue": "Описание противоречия" }
+  ]
+}`;
+
+async function callClaudeAssess(apiKey: string, planText: string): Promise<unknown> {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-6",
+      max_tokens: 10000,
+      thinking: { type: "enabled", budget_tokens: 5000 },
+      system: PLAN_ASSESS_SYSTEM,
+      messages: [{ role: "user", content: planText }],
+    }),
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(`Claude assess ${res.status}: ${txt.slice(0, 200)}`);
+  }
+  const msg = (await res.json()) as { content: Array<{ type: string; text?: string }> };
+  const raw = msg.content
+    .filter((b) => b.type === "text" && b.text)
+    .map((b) => b.text!)
+    .join("\n\n")
+    .replace(/^```(?:json)?\n?/i, "")
+    .replace(/\n?```$/i, "")
+    .trim();
+  if (!raw) throw new Error("Claude вернул пустой ответ (оценка плана)");
+  return JSON.parse(raw);
+}
+
+async function handlePlanAssess(request: Request, env: Env): Promise<Response> {
+  const authHeader = request.headers.get("Authorization") ?? "";
+  const idToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  if (!idToken) return jsonCors({ error: "Unauthorized" }, 401);
+
+  const claims = await verifyFirebaseIdToken(idToken, env.FIREBASE_PROJECT_ID || "crm-living-bp");
+  if (!claims) return jsonCors({ error: "Unauthorized" }, 401);
+
+  const db = createFirestoreRestClient(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+  const userDoc = await db.collection("users").doc(claims.uid).get();
+  if (!userDoc.exists) return jsonCors({ error: "User not registered" }, 400);
+  const { businessId } = userDoc.data() as { businessId: string };
+
+  let body: { planId?: string };
+  try {
+    body = await request.json() as typeof body;
+  } catch {
+    return jsonCors({ error: "Invalid JSON" }, 400);
+  }
+  const { planId } = body;
+  if (!planId) return jsonCors({ error: "Missing planId" }, 400);
+
+  const intakeRef = db.collection(`tenants/${businessId}/plan_intakes`).doc(planId);
+  const intakeDoc = await intakeRef.get();
+  if (!intakeDoc.exists) return jsonCors({ error: "Plan not found" }, 404);
+
+  const intakeData = intakeDoc.data() as Record<string, unknown>;
+  const sections = Array.isArray(intakeData.mappedSections)
+    ? (intakeData.mappedSections as Array<Record<string, unknown>>)
+    : [];
+
+  const present = sections.filter(
+    s => Boolean(s.present) && typeof s.contentSummary === "string" && (s.contentSummary as string).length > 10,
+  );
+  if (present.length === 0) {
+    return jsonCors({ error: "Нет разделов для оценки. Загрузите бизнес-план." }, 422);
+  }
+
+  const planText = present
+    .map(s => `[${s.sectionId}]:\n${s.contentSummary}`)
+    .join("\n\n---\n\n");
+
+  let result: unknown;
+  try {
+    result = await callClaudeAssess(env.ANTHROPIC_API_KEY, planText);
+  } catch (e) {
+    return jsonCors({ error: `Ошибка AI: ${e instanceof Error ? e.message : String(e)}` }, 500);
+  }
+
+  const holisticAssessment = {
+    ...(result as Record<string, unknown>),
+    assessedAt: new Date().toISOString(),
+  };
+
+  try {
+    await intakeRef.set({ ...intakeData, holisticAssessment } as unknown as Record<string, unknown>);
+  } catch (e) {
+    return jsonCors({ error: `Ошибка сохранения: ${e instanceof Error ? e.message : String(e)}` }, 500);
+  }
+
+  return jsonCors({ planId, holisticAssessment });
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// /plan-reform — переформирование плана с учётом принятых правок + каскад
+// POST { planId, acceptedChanges: AcceptedChange[] }
+// ══════════════════════════════════════════════════════════════════════════════
+
+interface AcceptedChange {
+  section_key: string;
+  original_issue: string;
+  applied_text: string;
+  user_edited: boolean;
+}
+
+const PLAN_REFORM_SYSTEM = `Ты — редактор бизнес-планов (методология Пола Хейга).
+Тебе дан бизнес-план по разделам и список ПРИНЯТЫХ пользователем правок.
+
+ЗАДАЧА: перепиши только затронутые разделы, внедрив каждую правку.
+ВАЖНО: если правка в одном разделе требует согласованных изменений в других
+(например, снижение прогноза продаж должно отразиться в финансах и инвестициях) —
+синхронизируй связанные разделы автоматически. Разделы без логической связи с
+правками не трогай — сохраняй исходный текст дословно.
+
+Верни ТОЛЬКО валидный JSON без markdown:
+{ "sections": { "<sectionId>": "<новый текст раздела>" } }
+Включай в sections ТОЛЬКО изменённые разделы.`;
+
+async function handlePlanReform(request: Request, env: Env): Promise<Response> {
+  const authHeader = request.headers.get("Authorization") ?? "";
+  const idToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  if (!idToken) return jsonCors({ error: "Unauthorized" }, 401);
+
+  const claims = await verifyFirebaseIdToken(idToken, env.FIREBASE_PROJECT_ID || "crm-living-bp");
+  if (!claims) return jsonCors({ error: "Unauthorized" }, 401);
+
+  const db = createFirestoreRestClient(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+  const userDoc = await db.collection("users").doc(claims.uid).get();
+  if (!userDoc.exists) return jsonCors({ error: "User not registered" }, 400);
+  const { businessId } = userDoc.data() as { businessId: string };
+
+  let body: { planId?: string; acceptedChanges?: AcceptedChange[] };
+  try {
+    body = await request.json() as typeof body;
+  } catch {
+    return jsonCors({ error: "Invalid JSON" }, 400);
+  }
+  const { planId, acceptedChanges } = body;
+  if (!planId) return jsonCors({ error: "Missing planId" }, 400);
+  if (!acceptedChanges?.length) return jsonCors({ error: "No accepted changes" }, 400);
+
+  const intakeRef = db.collection(`tenants/${businessId}/plan_intakes`).doc(planId);
+  const intakeDoc = await intakeRef.get();
+  if (!intakeDoc.exists) return jsonCors({ error: "Plan not found" }, 404);
+
+  const intakeData = intakeDoc.data() as Record<string, unknown>;
+  const sections = Array.isArray(intakeData.mappedSections)
+    ? (intakeData.mappedSections as Array<Record<string, unknown>>)
+    : [];
+
+  // Build original plan map for context
+  const original: Record<string, string> = {};
+  for (const s of sections) {
+    if (s.present && typeof s.contentSummary === "string" && s.contentSummary.length > 5) {
+      original[String(s.sectionId)] = s.contentSummary;
+    }
+  }
+
+  const userInput = JSON.stringify({ original, accepted_changes: acceptedChanges });
+
+  let result: { sections?: Record<string, string> };
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": env.ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+        "anthropic-beta": "prompt-caching-2024-07-31",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        max_tokens: 12000,
+        system: [{ type: "text", text: PLAN_REFORM_SYSTEM, cache_control: { type: "ephemeral" } }],
+        messages: [{ role: "user", content: userInput }],
+      }),
+    });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => "");
+      throw new Error(`Claude reform ${res.status}: ${txt.slice(0, 200)}`);
+    }
+    const msg = (await res.json()) as { content: Array<{ type: string; text?: string }> };
+    const raw = msg.content
+      .filter(b => b.type === "text" && b.text)
+      .map(b => b.text!)
+      .join("\n\n")
+      .replace(/^```(?:json)?\n?/i, "")
+      .replace(/\n?```$/i, "")
+      .trim();
+    result = JSON.parse(raw) as { sections?: Record<string, string> };
+  } catch (e) {
+    return jsonCors({ error: `Ошибка AI: ${e instanceof Error ? e.message : String(e)}` }, 500);
+  }
+
+  if (!result.sections || typeof result.sections !== "object") {
+    return jsonCors({ error: "Некорректный ответ AI" }, 502);
+  }
+
+  // Merge reformed sections into mappedSections
+  const updatedSections = sections.map(s => {
+    const newText = result.sections![String(s.sectionId)];
+    if (!newText) return s;
+    return { ...s, contentSummary: newText, present: true, confidence: Math.max(Number(s.confidence) || 0, 0.85) };
+  });
+
+  const reformedAt = new Date().toISOString();
+  try {
+    await intakeRef.set({
+      ...intakeData,
+      mappedSections: updatedSections,
+      lastReformedAt: reformedAt,
+      reformChangesCount: acceptedChanges.length,
+    } as unknown as Record<string, unknown>);
+  } catch (e) {
+    return jsonCors({ error: `Ошибка сохранения: ${e instanceof Error ? e.message : String(e)}` }, 500);
+  }
+
+  return jsonCors({ planId, reformedAt, sectionsUpdated: Object.keys(result.sections).length });
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// /plan-roadmap — LLM-дорожная карта из финального плана
+// POST { planId }
+// ══════════════════════════════════════════════════════════════════════════════
+
+const PLAN_ROADMAP_SYSTEM = `Ты — операционный консультант. На основе бизнес-плана составь конкретную дорожную карту реализации.
+НЕ общие фразы ("развивать проект"). ТОЛЬКО конкретные действия:
+"Подать заявку в Минэкономразвития", "Зарегистрировать ООО через ФНС онлайн", "Подписать договор аренды".
+
+Верни ТОЛЬКО валидный JSON без markdown:
+{
+  "phases": [
+    {
+      "phase": 1,
+      "title": "Название фазы",
+      "actions": ["Конкретное действие 1", "Конкретное действие 2"],
+      "dueInDays": 30,
+      "depends_on": [],
+      "deliverable": "Что конкретно будет готово"
+    }
+  ]
+}`;
+
+async function handlePlanRoadmap(request: Request, env: Env): Promise<Response> {
+  const authHeader = request.headers.get("Authorization") ?? "";
+  const idToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  if (!idToken) return jsonCors({ error: "Unauthorized" }, 401);
+
+  const claims = await verifyFirebaseIdToken(idToken, env.FIREBASE_PROJECT_ID || "crm-living-bp");
+  if (!claims) return jsonCors({ error: "Unauthorized" }, 401);
+
+  const db = createFirestoreRestClient(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+  const userDoc = await db.collection("users").doc(claims.uid).get();
+  if (!userDoc.exists) return jsonCors({ error: "User not registered" }, 400);
+  const { businessId } = userDoc.data() as { businessId: string };
+
+  let body: { planId?: string };
+  try {
+    body = await request.json() as typeof body;
+  } catch {
+    return jsonCors({ error: "Invalid JSON" }, 400);
+  }
+  const { planId } = body;
+  if (!planId) return jsonCors({ error: "Missing planId" }, 400);
+
+  const intakeRef = db.collection(`tenants/${businessId}/plan_intakes`).doc(planId);
+  const intakeDoc = await intakeRef.get();
+  if (!intakeDoc.exists) return jsonCors({ error: "Plan not found" }, 404);
+
+  const intakeData = intakeDoc.data() as Record<string, unknown>;
+  const sections = Array.isArray(intakeData.mappedSections)
+    ? (intakeData.mappedSections as Array<Record<string, unknown>>)
+    : [];
+
+  const planText = sections
+    .filter(s => Boolean(s.present) && typeof s.contentSummary === "string" && (s.contentSummary as string).length > 10)
+    .map(s => `[${s.sectionId}]: ${s.contentSummary}`)
+    .join("\n\n");
+
+  if (!planText) return jsonCors({ error: "Нет данных для построения дорожной карты" }, 422);
+
+  let result: { phases?: unknown[] };
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": env.ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+        "anthropic-beta": "prompt-caching-2024-07-31",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        max_tokens: 4000,
+        system: [{ type: "text", text: PLAN_ROADMAP_SYSTEM, cache_control: { type: "ephemeral" } }],
+        messages: [{ role: "user", content: planText }],
+      }),
+    });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => "");
+      throw new Error(`Claude roadmap ${res.status}: ${txt.slice(0, 200)}`);
+    }
+    const msg = (await res.json()) as { content: Array<{ type: string; text?: string }> };
+    const raw = msg.content
+      .filter(b => b.type === "text" && b.text)
+      .map(b => b.text!)
+      .join("\n\n")
+      .replace(/^```(?:json)?\n?/i, "")
+      .replace(/\n?```$/i, "")
+      .trim();
+    result = JSON.parse(raw) as typeof result;
+  } catch (e) {
+    return jsonCors({ error: `Ошибка AI: ${e instanceof Error ? e.message : String(e)}` }, 500);
+  }
+
+  if (!Array.isArray(result.phases)) return jsonCors({ error: "Некорректный ответ AI" }, 502);
+
+  const generatedRoadmap = { phases: result.phases, generatedAt: new Date().toISOString() };
+
+  try {
+    await intakeRef.set({ ...intakeData, generatedRoadmap } as unknown as Record<string, unknown>);
+  } catch (e) {
+    return jsonCors({ error: `Ошибка сохранения: ${e instanceof Error ? e.message : String(e)}` }, 500);
+  }
+
+  return jsonCors({ planId, generatedRoadmap });
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -392,31 +798,32 @@ async function handleIntake(request: Request, env: Env): Promise<Response> {
 
   const mimeType = ((form.get("mimeType") as string | null) ?? file.type ?? "").toLowerCase();
 
-  // ── 3. Извлечение текста / подготовка content для Claude ────────────────
-  let claudeContent: ClaudeContentBlock[];
+  // ── 3. Извлечение текста (без Claude) ────────────────────────────────────
+  let rawText: string;
+  const xlsxSheetBookIds = new Set<string>();
 
   switch (true) {
     case mimeType === MIME.DOC:
-      return jsonCors(
-        { error: "Формат .doc не поддерживается. Сохраните файл как .docx или PDF." },
-        400,
-      );
+      return jsonCors({ error: "Формат .doc не поддерживается. Сохраните файл как .docx." }, 400);
 
     case mimeType === MIME.XLS:
-      return jsonCors(
-        { error: "Формат .xls не поддерживается. Сохраните файл как .xlsx или экспортируйте в CSV." },
-        400,
-      );
+      return jsonCors({ error: "Формат .xls не поддерживается. Сохраните файл как .xlsx." }, 400);
 
     case mimeType === MIME.PDF: {
+      // Базовое извлечение текстовых строк из PDF без внешних библиотек
       const buf = await file.arrayBuffer();
-      claudeContent = [
-        {
-          type: "document",
-          source: { type: "base64", media_type: "application/pdf", data: toBase64(buf) },
-        },
-        { type: "text", text: "Проанализируй бизнес-план из приложенного документа." },
-      ];
+      const pdfStr = new TextDecoder("latin1").decode(buf);
+      const strings: string[] = [];
+      const re = /\(([^)(]{3,300})\)/g;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(pdfStr)) !== null) {
+        const s = (m[1] ?? "").replace(/\\[nrt]/g, " ").trim();
+        if (s.length > 3) strings.push(s);
+      }
+      rawText = strings.join(" ");
+      if (rawText.length < 30) {
+        return jsonCors({ error: "PDF не читается без AI. Загрузите план в формате DOCX или XLSX." }, 422);
+      }
       break;
     }
 
@@ -424,128 +831,110 @@ async function handleIntake(request: Request, env: Env): Promise<Response> {
       const buf = await file.arrayBuffer();
       const { value: text } = await mammoth.extractRawText({ arrayBuffer: buf });
       if (!text.trim()) return jsonCors({ error: "DOCX: документ пустой или нечитаем" }, 422);
-      claudeContent = [{ type: "text", text }];
+      rawText = text;
       break;
     }
 
     case mimeType === MIME.XLSX: {
       const buf = await file.arrayBuffer();
-      let xlsxText: string;
+      let xlsxResult: { text: string; sheetNames: string[] };
       try {
-        xlsxText = await extractXlsxText(buf);
+        xlsxResult = await extractXlsxText(buf);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
-        return jsonCors({ error: `Ошибка чтения Excel: ${msg}. Попробуйте сохранить как PDF или DOCX.` }, 422);
+        return jsonCors({ error: `Ошибка чтения Excel: ${msg}` }, 422);
       }
-      if (xlsxText.startsWith("(Excel:")) {
-        return jsonCors(
-          { error: "Excel-файл не содержит текстовых ячеек. Добавьте описание разделов или экспортируйте в PDF." },
-          422,
-        );
+      rawText = xlsxResult.text;
+      if (rawText.startsWith("(Excel:")) {
+        return jsonCors({ error: "Excel не содержит текстовых ячеек. Экспортируйте в DOCX или добавьте текстовые описания." }, 422);
       }
-      claudeContent = [{ type: "text", text: xlsxText }];
+      // Book-IDs from sheet names (high-confidence, no Claude needed)
+      for (const sheetName of xlsxResult.sheetNames) {
+        const bookId = matchSheetToBookId(sheetName);
+        if (bookId) xlsxSheetBookIds.add(bookId);
+      }
       break;
     }
 
     case mimeType === MIME.RTF1:
-    case mimeType === MIME.RTF2: {
-      const raw = await file.text();
-      claudeContent = [{ type: "text", text: stripRtf(raw) }];
+    case mimeType === MIME.RTF2:
+      rawText = stripRtf(await file.text());
       break;
-    }
 
     case mimeType.startsWith("text/"):
-    // text/markdown, text/plain, text/csv and other text/* types
     case mimeType === "application/octet-stream" && file.name.endsWith(".md"): {
-      const text = await file.text();
-      if (!text.trim()) return jsonCors({ error: "Файл пустой" }, 422);
-      claudeContent = [{ type: "text", text }];
+      rawText = await file.text();
+      if (!rawText.trim()) return jsonCors({ error: "Файл пустой" }, 422);
       break;
     }
 
     default:
-      // Supported: pdf, docx, xlsx, md, txt (text/*). All other formats are rejected with a clear message.
       return jsonCors(
-        { error: `Неподдерживаемый тип файла: "${mimeType}". Используйте PDF, DOCX, XLSX, MD или TXT.` },
+        { error: `Неподдерживаемый тип: "${mimeType}". Используйте DOCX, XLSX, PDF, TXT или MD.` },
         400,
       );
   }
 
-  // ── 4. Claude: извлечение структуры ─────────────────────────────────────
-  let extractRaw: unknown;
-  try {
-    extractRaw = await callClaude(env.ANTHROPIC_API_KEY, EXTRACT_SYSTEM, claudeContent);
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return jsonCors({ error: `Ошибка извлечения данных: ${msg}` }, 500);
-  }
+  // ── 4. Keyword classification — без Claude ────────────────────────────────
+  // Разбиваем на чанки ~400 символов для classifyDocument
+  const CHUNK = 400;
+  const chunks: string[] = [];
+  for (let i = 0; i < rawText.length; i += CHUNK) chunks.push(rawText.slice(i, i + CHUNK));
+  if (chunks.length === 0) chunks.push(rawText);
 
-  // B2: Zod validation at Claude boundary
-  const extractValidated = ExtractedPlanSchema.safeParse({
-    ...(extractRaw as object),
-    businessId, // always override with server-resolved value
-  });
-  if (!extractValidated.success) {
-    console.error("[intake] extract parse failed:", extractValidated.error.issues);
-    return jsonCors({ error: "AI parse error (extract)", details: extractValidated.error.issues }, 502);
-  }
-  const extracted = extractValidated.data;
+  const classified = classifyDocument("business_plan", chunks);
 
-  // ── 5. Map to canonical book sections (BUG-1: store under book-ID) ────────
-  const { sections: intakeSections, gaps } = mapToSections(extracted);
-  const bookSections = translateToBookSections(extracted.rawSections, intakeSections);
-  const { confidence, disclaimer: gateDisclaimer } = gateIntake(intakeSections, businessId);
-
-  // ── 6. Claude: оценка §20.3 (НЕ блокирует сохранение — BUG-5 fix) ──────
-  type Assessed = { strengths: Array<{ point: string }>; concerns: Array<{ point: string; severity: string; rationale: string }>; verifiability: unknown[] };
-  let assessed: Assessed | null = null;
-  try {
-    const assessRaw = await callClaude(env.ANTHROPIC_API_KEY, ASSESS_SYSTEM, [
-      { type: "text", text: JSON.stringify({ rawSections: extracted.rawSections, assumptions: extracted.assumptions }) },
-    ]);
-    const v = AssessmentOutputSchema.safeParse(assessRaw);
-    if (v.success) {
-      assessed = v.data;
-    } else {
-      console.warn("[intake] assess parse failed, retrying:", v.error.issues.slice(0, 2));
-      const retryRaw = await callClaude(
-        env.ANTHROPIC_API_KEY,
-        ASSESS_SYSTEM + "\n\nВерни ТОЛЬКО валидный JSON без пояснений.",
-        [{ type: "text", text: JSON.stringify({ rawSections: extracted.rawSections, assumptions: extracted.assumptions }) }],
-      );
-      const v2 = AssessmentOutputSchema.safeParse(retryRaw);
-      if (v2.success) assessed = v2.data;
-      else console.error("[intake] assess retry failed:", v2.error.issues.slice(0, 2));
+  // Строим rawSections: intake-ID → { text: сниппет, confidence }
+  const rawSectionsMap: Record<string, { text: string; confidence: number }> = {};
+  for (const s of classified) {
+    const existing = rawSectionsMap[s.sectionId];
+    if (!existing || s.confidence > existing.confidence) {
+      const idx = s.pageRange[0] - 1;
+      rawSectionsMap[s.sectionId] = { text: chunks[idx] ?? "", confidence: s.confidence };
     }
-  } catch (e) {
-    console.error("[intake] assess threw:", e instanceof Error ? e.message : String(e));
   }
 
-  // ── 7. Формируем intake-документ §20.2 ──────────────────────────────────
+  const intakeMapped = Object.entries(rawSectionsMap).map(([sectionId, { confidence }]) => ({
+    sectionId,
+    present: true,
+    confidence,
+  }));
+
+  // ── 5. Translate to book-IDs ──────────────────────────────────────────────
+  const rawBookSections = translateToBookSections(rawSectionsMap, intakeMapped);
+
+  // Sheet-name overrides: mark sections present if sheet name matched
+  const bookSections = xlsxSheetBookIds.size > 0
+    ? rawBookSections.map(s =>
+        !s.present && xlsxSheetBookIds.has(s.sectionId)
+          ? { ...s, present: true, confidence: 0.85, contentSummary: "" }
+          : s
+      )
+    : rawBookSections;
+
+  const presentCount = bookSections.filter(s => s.present).length;
+  const confidence = presentCount / bookSections.length;
+  const completeness = confidence;
+
+  // ── 6. Формируем intake-документ §20.2 ───────────────────────────────────
   const intakeId = crypto.randomUUID();
   const extractedAt = new Date().toISOString();
-  const foundSections = new Set(Object.keys(extracted.rawSections));
-  const completeness = foundSections.size / REQUIRED_SECTIONS.length;
 
   const intakeDoc = {
     intakeId,
     businessId,
     extractedAt,
-    mappedSections: bookSections,   // §20.2: под book-ID (BUG-1 fix)
+    mappedSections: bookSections,
     completeness,
     confidence,
     assessment: {
-      strengths: assessed?.strengths.map((s) => s.point) ?? [],
-      concerns: assessed?.concerns.map((c) => ({
-        description: c.point,
-        severity: c.severity,
-        rationale: c.rationale,
-      })) ?? [],
-      gaps,
-      assumptionsExtracted: extracted.assumptions,
-      verifiability: assessed?.verifiability ?? [],
+      strengths: [],
+      concerns: [],
+      gaps: bookSections.filter(s => !s.present).map(s => ({ missingSection: s.sectionId })),
+      assumptionsExtracted: {},
+      verifiability: [],
     },
-    disclaimer: gateDisclaimer,
+    disclaimer: "Оценка предварительная: факт-данных пока нет. Требуется подтверждение аналитиком.",
     status: "draft",
     narrativeReady: false,
   };
@@ -569,7 +958,7 @@ async function handleIntake(request: Request, env: Env): Promise<Response> {
     completeness,
     confidence,
     message: `Загружено. ${sectionsFound} разделов заполнено.`,
-    assessmentReady: assessed !== null,
+    assessmentReady: false,
   });
 }
 
@@ -716,7 +1105,7 @@ async function handleRevisionDoc(request: Request, env: Env): Promise<Response> 
     const result = await mammoth.extractRawText({ arrayBuffer: buffer });
     rawText = result.value;
   } else if (mime.includes("spreadsheetml") || file.name.endsWith(".xlsx")) {
-    rawText = await extractXlsxText(buffer);
+    rawText = (await extractXlsxText(buffer)).text;
   } else if (mime.startsWith("text/")) {
     rawText = new TextDecoder().decode(buffer);
   } else {
@@ -981,6 +1370,187 @@ async function handleIntakeRefine(request: Request, env: Env): Promise<Response>
   }
 
   return jsonCors({ sectionId, appended: attribution, changelog });
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// /section-review — Claude оценивает раздел: реалистично / нет / предлагает версию
+// POST { planId, sectionId, sectionTitle? }
+// Auth: Firebase ID Token (Bearer)
+// ══════════════════════════════════════════════════════════════════════════════
+
+const SECTION_REVIEW_SYSTEM = `Ты — аналитик бизнес-планов (методология Пола Хейга, 50 фреймворков, режим intake).
+Оцени раздел бизнес-плана на реалистичность и соответствие рыночной практике.
+
+Вход (JSON): { "sectionId": "...", "sectionTitle": "...", "content": "...", "context": "..." }
+
+Верни ТОЛЬКО валидный JSON без markdown:
+{
+  "verdict": "realistic" | "needs_improvement" | "unrealistic" | "insufficient_data",
+  "reasoning": "2-3 предложения: что конкретно и почему",
+  "proposedRewrite": "альтернативный текст раздела ≤250 слов или null",
+  "successScore": 0-100
+}
+
+Правила:
+- insufficient_data если content пустой или < 80 символов без конкретики
+- proposedRewrite = null если verdict = "realistic" или "insufficient_data"
+- НЕ выдумывай цифры которых нет в тексте; основывайся только на предоставленных данных
+- successScore: 80+ отлично, 50-79 требует доработки, 0-49 критично
+- Всё на русском языке`;
+
+async function handleSectionReview(request: Request, env: Env): Promise<Response> {
+  const authHeader = request.headers.get("Authorization") ?? "";
+  const idToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  if (!idToken) return jsonCors({ error: "Unauthorized" }, 401);
+
+  const projectId = env.FIREBASE_PROJECT_ID || "crm-living-bp";
+  const claims = await verifyFirebaseIdToken(idToken, projectId);
+  if (!claims) return jsonCors({ error: "Unauthorized" }, 401);
+
+  const db = createFirestoreRestClient(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+  const userDoc = await db.collection("users").doc(claims.uid).get();
+  if (!userDoc.exists) return jsonCors({ error: "User not registered" }, 400);
+  const { businessId } = userDoc.data() as { businessId: string };
+
+  let body: { planId?: string; sectionId?: string; sectionTitle?: string };
+  try {
+    body = await request.json() as typeof body;
+  } catch {
+    return jsonCors({ error: "Invalid JSON" }, 400);
+  }
+
+  const { planId, sectionId, sectionTitle } = body;
+  if (!planId || !sectionId) return jsonCors({ error: "Missing planId or sectionId" }, 400);
+
+  const intakeRef = db.collection(`tenants/${businessId}/plan_intakes`).doc(planId);
+  const intakeDoc = await intakeRef.get();
+  if (!intakeDoc.exists) return jsonCors({ error: "Plan not found" }, 404);
+
+  const intakeData = intakeDoc.data() as Record<string, unknown>;
+  const sections = Array.isArray(intakeData.mappedSections)
+    ? (intakeData.mappedSections as Array<Record<string, unknown>>)
+    : [];
+
+  const section = sections.find(s => s.sectionId === sectionId);
+  const content = typeof section?.contentSummary === "string" ? section.contentSummary : "";
+
+  // Brief context from key anchor sections (not the section being reviewed)
+  const anchors = ["mission", "markets", "finance", "product"];
+  const context = sections
+    .filter(s => anchors.includes(String(s.sectionId)) && s.sectionId !== sectionId)
+    .map(s => `[${s.sectionId}]: ${String(s.contentSummary ?? "").slice(0, 300)}`)
+    .join("\n");
+
+  const claudeInput = JSON.stringify({
+    sectionId,
+    sectionTitle: sectionTitle ?? sectionId,
+    content: content || "(пусто)",
+    context,
+  });
+
+  let reviewResult: {
+    verdict: string;
+    reasoning: string;
+    proposedRewrite: string | null;
+    successScore: number;
+  };
+  try {
+    reviewResult = await callClaude(
+      env.ANTHROPIC_API_KEY,
+      SECTION_REVIEW_SYSTEM,
+      [{ type: "text", text: claudeInput }],
+    ) as typeof reviewResult;
+  } catch (e) {
+    return jsonCors({ error: `Ошибка AI: ${e instanceof Error ? e.message : String(e)}` }, 500);
+  }
+
+  const reviewEntry = {
+    verdict: reviewResult.verdict,
+    reasoning: reviewResult.reasoning,
+    proposedRewrite: reviewResult.proposedRewrite ?? null,
+    successScore: reviewResult.successScore,
+    reviewedAt: new Date().toISOString(),
+    accepted: false,
+  };
+
+  const updatedSections = sections.map(s =>
+    s.sectionId === sectionId ? { ...s, claudeReview: reviewEntry } : s
+  );
+
+  try {
+    await intakeRef.set(
+      { ...intakeData, mappedSections: updatedSections } as unknown as Record<string, unknown>
+    );
+  } catch (e) {
+    return jsonCors({ error: `Ошибка сохранения: ${e instanceof Error ? e.message : String(e)}` }, 500);
+  }
+
+  return jsonCors({ sectionId, review: reviewEntry });
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// /section-accept — принять версию Клода (заменяет contentSummary)
+// POST { planId, sectionId, acceptedContent }
+// Auth: Firebase ID Token (Bearer)
+// ══════════════════════════════════════════════════════════════════════════════
+
+async function handleSectionAccept(request: Request, env: Env): Promise<Response> {
+  const authHeader = request.headers.get("Authorization") ?? "";
+  const idToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  if (!idToken) return jsonCors({ error: "Unauthorized" }, 401);
+
+  const claims = await verifyFirebaseIdToken(idToken, env.FIREBASE_PROJECT_ID || "crm-living-bp");
+  if (!claims) return jsonCors({ error: "Unauthorized" }, 401);
+
+  const db = createFirestoreRestClient(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+  const userDoc = await db.collection("users").doc(claims.uid).get();
+  if (!userDoc.exists) return jsonCors({ error: "User not registered" }, 400);
+  const { businessId } = userDoc.data() as { businessId: string };
+
+  let body: { planId?: string; sectionId?: string; acceptedContent?: string };
+  try {
+    body = await request.json() as typeof body;
+  } catch {
+    return jsonCors({ error: "Invalid JSON" }, 400);
+  }
+
+  const { planId, sectionId, acceptedContent } = body;
+  if (!planId || !sectionId || !acceptedContent?.trim()) {
+    return jsonCors({ error: "Missing planId, sectionId or acceptedContent" }, 400);
+  }
+
+  const intakeRef = db.collection(`tenants/${businessId}/plan_intakes`).doc(planId);
+  const intakeDoc = await intakeRef.get();
+  if (!intakeDoc.exists) return jsonCors({ error: "Plan not found" }, 404);
+
+  const intakeData = intakeDoc.data() as Record<string, unknown>;
+  const sections = Array.isArray(intakeData.mappedSections)
+    ? (intakeData.mappedSections as Array<Record<string, unknown>>)
+    : [];
+
+  const updatedSections = sections.map(s => {
+    if (s.sectionId !== sectionId) return s;
+    const existingReview = s.claudeReview && typeof s.claudeReview === "object"
+      ? s.claudeReview as Record<string, unknown>
+      : {};
+    return {
+      ...s,
+      contentSummary: acceptedContent.trim(),
+      present: true,
+      confidence: Math.max(typeof s.confidence === "number" ? s.confidence : 0, 0.8),
+      claudeReview: { ...existingReview, accepted: true },
+    };
+  });
+
+  try {
+    await intakeRef.set(
+      { ...intakeData, mappedSections: updatedSections } as unknown as Record<string, unknown>
+    );
+  } catch (e) {
+    return jsonCors({ error: `Ошибка сохранения: ${e instanceof Error ? e.message : String(e)}` }, 500);
+  }
+
+  return jsonCors({ sectionId, status: "accepted" });
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1377,6 +1947,31 @@ async function dispatchRequest(request: Request, env: Env): Promise<Response> {
     // ── /intake-refine — append-only дополнение раздела ────────────────
     if (request.method === "POST" && url.pathname === "/intake-refine") {
       return handleIntakeRefine(request, env);
+    }
+
+    // ── /section-review — Claude оценивает раздел ──────────────────────
+    if (request.method === "POST" && url.pathname === "/section-review") {
+      return handleSectionReview(request, env);
+    }
+
+    // ── /section-accept — принять версию Клода ─────────────────────────
+    if (request.method === "POST" && url.pathname === "/section-accept") {
+      return handleSectionAccept(request, env);
+    }
+
+    // ── /plan-assess — холистическая оценка всего плана ────────────────
+    if (request.method === "POST" && url.pathname === "/plan-assess") {
+      return handlePlanAssess(request, env);
+    }
+
+    // ── /plan-reform — переформирование плана с принятыми правками ─────
+    if (request.method === "POST" && url.pathname === "/plan-reform") {
+      return handlePlanReform(request, env);
+    }
+
+    // ── /plan-roadmap — LLM-дорожная карта из финального плана ─────────
+    if (request.method === "POST" && url.pathname === "/plan-roadmap") {
+      return handlePlanRoadmap(request, env);
     }
 
     // ── /external — внешние сигналы §12 (Firebase auth или API key) ───────

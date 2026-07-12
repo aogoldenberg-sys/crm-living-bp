@@ -12,18 +12,11 @@ import { StageChart } from "./StageChart";
 import { RoadmapPanel } from "./RoadmapPanel";
 import { UploadPlanButton } from "./UploadPlanButton";
 import { buildGraph, deriveSWOT, RETAIL_TEMPLATE, selectInitialStrategy } from "@crm/core";
+import { BOOK_SECTION_ALIAS } from "@crm/schemas";
 import { PlanSidebar } from "./PlanSidebar";
-import { IntakeAssessment } from "../components/IntakeAssessment";
-
-// 22 раздела бизнес-плана — для сайдбара
-const PLAN_SECTIONS = [
-  "Резюме проекта", "Описание компании", "Анализ рынка", "Продукт / услуга",
-  "Маркетинговая стратегия", "Каналы продаж", "Ценовая политика", "Целевая аудитория",
-  "Конкурентный анализ", "Операционный план", "Производственный план", "Технологии и ИТ",
-  "Кадровый план", "Организационная структура", "Юридическая структура", "Финансовый план",
-  "Инвестиционный план", "Риски и меры", "SWOT-анализ", "Партнёры и поставщики",
-  "Социальная ответственность", "Стратегия выхода",
-];
+import { IntakePanel } from "./IntakePanel";
+import { SECTIONS, SECTION_TO_INTAKE_ID } from "../plan/PlanSectionPage";
+import type { MappedSection, HolisticAssessment, GeneratedRoadmap } from "./useIntake";
 import { RisksPanel } from "../panels/RisksPanel";
 import { AutonomyPanel } from "../panels/AutonomyPanel";
 import { ComplianceFlow } from "../features/compliance/ComplianceFlow.js";
@@ -47,6 +40,466 @@ function LockedFeature({ title }: { title: string }) {
       }}>
         Подключить тариф
       </a>
+    </div>
+  );
+}
+
+// ── Reprocess button ──────────────────────────────────────────────────────────
+
+function ReprocessButton({ businessId }: { businessId: string }) {
+  const { user } = useAuth();
+  const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [msg, setMsg] = useState<string | null>(null);
+
+  async function handleClick() {
+    setStatus("loading"); setMsg(null);
+    try {
+      const idToken = await user!.getIdToken();
+      const res = await fetch(`${import.meta.env.VITE_INGEST_WORKER_URL as string}/intake-migrate`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${idToken}`, "Content-Type": "application/json" },
+        body: "{}",
+      });
+      const data = await res.json() as { migrated?: number; message?: string };
+      setStatus("done");
+      setMsg(data.message ?? `Обновлено разделов: ${data.migrated ?? 0}`);
+    } catch (e) {
+      setStatus("error");
+      setMsg(e instanceof Error ? e.message : "Ошибка");
+    }
+  }
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+      <button
+        type="button"
+        onClick={() => void handleClick()}
+        disabled={status === "loading"}
+        style={{ fontSize: 12, padding: "6px 14px", borderRadius: 8, border: "1px solid #C89A34", background: "transparent", color: "#8B6914", cursor: "pointer", fontWeight: 600 }}
+      >
+        {status === "loading" ? "Обрабатываем…" : "⟳ Перераспределить по разделам"}
+      </button>
+      {msg && <span style={{ fontSize: 12, color: status === "error" ? "#8B1A1A" : "#2E7D32" }}>{msg}</span>}
+    </div>
+  );
+}
+
+// ── Holistic plan assessment ──────────────────────────────────────────────────
+
+function AssessPlanButton({ planId }: { planId: string }) {
+  const { user } = useAuth();
+  const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [err, setErr] = useState<string | null>(null);
+
+  async function run() {
+    if (!user) return;
+    setStatus("loading"); setErr(null);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch(`${import.meta.env.VITE_INGEST_WORKER_URL as string}/plan-assess`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ planId }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({})) as { error?: string };
+        throw new Error(d.error ?? `Ошибка ${res.status}`);
+      }
+      setStatus("done");
+    } catch (e) {
+      setStatus("error");
+      setErr(e instanceof Error ? e.message : "Ошибка");
+    }
+  }
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+      <button
+        type="button"
+        onClick={() => void run()}
+        disabled={status === "loading"}
+        style={{ fontSize: 12, padding: "6px 18px", borderRadius: 8, border: "none", background: "linear-gradient(135deg,#C89A34,#E4C260)", color: "#3A2800", cursor: "pointer", fontWeight: 700 }}
+      >
+        {status === "loading" ? "Анализируем план…" : status === "done" ? "✓ Оценка обновлена" : "⚡ Оценить весь план (Kairos)"}
+      </button>
+      {err && <span style={{ fontSize: 12, color: "#C62828" }}>{err}</span>}
+    </div>
+  );
+}
+
+const SEV_COLOR: Record<string, string> = { high: "#C62828", medium: "#E65100", low: "#856404" };
+
+interface AcceptedChange {
+  section_key: string;
+  original_issue: string;
+  applied_text: string;
+  user_edited: boolean;
+}
+
+function HolisticResultView({ ha, planId }: { ha: HolisticAssessment; planId: string }) {
+  const { user } = useAuth();
+  const [openSection, setOpenSection] = useState<string | null>(null);
+  // key = "sectionKey::commentIndex", value = "accepted" | "rejected"
+  const [decisions, setDecisions] = useState<Record<string, "accepted" | "rejected">>({});
+  const [reformStatus, setReformStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [reformErr, setReformErr] = useState<string | null>(null);
+
+  const flagged = ha.sections.filter(s => s.verdict === "flagged");
+  const approved = ha.sections.filter(s => s.verdict === "approved");
+
+  const decide = (key: string, val: "accepted" | "rejected") =>
+    setDecisions(d => ({ ...d, [key]: val }));
+
+  const acceptedChanges: AcceptedChange[] = [];
+  for (const sec of flagged) {
+    sec.comments.forEach((c, i) => {
+      if (decisions[`${sec.section_key}::${i}`] === "accepted") {
+        acceptedChanges.push({
+          section_key: sec.section_key,
+          original_issue: c.issue,
+          applied_text: c.suggested_fix,
+          user_edited: false,
+        });
+      }
+    });
+  }
+
+  async function runReform() {
+    if (!user || acceptedChanges.length === 0) return;
+    setReformStatus("loading"); setReformErr(null);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch(`${import.meta.env.VITE_INGEST_WORKER_URL as string}/plan-reform`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ planId, acceptedChanges }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({})) as { error?: string };
+        throw new Error(d.error ?? `Ошибка ${res.status}`);
+      }
+      setReformStatus("done");
+    } catch (e) {
+      setReformStatus("error");
+      setReformErr(e instanceof Error ? e.message : "Ошибка");
+    }
+  }
+
+  const totalComments = flagged.reduce((n, s) => n + s.comments.length, 0);
+  const decidedCount = Object.keys(decisions).length;
+  const allDecided = decidedCount === totalComments;
+
+  return (
+    <div style={{ marginBottom: 20 }}>
+      <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
+        <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "#1A1814" }}>Оценка Kairos</h3>
+        <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: "#D4EDDA", color: "#155724", fontWeight: 600 }}>✓ {approved.length} одобрено</span>
+        {flagged.length > 0 && <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: "#F8D7DA", color: "#721C24", fontWeight: 600 }}>⚠ {flagged.length} замечаний</span>}
+        <span style={{ fontSize: 11, color: "#888", marginLeft: "auto" }}>{new Date(ha.assessedAt).toLocaleDateString("ru-RU")}</span>
+      </div>
+
+      {/* Cross-section issues */}
+      {ha.cross_section_issues.length > 0 && (
+        <div style={{ padding: "10px 14px", background: "rgba(198,40,40,.06)", border: "1px solid rgba(198,40,40,.2)", borderRadius: 8, marginBottom: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#C62828", marginBottom: 6 }}>Противоречия между разделами</div>
+          {ha.cross_section_issues.map((ci, i) => (
+            <div key={i} style={{ fontSize: 12, color: "#5A1A1A", marginBottom: 4 }}>
+              <span style={{ fontWeight: 600 }}>{ci.sections.join(" ↔ ")}: </span>{ci.issue}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Flagged sections */}
+      {flagged.map(sec => (
+        <div key={sec.section_key} style={{ marginBottom: 8, border: "1px solid rgba(198,40,40,.2)", borderRadius: 8, overflow: "hidden" }}>
+          <button
+            type="button"
+            onClick={() => setOpenSection(openSection === sec.section_key ? null : sec.section_key)}
+            style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "rgba(198,40,40,.04)", border: "none", cursor: "pointer", textAlign: "left" }}
+          >
+            <span style={{ fontSize: 12, fontWeight: 700, color: "#C62828", flex: 1 }}>{sec.section_key}</span>
+            <span style={{ fontSize: 11, color: "#888" }}>
+              obj {Math.round(sec.scores.objectivity * 100)}% · real {Math.round(sec.scores.realism * 100)}% · just {Math.round(sec.scores.justification * 100)}%
+            </span>
+            <span style={{ fontSize: 10, color: "#999" }}>{openSection === sec.section_key ? "▲" : "▼"}</span>
+          </button>
+          {openSection === sec.section_key && (
+            <div style={{ padding: "8px 12px" }}>
+              {sec.comments.map((c, i) => {
+                const dkey = `${sec.section_key}::${i}`;
+                const dec = decisions[dkey];
+                return (
+                  <div key={i} style={{ marginBottom: 12, paddingLeft: 8, borderLeft: `3px solid ${dec === "accepted" ? "#2E7D32" : dec === "rejected" ? "#999" : SEV_COLOR[c.severity] ?? "#999"}` }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: SEV_COLOR[c.severity] ?? "#999" }}>{c.severity.toUpperCase()}: {c.issue}</div>
+                    {c.quote && <div style={{ fontSize: 11, color: "#888", fontStyle: "italic", margin: "2px 0" }}>«{c.quote}»</div>}
+                    <div style={{ fontSize: 12, color: "#2E5016", marginTop: 2, marginBottom: 6 }}>→ {c.suggested_fix}</div>
+                    {!dec && (
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button type="button" onClick={() => decide(dkey, "accepted")}
+                          style={{ fontSize: 11, padding: "3px 10px", borderRadius: 6, border: "none", background: "#2E7D32", color: "#fff", cursor: "pointer", fontWeight: 600 }}>
+                          Принять
+                        </button>
+                        <button type="button" onClick={() => decide(dkey, "rejected")}
+                          style={{ fontSize: 11, padding: "3px 10px", borderRadius: 6, border: "1px solid #bbb", background: "transparent", color: "#666", cursor: "pointer" }}>
+                          Отклонить
+                        </button>
+                      </div>
+                    )}
+                    {dec === "accepted" && <span style={{ fontSize: 11, color: "#2E7D32", fontWeight: 600 }}>✓ Принято</span>}
+                    {dec === "rejected" && <span style={{ fontSize: 11, color: "#999" }}>— Отклонено</span>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      ))}
+
+      {/* Reform button — visible when at least one change accepted and all decided */}
+      {flagged.length > 0 && allDecided && acceptedChanges.length > 0 && reformStatus !== "done" && (
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 12 }}>
+          <button
+            type="button"
+            onClick={() => void runReform()}
+            disabled={reformStatus === "loading"}
+            style={{ fontSize: 13, padding: "8px 20px", borderRadius: 8, border: "none", background: "linear-gradient(135deg,#1A3E1A,#2E7D32)", color: "#fff", cursor: "pointer", fontWeight: 700 }}
+          >
+            {reformStatus === "loading" ? "Переформируем план…" : `Переформировать план (${acceptedChanges.length} правок)`}
+          </button>
+          {reformErr && <span style={{ fontSize: 12, color: "#C62828" }}>{reformErr}</span>}
+        </div>
+      )}
+      {reformStatus === "done" && (
+        <div style={{ marginTop: 12, padding: "8px 14px", background: "#D4EDDA", borderRadius: 8, fontSize: 13, color: "#155724", fontWeight: 600 }}>
+          ✓ План переформирован — разделы обновлены с учётом каскадных изменений
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── AI Roadmap ────────────────────────────────────────────────────────────────
+
+function AiRoadmapButton({ planId }: { planId: string }) {
+  const { user } = useAuth();
+  const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [err, setErr] = useState<string | null>(null);
+
+  async function run() {
+    if (!user) return;
+    setStatus("loading"); setErr(null);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch(`${import.meta.env.VITE_INGEST_WORKER_URL as string}/plan-roadmap`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ planId }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({})) as { error?: string };
+        throw new Error(d.error ?? `Ошибка ${res.status}`);
+      }
+      setStatus("done");
+    } catch (e) {
+      setStatus("error");
+      setErr(e instanceof Error ? e.message : "Ошибка");
+    }
+  }
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+      <button
+        type="button"
+        onClick={() => void run()}
+        disabled={status === "loading"}
+        style={{ fontSize: 12, padding: "6px 18px", borderRadius: 8, border: "none", background: "linear-gradient(135deg,#1A3E1A,#2E7D32)", color: "#fff", cursor: "pointer", fontWeight: 700 }}
+      >
+        {status === "loading" ? "Генерируем дорожную карту…" : status === "done" ? "✓ Готово" : "⚡ Сгенерировать дорожную карту Kairos"}
+      </button>
+      {err && <span style={{ fontSize: 12, color: "#C62828" }}>{err}</span>}
+    </div>
+  );
+}
+
+function AiRoadmapView({ gr }: { gr: GeneratedRoadmap }) {
+  return (
+    <div style={{ marginBottom: 24 }}>
+      <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 14 }}>
+        <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "#1A1814" }}>Дорожная карта Kairos</h3>
+        <span style={{ fontSize: 11, color: "#888" }}>{new Date(gr.generatedAt).toLocaleDateString("ru-RU")}</span>
+      </div>
+      {gr.phases.map(ph => (
+        <div key={ph.phase} style={{ marginBottom: 16, padding: "12px 16px", background: "rgba(200,154,52,.05)", border: "1px solid rgba(200,154,52,.2)", borderRadius: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+            <span style={{ width: 24, height: 24, borderRadius: "50%", background: "#C89A34", color: "#fff", fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{ph.phase}</span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: "#1A1814" }}>{ph.title}</span>
+            <span style={{ fontSize: 11, color: "#888", marginLeft: "auto" }}>+{ph.dueInDays} дн.</span>
+          </div>
+          <ul style={{ margin: "0 0 8px 0", paddingLeft: 20 }}>
+            {ph.actions.map((a, i) => (
+              <li key={i} style={{ fontSize: 13, color: "#3A2E1E", marginBottom: 3, lineHeight: 1.5 }}>{a}</li>
+            ))}
+          </ul>
+          <div style={{ fontSize: 12, color: "#2E5016", fontWeight: 600 }}>✓ {ph.deliverable}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Plan section content view ─────────────────────────────────────────────────
+
+const VERDICT_LABEL: Record<string, string> = {
+  realistic: "✓ Реалистично",
+  needs_improvement: "⚠ Требует доработки",
+  unrealistic: "✗ Нереалистично",
+  insufficient_data: "○ Данных недостаточно",
+};
+const VERDICT_COLOR: Record<string, string> = {
+  realistic: "#2E7D32",
+  needs_improvement: "#E65100",
+  unrealistic: "#C62828",
+  insufficient_data: "#777",
+};
+
+function PlanSectionView({ sectionId, mappedSections, onBack, planId }: {
+  sectionId: string;
+  mappedSections: MappedSection[];
+  onBack: () => void;
+  planId: string;
+}) {
+  const { user } = useAuth();
+  const [reviewStatus, setReviewStatus] = useState<"idle" | "loading" | "error">("idle");
+  const [reviewError, setReviewError] = useState<string | null>(null);
+  const [showProposed, setShowProposed] = useState(false);
+  const [acceptStatus, setAcceptStatus] = useState<"idle" | "loading" | "done">("idle");
+
+  const sec = SECTIONS.find(s => s.id === sectionId);
+  const aliasId = BOOK_SECTION_ALIAS[sectionId];
+  const intakeId = SECTION_TO_INTAKE_ID[sectionId];
+  const mapped = mappedSections.find(m => m.sectionId === sectionId)
+    ?? (aliasId ? mappedSections.find(m => m.sectionId === aliasId) : undefined)
+    ?? (intakeId ? mappedSections.find(m => m.sectionId === intakeId) : undefined);
+  const pct = mapped ? Math.round(mapped.confidence * 100) : 0;
+  const review = mapped?.claudeReview;
+
+  async function requestReview() {
+    if (!user) return;
+    setReviewStatus("loading"); setReviewError(null); setShowProposed(false);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch(`${import.meta.env.VITE_INGEST_WORKER_URL as string}/section-review`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ planId, sectionId, sectionTitle: sec?.title }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({})) as { error?: string };
+        throw new Error(d.error ?? `Ошибка ${res.status}`);
+      }
+      setReviewStatus("idle");
+      // Data refreshes via onSnapshot — no extra state needed
+    } catch (e) {
+      setReviewStatus("error");
+      setReviewError(e instanceof Error ? e.message : "Ошибка");
+    }
+  }
+
+  async function acceptReview() {
+    if (!review?.proposedRewrite || !user) return;
+    setAcceptStatus("loading");
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch(`${import.meta.env.VITE_INGEST_WORKER_URL as string}/section-accept`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ planId, sectionId, acceptedContent: review.proposedRewrite }),
+      });
+      if (!res.ok) throw new Error(`Ошибка ${res.status}`);
+      setAcceptStatus("done");
+    } catch {
+      setAcceptStatus("idle");
+    }
+  }
+
+  const vColor = review ? (VERDICT_COLOR[review.verdict] ?? "#777") : undefined;
+
+  return (
+    <div style={{ padding: "8px 0" }}>
+      <button className="k-nav-btn" onClick={onBack} style={{ marginBottom: 16 }}>← Назад к оценке</button>
+
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+        <span style={{ fontSize: 22 }}>{sec?.icon}</span>
+        <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: "#1A1814" }}>{sec?.title ?? sectionId}</h2>
+        {mapped?.present
+          ? <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: pct >= 70 ? "#D4EDDA" : pct >= 40 ? "#FFF3CD" : "#F8D7DA", color: pct >= 70 ? "#155724" : pct >= 40 ? "#856404" : "#721C24", fontWeight: 600 }}>Уверенность {pct}%</span>
+          : <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: "#F8D7DA", color: "#721C24", fontWeight: 600 }}>Не найден</span>
+        }
+        {review && !review.accepted && (
+          <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, border: `1px solid ${vColor}`, color: vColor, fontWeight: 600 }}>
+            {VERDICT_LABEL[review.verdict] ?? review.verdict}
+          </span>
+        )}
+        {review?.accepted && (
+          <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: "#D4EDDA", color: "#155724", fontWeight: 600 }}>✓ Принято</span>
+        )}
+        {review?.successScore !== undefined && !review.accepted && (
+          <span style={{ fontSize: 11, color: "#888" }}>Успех: {review.successScore}%</span>
+        )}
+      </div>
+
+      {/* Toggle original / proposed */}
+      {review?.proposedRewrite && !review.accepted && (
+        <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+          <button type="button" onClick={() => setShowProposed(false)}
+            style={{ fontSize: 12, padding: "4px 10px", borderRadius: 6, border: "1px solid #ccc", background: !showProposed ? "#1A1814" : "transparent", color: !showProposed ? "#fff" : "#666", cursor: "pointer" }}>
+            Оригинал
+          </button>
+          <button type="button" onClick={() => setShowProposed(true)}
+            style={{ fontSize: 12, padding: "4px 10px", borderRadius: 6, border: "1px solid #C89A34", background: showProposed ? "#C89A34" : "transparent", color: showProposed ? "#fff" : "#8B6914", cursor: "pointer" }}>
+            Версия Kairos
+          </button>
+        </div>
+      )}
+
+      {/* Content */}
+      <p style={{ fontSize: 14, lineHeight: 1.65, color: "#3A2E1E", whiteSpace: "pre-wrap", marginBottom: 12 }}>
+        {showProposed && review?.proposedRewrite
+          ? review.proposedRewrite
+          : mapped?.present ? mapped.contentSummary : "Раздел не найден в загруженном документе"}
+      </p>
+
+      {/* Kairos reasoning */}
+      {review?.reasoning && (
+        <div style={{ padding: "10px 14px", background: "rgba(200,154,52,.08)", borderLeft: "3px solid #C89A34", borderRadius: "0 8px 8px 0", marginBottom: 14, fontSize: 13, color: "#5A4008" }}>
+          <strong>Kairos:</strong> {review.reasoning}
+        </div>
+      )}
+
+      {/* Actions */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        {!review && (
+          <button type="button" onClick={() => void requestReview()} disabled={reviewStatus === "loading"}
+            style={{ fontSize: 12, padding: "6px 14px", borderRadius: 8, border: "1px solid #C89A34", background: "transparent", color: "#8B6914", cursor: "pointer", fontWeight: 600 }}>
+            {reviewStatus === "loading" ? "Анализируем…" : "Запросить оценку Kairos"}
+          </button>
+        )}
+        {review && !review.accepted && (
+          <button type="button" onClick={() => void requestReview()} disabled={reviewStatus === "loading"}
+            style={{ fontSize: 12, padding: "6px 12px", borderRadius: 8, border: "1px solid #bbb", background: "transparent", color: "#666", cursor: "pointer" }}>
+            {reviewStatus === "loading" ? "…" : "↺ Переоценить"}
+          </button>
+        )}
+        {review?.proposedRewrite && !review.accepted && showProposed && (
+          <button type="button" onClick={() => void acceptReview()} disabled={acceptStatus === "loading"}
+            style={{ fontSize: 12, padding: "6px 16px", borderRadius: 8, border: "none", background: "#2E7D32", color: "#fff", cursor: "pointer", fontWeight: 600 }}>
+            {acceptStatus === "loading" ? "Сохраняем…" : acceptStatus === "done" ? "✓ Принято" : "Принять версию Kairos"}
+          </button>
+        )}
+        {reviewError && <span style={{ fontSize: 12, color: "#C62828" }}>{reviewError}</span>}
+      </div>
     </div>
   );
 }
@@ -92,16 +545,7 @@ const IcoHome = () => (
     <path d="M2 6.5L8 2l6 4.5V14H10v-3H6v3H2V6.5Z"/>
   </svg>
 );
-const IcoPipe = () => (
-  <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
-    <rect x="2" y="3" width="3" height="10" rx="1"/><rect x="6.5" y="6" width="3" height="7" rx="1"/><rect x="11" y="8" width="3" height="5" rx="1"/>
-  </svg>
-);
-const IcoFin = () => (
-  <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
-    <path d="M2 12h12M4 12V7m3 5V5m3 7V9m3 3V4"/>
-  </svg>
-);
+
 const IcoAssess = () => (
   <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
     <rect x="2" y="2" width="12" height="12" rx="2"/>
@@ -239,10 +683,12 @@ export function Dashboard() {
 
   const isOwner = !role || role === "owner";
 
-  type View = "dashboard" | "pipeline" | "finances" | "intake" | "risks" | "autonomy" | "compliance" | "documents";
+  type View = "dashboard" | "intake" | "risks" | "autonomy" | "compliance" | "documents";
   const [view, setView] = useState<View>("dashboard");
   const [activeNav, setActiveNav] = useState(0);
+  const [activePlanSection, setActivePlanSection] = useState<string | null>(null);
   const [planSidebarOpen, setPlanSidebarOpen] = useState(false);
+  const [uploadToast, setUploadToast] = useState<{ msg: string; kind: "progress" | "error" | "done" } | null>(null);
 
   const { containerRef } = useBalls();
 
@@ -301,36 +747,22 @@ export function Dashboard() {
     };
   }, []);
 
-  // Nav items — Воронка (idx 1) и Финансы (idx 2) скрыты (hidden:true), данные сохранены
   const navItems = [
-    { label: "Дашборд",   icon: <IcoHome />,   view: "dashboard" as View, idx: 0 },
-    { label: "Воронка",   icon: <IcoPipe />,   view: "pipeline"  as View, idx: 1, hidden: true },
-    { label: "Финансы",   icon: <IcoFin />,    view: "finances"  as View, idx: 2, hidden: true },
-    { label: "Оценка",    icon: <IcoAssess />, view: "intake"    as View, idx: 3 },
-    { label: "Риски",     icon: <IcoRisk />,   view: "risks"     as View, idx: 4 },
-    { label: "Автономия", icon: <IcoAuto />,   view: "autonomy"  as View, idx: 5 },
-    { label: "Комплаенс", icon: <IcoShield />, view: "compliance" as View, idx: 6 },
-    { label: "Отчётность", icon: <IcoDoc />, view: "documents" as View, idx: 7 },
+    { label: "Дашборд",        icon: <IcoHome />,   idx: 0, onClick: () => { setActiveNav(0); setView("dashboard");  setActivePlanSection(null); } },
+    { label: "Продукт/услуга", icon: <IcoDoc />,    idx: 1, onClick: () => { setActiveNav(1); setActivePlanSection("product"); setView("intake"); } },
+    { label: "Резюме проекта", icon: <IcoAssess />, idx: 2, onClick: () => { setActiveNav(2); setActivePlanSection("mission"); setView("intake"); } },
+    { label: "Риски",          icon: <IcoRisk />,   idx: 4, onClick: () => { setActiveNav(4); setView("risks");      setActivePlanSection(null); } },
+    { label: "Оценка",         icon: <IcoAssess />, idx: 3, onClick: () => { setActiveNav(3); setView("intake");     setActivePlanSection(null); } },
+    { label: "Комплаенс",      icon: <IcoShield />, idx: 6, onClick: () => { setActiveNav(6); setView("compliance"); setActivePlanSection(null); } },
+    { label: "Отчётность",     icon: <IcoDoc />,    idx: 7, onClick: () => { setActiveNav(7); setView("documents");  setActivePlanSection(null); } },
   ];
 
-  // Demo chart data (из спеки)
-  const cashBarHeights = [28, 40, 34, 55, 62, 78, 92];
-  const planFactData   = [[62,48],[70,66],[58,62],[80,74],[88,92],[95,84]];
-  const gapBarVals     = [42, 55, 38, 60, 30, -45, 52, 66];
-
-  // Stage cards — реальные данные или демо
-  const stageCards = stages.length >= 4
-    ? stages.slice(0, 4).map((s, i) => ({
-        name: s.stageName,
-        value: formatRub(s.weightedPipeline),
-        sub: `${s.count} сд · ${Math.round(s.factConversion * 100)}%`,
-      }))
-    : [
-        { name: "Лид",           value: "412 тыс ₽",   sub: "9 сд · 34%" },
-        { name: "Квалификация",  value: "1,28 млн ₽",  sub: "6 сд · 52%" },
-        { name: "Предложение",   value: "940 тыс ₽",   sub: "4 сд · 61%" },
-        { name: "Сделка",        value: "2,05 млн ₽",  sub: "3 сд · 88%" },
-      ];
+  // Stage cards — только реальные данные
+  const stageCards = stages.slice(0, 4).map(s => ({
+    name: s.stageName,
+    value: formatRub(s.weightedPipeline),
+    sub: `${s.count} сд · ${Math.round(s.factConversion * 100)}%`,
+  }));
 
   const stageGrads = [
     { bg: "linear-gradient(135deg,#8A6415 0%,#B98D2A 15%,#E4C260 34%,#F7E4A0 50%,#E0BA4C 64%,#A67E1E 83%,#7C5C12 100%)", text: "#4A3208", sub: "rgba(74,50,8,.65)", dot: "#6A4E10" },
@@ -373,11 +805,11 @@ export function Dashboard() {
 
           {/* Навигация */}
           <nav className="k-nav">
-            {navItems.filter(item => !item.hidden).map(item => (
+            {navItems.map(item => (
               <button
                 key={item.idx}
                 className={"k-nav-btn" + (activeNav === item.idx ? " k-nav-btn--active" : "")}
-                onClick={() => { setActiveNav(item.idx); setView(item.view); }}
+                onClick={item.onClick}
               >
                 <span className="k-nav-icon">{item.icon}</span>
                 {item.label}
@@ -385,15 +817,25 @@ export function Dashboard() {
             ))}
             {/* Разделы бизнес-плана */}
             <div className="k-nav-divider" />
-            {PLAN_SECTIONS.map((title, i) => (
-              <button
-                key={"ps-" + i}
-                className={"k-nav-btn k-nav-btn--section" + (activeNav === 100 + i ? " k-nav-btn--active" : "")}
-                onClick={() => { setActiveNav(100 + i); setView("intake"); }}
-              >
-                {title}
-              </button>
-            ))}
+            {SECTIONS.filter(s => s.id !== "risks").map((s, i) => {
+              const aliasId = BOOK_SECTION_ALIAS[s.id];
+              const intakeId = SECTION_TO_INTAKE_ID[s.id];
+              const isLive = Boolean(
+                (intake?.mappedSections ?? []).find(m =>
+                  (m.sectionId === s.id || m.sectionId === aliasId || m.sectionId === intakeId) && m.present
+                )
+              );
+              return (
+                <button
+                  key={"ps-" + i}
+                  className={"k-nav-btn k-nav-btn--section" + (activeNav === 100 + i ? " k-nav-btn--active" : "")}
+                  onClick={() => { setActiveNav(100 + i); setActivePlanSection(s.id); setView("intake"); }}
+                >
+                  <span>{s.icon} {s.title}</span>
+                  <span style={{ width: 7, height: 7, borderRadius: "50%", flexShrink: 0, background: isLive ? "#2E7D32" : "rgba(0,0,0,.15)" }} />
+                </button>
+              );
+            })}
           </nav>
 
           {/* Вращающаяся спираль */}
@@ -451,13 +893,32 @@ export function Dashboard() {
           {/* Оценка */}
           <div className="k-body" style={{ display: view === "intake" ? undefined : "none" }}>
             {intake
-              ? <>
-                  <IntakeAssessment
-                    intake={intake}
+              ? activePlanSection
+                ? activePlanSection === "roadmap"
+                  ? <>
+                      <button className="k-nav-btn" onClick={() => setActivePlanSection(null)} style={{ marginBottom: 16 }}>← Назад к оценке</button>
+                      {isOwner && <AiRoadmapButton planId={intake.intakeId ?? bid} />}
+                      {intake.generatedRoadmap && <AiRoadmapView gr={intake.generatedRoadmap} />}
+                      <RoadmapPanel intake={intake} businessId={bid} creditsAvailable={true} />
+                    </>
+                  : <PlanSectionView
+                    sectionId={activePlanSection}
+                    mappedSections={intake.mappedSections}
+                    onBack={() => setActivePlanSection(null)}
                     planId={intake.intakeId ?? bid}
                   />
-                  <RoadmapPanel intake={intake} businessId={bid} />
-                </>
+                : <>
+                    {isOwner && (
+                      <>
+                        <ReprocessButton businessId={bid} />
+                        <AssessPlanButton planId={intake.intakeId ?? bid} />
+                      </>
+                    )}
+                    {intake.holisticAssessment && (
+                      <HolisticResultView ha={intake.holisticAssessment} planId={intake.intakeId ?? bid} />
+                    )}
+                    <IntakePanel intake={intake} businessId={bid} />
+                  </>
               : <div className="k-empty-state" style={{ height: "60vh" }}>
                   <span style={{ fontSize: 28, opacity: .3 }}>○</span>
                   <p>Загрузите бизнес-план — появится оценка предприятия</p>
@@ -498,11 +959,37 @@ export function Dashboard() {
               </div>
             </header>
 
+            {/* Upload status toast */}
+            {uploadToast && (
+              <div style={{
+                position: "fixed", top: 20, left: "50%", transform: "translateX(-50%)",
+                background: uploadToast.kind === "error" ? "#8B1A1A" : "#1A2E1A",
+                color: "#fff", borderRadius: 10, padding: "12px 20px",
+                fontSize: 13, fontWeight: 500, zIndex: 9999,
+                boxShadow: "0 4px 20px rgba(0,0,0,.35)",
+                display: "flex", alignItems: "center", gap: 10, maxWidth: 440,
+              }}>
+                {uploadToast.kind === "progress" && (
+                  <span style={{ display: "inline-block", width: 14, height: 14, border: "2px solid rgba(255,255,255,.3)", borderTop: "2px solid #fff", borderRadius: "50%", animation: "kSpin 0.8s linear infinite" }} />
+                )}
+                {uploadToast.kind === "error" && "⚠️ "}
+                {uploadToast.kind === "done" && "✓ "}
+                {uploadToast.msg}
+                <button onClick={() => setUploadToast(null)} style={{ background: "none", border: "none", color: "rgba(255,255,255,.6)", cursor: "pointer", marginLeft: 6, fontSize: 16, lineHeight: 1 }}>×</button>
+              </div>
+            )}
+
             {/* H1 */}
             {/* UploadPlanButton скрыт визуально, ref даёт прямой доступ к <input> */}
             {isOwner && (
               <div style={{ display: "none" }}>
-                <UploadPlanButton ref={uploadRef} />
+                <UploadPlanButton
+                  ref={uploadRef}
+                  onUploadStart={() => setUploadToast({ msg: "Загружаем файл…", kind: "progress" })}
+                  onUploadProgress={msg => setUploadToast({ msg, kind: "progress" })}
+                  onUploadError={msg => setUploadToast({ msg, kind: "error" })}
+                  onSuccess={() => { setUploadToast({ msg: "Анализ завершён — данные обновляются", kind: "done" }); setTimeout(() => setUploadToast(null), 4000); }}
+                />
               </div>
             )}
             <div className="k-hero k-fadein" style={{ animationDelay: ".1s" }}>
@@ -530,26 +1017,16 @@ export function Dashboard() {
                 <div className="k-card k-card--glass">
                   <div className="k-card-head">
                     <span className="k-card-title">Cash Flow</span>
-                    <span className="k-badge k-badge--gold">+12,4%</span>
                   </div>
-                  <div className="k-bars" style={{ height: 84 }}>
-                    {cashBarHeights.map((h, i) => (
-                      <div
-                        key={i}
-                        className="k-bar"
-                        style={{
-                          height: `${h}%`,
-                          background: i < 5
-                            ? "#C89A34"
-                            : "linear-gradient(180deg,#E9B778,#A6771F)",
-                        }}
-                      />
-                    ))}
+                  <div className="k-bars" style={{ height: 84, alignItems: "flex-end" }}>
+                    {showFinancials && pipelineWt > 0
+                      ? <div className="k-bar" style={{ height: "100%", background: "linear-gradient(180deg,#E9B778,#A6771F)", flex: 1 }} />
+                      : <p className="k-caption" style={{ margin: "auto" }}>—</p>}
                   </div>
                   <p className="k-caption">
                     {showFinancials && pipelineWt > 0
                       ? `Взвешенный pipeline: ${formatRub(pipelineWt)}`
-                      : "Прогноз на 6 мес · из плана"}
+                      : "Данные появятся после загрузки выписки"}
                   </p>
                 </div>
 
@@ -562,13 +1039,13 @@ export function Dashboard() {
                       <div>
                         <p className="k-metal-label">Капзатраты</p>
                         <p className="k-metal-val">
-                          {capexEntry ? formatAssumptionRub(capexEntry) : "12,4 млн ₽"}
+                          {capexEntry ? formatAssumptionRub(capexEntry) : "—"}
                         </p>
                       </div>
                       <div>
                         <p className="k-metal-label">Опзатраты</p>
                         <p className="k-metal-val">
-                          {opexEntry ? formatAssumptionRub(opexEntry) : "860 тыс ₽"}
+                          {opexEntry ? formatAssumptionRub(opexEntry) : "—"}
                         </p>
                       </div>
                     </div>
@@ -580,10 +1057,9 @@ export function Dashboard() {
                 <div className="k-card k-card--glass">
                   <p className="k-card-title">Срок окупаемости</p>
                   <p className="k-metric">
-                    {paybackEntry ? formatPayback(paybackEntry) : "18"}{" "}
-                    <span className="k-metric-unit">мес.</span>
+                    {paybackEntry ? formatPayback(paybackEntry) : "—"}
                   </p>
-                  <p className="k-caption">точка ноля — 1,45 млн ₽/мес</p>
+                  <p className="k-caption">из бизнес-плана · §4 Финансы</p>
                 </div>
               </div>
 
@@ -616,10 +1092,9 @@ export function Dashboard() {
                 {/* CTA-бар */}
                 <div className="k-cta-bar">
                   <span style={{ fontSize: 13, color: "#8B7355" }}>
-                    <b style={{ color: "#1A1814" }}>
-                      {hasDeals ? "Воронка активна" : "Воронка спит"}
-                    </b>
-                    {" "}— {hasDeals ? `${totalDeals} сделок` : "активируется с первой сделкой"}
+                    {hasDeals
+                      ? <><b style={{ color: "#1A1814" }}>Сделки активны</b>{` — ${totalDeals} сделок`}</>
+                      : "Загрузите бизнес-план — здесь появится живой план предприятия"}
                   </span>
                 </div>
               </div>
@@ -630,15 +1105,9 @@ export function Dashboard() {
                 <div className="k-card k-card--glass">
                   <div className="k-card-head">
                     <span className="k-card-title">План / факт</span>
-                    <span className="k-badge k-badge--gold">92%</span>
                   </div>
-                  <div className="k-bars k-bars--grouped" style={{ height: 96 }}>
-                    {planFactData.map(([plan, fact], i) => (
-                      <div key={i} className="k-bar-group">
-                        <div className="k-bar" style={{ height: `${plan}%`, background: "rgba(180,140,60,.3)" }} />
-                        <div className="k-bar" style={{ height: `${fact}%`, background: "linear-gradient(180deg,#E0B24A,#A6771F)" }} />
-                      </div>
-                    ))}
+                  <div className="k-bars k-bars--grouped" style={{ height: 96, alignItems: "center", justifyContent: "center" }}>
+                    <p className="k-caption">—</p>
                   </div>
                   <div className="k-legend">
                     <span><i className="k-legend-dot" style={{ background: "rgba(180,140,60,.3)" }} />план</span>
@@ -669,16 +1138,7 @@ export function Dashboard() {
                 ) : (
                   <div className="k-card k-card--glass">
                     <p className="k-card-title">Сигналы спроса</p>
-                    <div style={{ display: "flex", alignItems: "center", gap: 18, marginTop: 12 }}>
-                      <div>
-                        <p className="k-serif-big">1 159</p>
-                        <p className="k-caption">лидов за квартал</p>
-                      </div>
-                      <div className="k-donut" style={{ background: "conic-gradient(#C99A34 0 43%, rgba(200,160,60,.18) 43% 100%)" }}>
-                        <div className="k-donut-inner">43</div>
-                      </div>
-                    </div>
-                    <p className="k-caption" style={{ marginTop: 12 }}>43% квалифицировано · тренд ▲</p>
+                    <p className="k-caption" style={{ marginTop: 16 }}>Данные появятся после первых сделок</p>
                   </div>
                 )}
 
@@ -686,22 +1146,8 @@ export function Dashboard() {
                 <div className="k-card k-card--glass" id="finances">
                   <div className="k-card-head">
                     <span className="k-card-title">Gap Forecast</span>
-                    <span className="k-badge k-badge--red">−310 тыс ₽</span>
                   </div>
-                  <div className="k-bars" style={{ height: 64, marginTop: 16 }}>
-                    {gapBarVals.map((v, i) => (
-                      <div
-                        key={i}
-                        className="k-bar"
-                        style={{
-                          height: `${Math.abs(v)}%`,
-                          background: v < 0 ? "#8B2E3C" : "rgba(190,145,55,.55)",
-                          alignSelf: v < 0 ? "flex-end" : "flex-start",
-                        }}
-                      />
-                    ))}
-                  </div>
-                  <p className="k-caption" style={{ marginTop: 12 }}>кассовый разрыв — октябрь</p>
+                  <p className="k-caption" style={{ marginTop: 16 }}>Данные появятся после загрузки банковской выписки</p>
                 </div>
               </div>
             </div>

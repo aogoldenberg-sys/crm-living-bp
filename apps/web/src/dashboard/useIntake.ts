@@ -53,11 +53,60 @@ export interface Assessment {
   assumptionsExtracted: Record<string, AssumptionEntry>;
 }
 
+export interface SectionComment {
+  issue: string;
+  quote: string;
+  severity: "low" | "medium" | "high";
+  suggested_fix: string;
+}
+
+export interface SectionEval {
+  section_key: string;
+  verdict: "approved" | "flagged";
+  scores: { objectivity: number; realism: number; justification: number };
+  comments: SectionComment[];
+}
+
+export interface CrossIssue {
+  sections: string[];
+  issue: string;
+}
+
+export interface RoadmapPhase {
+  phase: number;
+  title: string;
+  actions: string[];
+  dueInDays: number;
+  depends_on: number[];
+  deliverable: string;
+}
+
+export interface GeneratedRoadmap {
+  phases: RoadmapPhase[];
+  generatedAt: string;
+}
+
+export interface HolisticAssessment {
+  assessedAt: string;
+  sections: SectionEval[];
+  cross_section_issues: CrossIssue[];
+}
+
+export interface ClaudeReview {
+  verdict: "realistic" | "needs_improvement" | "unrealistic" | "insufficient_data";
+  reasoning: string;
+  proposedRewrite: string | null;
+  successScore: number;
+  reviewedAt?: string;
+  accepted?: boolean;
+}
+
 export interface MappedSection {
   sectionId: string;
   present: boolean;
   contentSummary: string;
   confidence: number;
+  claudeReview?: ClaudeReview;
 }
 
 export interface PlanIntake {
@@ -68,10 +117,10 @@ export interface PlanIntake {
   disclaimer: string;
   status: string;
   extractedAt?: string;
-  /** true если Claude-нарратив уже добавлен, false/undefined если ещё TODO */
   narrativeReady?: boolean;
-  /** URL логотипа компании (опционально, загружается отдельно) */
   logoUrl?: string;
+  holisticAssessment?: HolisticAssessment;
+  generatedRoadmap?: GeneratedRoadmap;
 }
 
 const QUERY_KEY = (businessId: string) => ["intake", businessId];
@@ -133,6 +182,41 @@ function normalizeAssumptions(raw: unknown): Record<string, AssumptionEntry> {
   return result;
 }
 
+function normalizeGeneratedRoadmap(raw: unknown): GeneratedRoadmap | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const r = raw as Record<string, unknown>;
+  if (!Array.isArray(r.phases)) return undefined;
+  return {
+    phases: r.phases as RoadmapPhase[],
+    generatedAt: typeof r.generatedAt === "string" ? r.generatedAt : "",
+  };
+}
+
+function normalizeHolisticAssessment(raw: unknown): HolisticAssessment | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const r = raw as Record<string, unknown>;
+  return {
+    assessedAt: typeof r.assessedAt === "string" ? r.assessedAt : "",
+    sections: Array.isArray(r.sections) ? (r.sections as SectionEval[]) : [],
+    cross_section_issues: Array.isArray(r.cross_section_issues) ? (r.cross_section_issues as CrossIssue[]) : [],
+  };
+}
+
+function normalizeClaudeReview(raw: unknown): ClaudeReview | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const r = raw as Record<string, unknown>;
+  const v = r.verdict as string;
+  if (!["realistic", "needs_improvement", "unrealistic", "insufficient_data"].includes(v)) return undefined;
+  return {
+    verdict: v as ClaudeReview["verdict"],
+    reasoning: typeof r.reasoning === "string" ? r.reasoning : "",
+    proposedRewrite: typeof r.proposedRewrite === "string" ? r.proposedRewrite : null,
+    successScore: typeof r.successScore === "number" ? r.successScore : 0,
+    reviewedAt: typeof r.reviewedAt === "string" ? r.reviewedAt : undefined,
+    accepted: Boolean(r.accepted),
+  };
+}
+
 function normalizeMappedSections(raw: unknown): MappedSection[] {
   if (!Array.isArray(raw)) return [];
   return raw.flatMap((s) => {
@@ -143,14 +227,15 @@ function normalizeMappedSections(raw: unknown): MappedSection[] {
       present: Boolean(obj.present),
       contentSummary: typeof obj.contentSummary === "string" ? obj.contentSummary : "",
       confidence: typeof obj.confidence === "number" ? obj.confidence : 0,
+      claudeReview: normalizeClaudeReview(obj.claudeReview),
     }];
   });
 }
 
-function normalizeIntake(raw: Record<string, unknown>): PlanIntake {
+function normalizeIntake(raw: Record<string, unknown>, docId?: string): PlanIntake {
   const assessment = (raw.assessment as Record<string, unknown> | undefined) ?? {};
   return {
-    intakeId: typeof raw.intakeId === "string" ? raw.intakeId : undefined,
+    intakeId: typeof raw.intakeId === "string" ? raw.intakeId : (docId ?? undefined),
     mappedSections: normalizeMappedSections(raw.mappedSections),
     assessment: {
       strengths: Array.isArray(assessment.strengths)
@@ -165,6 +250,8 @@ function normalizeIntake(raw: Record<string, unknown>): PlanIntake {
     extractedAt: typeof raw.extractedAt === "string" ? raw.extractedAt : undefined,
     narrativeReady: Boolean((assessment as Record<string, unknown>).narrativeReady),
     logoUrl: typeof raw.logoUrl === "string" ? raw.logoUrl : undefined,
+    holisticAssessment: normalizeHolisticAssessment(raw.holisticAssessment),
+    generatedRoadmap: normalizeGeneratedRoadmap(raw.generatedRoadmap),
   };
 }
 
@@ -188,7 +275,7 @@ export function useIntake(businessId: string) {
       (snap) => {
         if (!snap.empty && snap.docs[0]) {
           const raw = snap.docs[0].data() as Record<string, unknown>;
-          const normalized = normalizeIntake(raw);
+          const normalized = normalizeIntake(raw, snap.docs[0].id);
           queryClient.setQueryData(QUERY_KEY(businessId), normalized);
           if (!migratedRef.current && needsMigration(normalized.mappedSections)) {
             migratedRef.current = true;

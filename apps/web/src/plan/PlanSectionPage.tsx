@@ -10,7 +10,7 @@ import { UploadPlanButton } from "../dashboard/UploadPlanButton";
 import "./PlanSectionPage.css";
 
 export const SECTIONS = [
-  { id: "mission",     title: "Миссия",                    icon: "🎯" },
+  { id: "mission",     title: "Стратегия",                  icon: "🎯" },
   { id: "goals",       title: "Цели",                      icon: "📈" },
   { id: "priorities",  title: "Приоритеты",                icon: "🔢" },
   { id: "contents",    title: "Содержание",                icon: "📋" },
@@ -25,7 +25,7 @@ export const SECTIONS = [
   { id: "competitors", title: "Конкурентный анализ",       icon: "⚔️" },
   { id: "advantages",  title: "Конкурентные преимущества", icon: "🏆" },
   { id: "structure",   title: "Схема компании",            icon: "🏢" },
-  { id: "team",        title: "Команда",                   icon: "👥" },
+  { id: "team",        title: "Кадры",                     icon: "👥" },
   { id: "risks",       title: "Риски",                     icon: "⚠️" },
   { id: "roadmap",     title: "Дорожная карта",            icon: "🗺️" },
   { id: "kpi",         title: "KPI и метрики",             icon: "📏" },
