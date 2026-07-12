@@ -86,9 +86,43 @@ function ReprocessButton({ businessId }: { businessId: string }) {
 
 // ── Holistic plan assessment ──────────────────────────────────────────────────
 
+// ── Анимированная шкала прогресса AI-операций ────────────────────────────────
+function AiProgressBar({ label }: { label: string }) {
+  const [pct, setPct] = useState(5);
+  useEffect(() => {
+    // Имитируем прогресс: быстро до 70%, потом медленно ждём Firestore
+    const intervals = [
+      setTimeout(() => setPct(25), 800),
+      setTimeout(() => setPct(45), 2500),
+      setTimeout(() => setPct(62), 6000),
+      setTimeout(() => setPct(75), 15000),
+      setTimeout(() => setPct(85), 35000),
+    ];
+    return () => intervals.forEach(clearTimeout);
+  }, []);
+
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ fontSize: 12, color: "#C89A34", marginBottom: 6, fontWeight: 600 }}>{label}</div>
+      <div style={{ height: 6, borderRadius: 4, background: "rgba(200,154,52,0.15)", overflow: "hidden" }}>
+        <div
+          style={{
+            height: "100%",
+            width: `${pct}%`,
+            borderRadius: 4,
+            background: "linear-gradient(90deg,#C89A34,#E4C260)",
+            transition: "width 1.2s ease",
+          }}
+        />
+      </div>
+      <div style={{ fontSize: 10, color: "#888", marginTop: 4 }}>Результат появится автоматически…</div>
+    </div>
+  );
+}
+
 function AssessPlanButton({ planId }: { planId: string }) {
   const { user } = useAuth();
-  const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [status, setStatus] = useState<"idle" | "loading" | "queued" | "error">("idle");
   const [err, setErr] = useState<string | null>(null);
 
   async function run() {
@@ -105,7 +139,7 @@ function AssessPlanButton({ planId }: { planId: string }) {
         const d = await res.json().catch(() => ({})) as { error?: string };
         throw new Error(d.error ?? `Ошибка ${res.status}`);
       }
-      setStatus("done");
+      setStatus("queued");
     } catch (e) {
       setStatus("error");
       setErr(e instanceof Error ? e.message : "Ошибка");
@@ -117,10 +151,10 @@ function AssessPlanButton({ planId }: { planId: string }) {
       <button
         type="button"
         onClick={() => void run()}
-        disabled={status === "loading"}
+        disabled={status === "loading" || status === "queued"}
         style={{ fontSize: 12, padding: "6px 18px", borderRadius: 8, border: "none", background: "linear-gradient(135deg,#C89A34,#E4C260)", color: "#3A2800", cursor: "pointer", fontWeight: 700 }}
       >
-        {status === "loading" ? "Анализируем план…" : status === "done" ? "✓ Оценка обновлена" : "⚡ Оценить весь план (Kairos)"}
+        {status === "loading" ? "Отправляем…" : status === "queued" ? "⏳ В очереди" : "⚡ Оценить весь план (Kairos)"}
       </button>
       {err && <span style={{ fontSize: 12, color: "#C62828" }}>{err}</span>}
     </div>
@@ -1066,6 +1100,14 @@ export function Dashboard() {
                         <ReprocessButton businessId={bid} />
                         <AssessPlanButton planId={intake.intakeId ?? bid} />
                       </>
+                    )}
+                    {intake.assessmentStatus === "processing" && (
+                      <AiProgressBar label="Kairos анализирует план…" />
+                    )}
+                    {intake.assessmentStatus === "error" && (
+                      <div style={{ fontSize: 12, color: "#C62828", marginBottom: 8 }}>
+                        Ошибка анализа: {intake.assessmentError ?? "неизвестная ошибка"}
+                      </div>
                     )}
                     {intake.holisticAssessment && (
                       <HolisticResultView ha={intake.holisticAssessment} planId={intake.intakeId ?? bid} />

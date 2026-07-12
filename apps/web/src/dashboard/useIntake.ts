@@ -134,7 +134,11 @@ export interface PlanIntake {
   narrativeReady?: boolean;
   logoUrl?: string;
   holisticAssessment?: HolisticAssessment;
+  assessmentStatus?: "processing" | "done" | "error";
+  assessmentError?: string;
   generatedRoadmap?: GeneratedRoadmap;
+  roadmapStatus?: "processing" | "done" | "error";
+  reformStatus?: "processing" | "done" | "error";
   grantAdaptations?: Record<string, GrantResult>;
 }
 
@@ -266,7 +270,11 @@ function normalizeIntake(raw: Record<string, unknown>, docId?: string): PlanInta
     narrativeReady: Boolean((assessment as Record<string, unknown>).narrativeReady),
     logoUrl: typeof raw.logoUrl === "string" ? raw.logoUrl : undefined,
     holisticAssessment: normalizeHolisticAssessment(raw.holisticAssessment),
+    assessmentStatus: (raw.assessmentStatus as PlanIntake["assessmentStatus"]) ?? undefined,
+    assessmentError: typeof raw.assessmentError === "string" ? raw.assessmentError : undefined,
     generatedRoadmap: normalizeGeneratedRoadmap(raw.generatedRoadmap),
+    roadmapStatus: (raw.roadmapStatus as PlanIntake["roadmapStatus"]) ?? undefined,
+    reformStatus: (raw.reformStatus as PlanIntake["reformStatus"]) ?? undefined,
     grantAdaptations: (raw.grantAdaptations && typeof raw.grantAdaptations === "object")
       ? (raw.grantAdaptations as Record<string, GrantResult>)
       : undefined,

@@ -448,7 +448,7 @@ async function callClaudeAssess(apiKey: string, planText: string): Promise<unkno
   return JSON.parse(raw);
 }
 
-async function handlePlanAssess(request: Request, env: Env): Promise<Response> {
+async function handlePlanAssess(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const authHeader = request.headers.get("Authorization") ?? "";
   const idToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
   if (!idToken) return jsonCors({ error: "Unauthorized" }, 401);
@@ -490,25 +490,33 @@ async function handlePlanAssess(request: Request, env: Env): Promise<Response> {
     .map(s => `[${s.sectionId}]:\n${s.contentSummary}`)
     .join("\n\n---\n\n");
 
-  let result: unknown;
-  try {
-    result = await callClaudeAssess(env.ANTHROPIC_API_KEY, planText);
-  } catch (e) {
-    return jsonCors({ error: `Ошибка AI: ${e instanceof Error ? e.message : String(e)}` }, 500);
-  }
+  // Сразу пишем статус "processing" и отвечаем — тяжёлый LLM идёт в фоне
+  await intakeRef.set(
+    { ...intakeData, assessmentStatus: "processing", assessmentError: null } as unknown as Record<string, unknown>,
+  );
 
-  const holisticAssessment = {
-    ...(result as Record<string, unknown>),
-    assessedAt: new Date().toISOString(),
-  };
+  ctx.waitUntil(
+    (async () => {
+      try {
+        const result = await callClaudeAssess(env.ANTHROPIC_API_KEY, planText);
+        const holisticAssessment = {
+          ...(result as Record<string, unknown>),
+          assessedAt: new Date().toISOString(),
+        };
+        await intakeRef.set(
+          { ...intakeData, holisticAssessment, assessmentStatus: "done", assessmentError: null } as unknown as Record<string, unknown>,
+        );
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error("[plan-assess] LLM error:", msg);
+        await intakeRef.set(
+          { ...intakeData, assessmentStatus: "error", assessmentError: msg } as unknown as Record<string, unknown>,
+        ).catch(() => {});
+      }
+    })(),
+  );
 
-  try {
-    await intakeRef.set({ ...intakeData, holisticAssessment } as unknown as Record<string, unknown>);
-  } catch (e) {
-    return jsonCors({ error: `Ошибка сохранения: ${e instanceof Error ? e.message : String(e)}` }, 500);
-  }
-
-  return jsonCors({ planId, holisticAssessment });
+  return jsonCors({ planId, status: "queued" });
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -536,7 +544,7 @@ const PLAN_REFORM_SYSTEM = `Ты — редактор бизнес-планов 
 { "sections": { "<sectionId>": "<новый текст раздела>" } }
 Включай в sections ТОЛЬКО изменённые разделы.`;
 
-async function handlePlanReform(request: Request, env: Env): Promise<Response> {
+async function handlePlanReform(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const authHeader = request.headers.get("Authorization") ?? "";
   const idToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
   if (!idToken) return jsonCors({ error: "Unauthorized" }, 401);
@@ -568,7 +576,6 @@ async function handlePlanReform(request: Request, env: Env): Promise<Response> {
     ? (intakeData.mappedSections as Array<Record<string, unknown>>)
     : [];
 
-  // Build original plan map for context
   const original: Record<string, string> = {};
   for (const s of sections) {
     if (s.present && typeof s.contentSummary === "string" && s.contentSummary.length > 5) {
@@ -578,64 +585,66 @@ async function handlePlanReform(request: Request, env: Env): Promise<Response> {
 
   const userInput = JSON.stringify({ original, accepted_changes: acceptedChanges });
 
-  let result: { sections?: Record<string, string> };
-  try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": env.ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01",
-        "anthropic-beta": "prompt-caching-2024-07-31",
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-6",
-        max_tokens: 12000,
-        system: [{ type: "text", text: PLAN_REFORM_SYSTEM, cache_control: { type: "ephemeral" } }],
-        messages: [{ role: "user", content: userInput }],
-      }),
-    });
-    if (!res.ok) {
-      const txt = await res.text().catch(() => "");
-      throw new Error(`Claude reform ${res.status}: ${txt.slice(0, 200)}`);
-    }
-    const msg = (await res.json()) as { content: Array<{ type: string; text?: string }> };
-    const raw = msg.content
-      .filter(b => b.type === "text" && b.text)
-      .map(b => b.text!)
-      .join("\n\n")
-      .replace(/^```(?:json)?\n?/i, "")
-      .replace(/\n?```$/i, "")
-      .trim();
-    result = JSON.parse(raw) as { sections?: Record<string, string> };
-  } catch (e) {
-    return jsonCors({ error: `Ошибка AI: ${e instanceof Error ? e.message : String(e)}` }, 500);
-  }
+  await intakeRef.set(
+    { ...intakeData, reformStatus: "processing" } as unknown as Record<string, unknown>,
+  );
 
-  if (!result.sections || typeof result.sections !== "object") {
-    return jsonCors({ error: "Некорректный ответ AI" }, 502);
-  }
+  ctx.waitUntil(
+    (async () => {
+      try {
+        const res = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": env.ANTHROPIC_API_KEY,
+            "anthropic-version": "2023-06-01",
+            "anthropic-beta": "prompt-caching-2024-07-31",
+          },
+          body: JSON.stringify({
+            model: "claude-sonnet-4-6",
+            max_tokens: 12000,
+            system: [{ type: "text", text: PLAN_REFORM_SYSTEM, cache_control: { type: "ephemeral" } }],
+            messages: [{ role: "user", content: userInput }],
+          }),
+        });
+        if (!res.ok) {
+          const txt = await res.text().catch(() => "");
+          throw new Error(`Claude reform ${res.status}: ${txt.slice(0, 200)}`);
+        }
+        const msg = (await res.json()) as { content: Array<{ type: string; text?: string }> };
+        const raw = msg.content
+          .filter(b => b.type === "text" && b.text)
+          .map(b => b.text!)
+          .join("\n\n")
+          .replace(/^```(?:json)?\n?/i, "")
+          .replace(/\n?```$/i, "")
+          .trim();
+        const result = JSON.parse(raw) as { sections?: Record<string, string> };
 
-  // Merge reformed sections into mappedSections
-  const updatedSections = sections.map(s => {
-    const newText = result.sections![String(s.sectionId)];
-    if (!newText) return s;
-    return { ...s, contentSummary: newText, present: true, confidence: Math.max(Number(s.confidence) || 0, 0.85) };
-  });
+        if (!result.sections || typeof result.sections !== "object") throw new Error("Некорректный ответ AI");
 
-  const reformedAt = new Date().toISOString();
-  try {
-    await intakeRef.set({
-      ...intakeData,
-      mappedSections: updatedSections,
-      lastReformedAt: reformedAt,
-      reformChangesCount: acceptedChanges.length,
-    } as unknown as Record<string, unknown>);
-  } catch (e) {
-    return jsonCors({ error: `Ошибка сохранения: ${e instanceof Error ? e.message : String(e)}` }, 500);
-  }
+        const updatedSections = sections.map(s => {
+          const newText = result.sections![String(s.sectionId)];
+          if (!newText) return s;
+          return { ...s, contentSummary: newText, present: true, confidence: Math.max(Number(s.confidence) || 0, 0.85) };
+        });
 
-  return jsonCors({ planId, reformedAt, sectionsUpdated: Object.keys(result.sections).length });
+        await intakeRef.set({
+          ...intakeData,
+          mappedSections: updatedSections,
+          lastReformedAt: new Date().toISOString(),
+          reformChangesCount: acceptedChanges.length,
+          reformStatus: "done",
+        } as unknown as Record<string, unknown>);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error("[plan-reform] error:", msg);
+        await intakeRef.set({ ...intakeData, reformStatus: "error", reformError: msg } as unknown as Record<string, unknown>).catch(() => {});
+      }
+    })(),
+  );
+
+  return jsonCors({ planId, status: "queued" });
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -661,7 +670,7 @@ const PLAN_ROADMAP_SYSTEM = `Ты — операционный консульт�
   ]
 }`;
 
-async function handlePlanRoadmap(request: Request, env: Env): Promise<Response> {
+async function handlePlanRoadmap(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const authHeader = request.headers.get("Authorization") ?? "";
   const idToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
   if (!idToken) return jsonCors({ error: "Unauthorized" }, 401);
@@ -699,51 +708,57 @@ async function handlePlanRoadmap(request: Request, env: Env): Promise<Response> 
 
   if (!planText) return jsonCors({ error: "Нет данных для построения дорожной карты" }, 422);
 
-  let result: { phases?: unknown[] };
-  try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": env.ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01",
-        "anthropic-beta": "prompt-caching-2024-07-31",
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-6",
-        max_tokens: 4000,
-        system: [{ type: "text", text: PLAN_ROADMAP_SYSTEM, cache_control: { type: "ephemeral" } }],
-        messages: [{ role: "user", content: planText }],
-      }),
-    });
-    if (!res.ok) {
-      const txt = await res.text().catch(() => "");
-      throw new Error(`Claude roadmap ${res.status}: ${txt.slice(0, 200)}`);
-    }
-    const msg = (await res.json()) as { content: Array<{ type: string; text?: string }> };
-    const raw = msg.content
-      .filter(b => b.type === "text" && b.text)
-      .map(b => b.text!)
-      .join("\n\n")
-      .replace(/^```(?:json)?\n?/i, "")
-      .replace(/\n?```$/i, "")
-      .trim();
-    result = JSON.parse(raw) as typeof result;
-  } catch (e) {
-    return jsonCors({ error: `Ошибка AI: ${e instanceof Error ? e.message : String(e)}` }, 500);
-  }
+  await intakeRef.set(
+    { ...intakeData, roadmapStatus: "processing" } as unknown as Record<string, unknown>,
+  );
 
-  if (!Array.isArray(result.phases)) return jsonCors({ error: "Некорректный ответ AI" }, 502);
+  ctx.waitUntil(
+    (async () => {
+      try {
+        const res = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": env.ANTHROPIC_API_KEY,
+            "anthropic-version": "2023-06-01",
+            "anthropic-beta": "prompt-caching-2024-07-31",
+          },
+          body: JSON.stringify({
+            model: "claude-sonnet-4-6",
+            max_tokens: 4000,
+            system: [{ type: "text", text: PLAN_ROADMAP_SYSTEM, cache_control: { type: "ephemeral" } }],
+            messages: [{ role: "user", content: planText }],
+          }),
+        });
+        if (!res.ok) {
+          const txt = await res.text().catch(() => "");
+          throw new Error(`Claude roadmap ${res.status}: ${txt.slice(0, 200)}`);
+        }
+        const msg = (await res.json()) as { content: Array<{ type: string; text?: string }> };
+        const raw = msg.content
+          .filter(b => b.type === "text" && b.text)
+          .map(b => b.text!)
+          .join("\n\n")
+          .replace(/^```(?:json)?\n?/i, "")
+          .replace(/\n?```$/i, "")
+          .trim();
+        const result = JSON.parse(raw) as { phases?: unknown[] };
 
-  const generatedRoadmap = { phases: result.phases, generatedAt: new Date().toISOString() };
+        if (!Array.isArray(result.phases)) throw new Error("Некорректный ответ AI");
 
-  try {
-    await intakeRef.set({ ...intakeData, generatedRoadmap } as unknown as Record<string, unknown>);
-  } catch (e) {
-    return jsonCors({ error: `Ошибка сохранения: ${e instanceof Error ? e.message : String(e)}` }, 500);
-  }
+        const generatedRoadmap = { phases: result.phases, generatedAt: new Date().toISOString() };
+        await intakeRef.set(
+          { ...intakeData, generatedRoadmap, roadmapStatus: "done" } as unknown as Record<string, unknown>,
+        );
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error("[plan-roadmap] error:", msg);
+        await intakeRef.set({ ...intakeData, roadmapStatus: "error", roadmapError: msg } as unknown as Record<string, unknown>).catch(() => {});
+      }
+    })(),
+  );
 
-  return jsonCors({ planId, generatedRoadmap });
+  return jsonCors({ planId, status: "queued" });
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -780,7 +795,7 @@ const GRANT_ADAPT_SYSTEM = (meta: typeof GRANT_META[GrantType]) =>
   "grantSummary": "Краткое резюме готовности плана под эту программу (3-4 предложения)"
 }`;
 
-async function handlePlanGrant(request: Request, env: Env): Promise<Response> {
+async function handlePlanGrant(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const authHeader = request.headers.get("Authorization") ?? "";
   const idToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
   if (!idToken) return jsonCors({ error: "Unauthorized" }, 401);
@@ -831,74 +846,85 @@ async function handlePlanGrant(request: Request, env: Env): Promise<Response> {
 
   if (!planText) return jsonCors({ error: "Нет данных для адаптации" }, 422);
 
-  let result: {
-    readinessScore?: number;
-    missingSections?: string[];
-    weakSections?: string[];
-    adaptedSections?: Record<string, string>;
-    grantSummary?: string;
-  };
-  try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": env.ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01",
-        "anthropic-beta": "prompt-caching-2024-07-31",
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-6",
-        max_tokens: 8000,
-        system: [{ type: "text", text: GRANT_ADAPT_SYSTEM(meta), cache_control: { type: "ephemeral" } }],
-        messages: [{ role: "user", content: `Программа: ${meta.label}\nТребуемые разделы: ${required.join(", ")}\n\n${planText}` }],
-      }),
-    });
-    if (!res.ok) {
-      const txt = await res.text().catch(() => "");
-      throw new Error(`Claude grant ${res.status}: ${txt.slice(0, 200)}`);
-    }
-    const msg = (await res.json()) as { content: Array<{ type: string; text?: string }> };
-    const raw = msg.content
-      .filter(b => b.type === "text" && b.text)
-      .map(b => b.text!)
-      .join("\n\n")
-      .replace(/^```(?:json)?\n?/i, "")
-      .replace(/\n?```$/i, "")
-      .trim();
-    result = JSON.parse(raw) as typeof result;
-  } catch (e) {
-    return jsonCors({ error: `Ошибка AI: ${e instanceof Error ? e.message : String(e)}` }, 500);
-  }
-
-  // Merge pre-computed missing/weak with LLM result
-  const grantResult = {
-    grantType,
-    grantLabel: meta.label,
-    maxRub: meta.maxRub,
-    readinessScore: result.readinessScore ?? (missingSections.length === 0 ? 75 : Math.max(0, 75 - missingSections.length * 15)),
-    missingSections: result.missingSections ?? missingSections,
-    weakSections: result.weakSections ?? weakSections,
-    adaptedSections: result.adaptedSections ?? {},
-    grantSummary: result.grantSummary ?? "",
-    generatedAt: new Date().toISOString(),
-  };
-
-  // Save under grantAdaptations map keyed by grantType
   const existing = typeof intakeData.grantAdaptations === "object" && intakeData.grantAdaptations !== null
     ? (intakeData.grantAdaptations as Record<string, unknown>)
     : {};
 
-  try {
-    await intakeRef.set({
-      ...intakeData,
-      grantAdaptations: { ...existing, [grantType]: grantResult },
-    } as unknown as Record<string, unknown>);
-  } catch (e) {
-    return jsonCors({ error: `Ошибка сохранения: ${e instanceof Error ? e.message : String(e)}` }, 500);
-  }
+  // Немедленно пишем статус для этого конкретного гранта
+  await intakeRef.set({
+    ...intakeData,
+    grantAdaptations: { ...existing, [grantType]: { grantType, grantLabel: meta.label, status: "processing" } },
+  } as unknown as Record<string, unknown>);
 
-  return jsonCors({ planId, grantType, result: grantResult });
+  const userMessage = `Программа: ${meta.label}\nТребуемые разделы: ${required.join(", ")}\n\n${planText}`;
+
+  ctx.waitUntil(
+    (async () => {
+      try {
+        const res = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": env.ANTHROPIC_API_KEY,
+            "anthropic-version": "2023-06-01",
+            "anthropic-beta": "prompt-caching-2024-07-31",
+          },
+          body: JSON.stringify({
+            model: "claude-sonnet-4-6",
+            max_tokens: 8000,
+            system: [{ type: "text", text: GRANT_ADAPT_SYSTEM(meta), cache_control: { type: "ephemeral" } }],
+            messages: [{ role: "user", content: userMessage }],
+          }),
+        });
+        if (!res.ok) {
+          const txt = await res.text().catch(() => "");
+          throw new Error(`Claude grant ${res.status}: ${txt.slice(0, 200)}`);
+        }
+        const msg = (await res.json()) as { content: Array<{ type: string; text?: string }> };
+        const raw = msg.content
+          .filter(b => b.type === "text" && b.text)
+          .map(b => b.text!)
+          .join("\n\n")
+          .replace(/^```(?:json)?\n?/i, "")
+          .replace(/\n?```$/i, "")
+          .trim();
+        const result = JSON.parse(raw) as {
+          readinessScore?: number;
+          missingSections?: string[];
+          weakSections?: string[];
+          adaptedSections?: Record<string, string>;
+          grantSummary?: string;
+        };
+
+        const grantResult = {
+          grantType,
+          grantLabel: meta.label,
+          maxRub: meta.maxRub,
+          readinessScore: result.readinessScore ?? (missingSections.length === 0 ? 75 : Math.max(0, 75 - missingSections.length * 15)),
+          missingSections: result.missingSections ?? missingSections,
+          weakSections: result.weakSections ?? weakSections,
+          adaptedSections: result.adaptedSections ?? {},
+          grantSummary: result.grantSummary ?? "",
+          generatedAt: new Date().toISOString(),
+          status: "done",
+        };
+
+        await intakeRef.set({
+          ...intakeData,
+          grantAdaptations: { ...existing, [grantType]: grantResult },
+        } as unknown as Record<string, unknown>);
+      } catch (e) {
+        const errMsg = e instanceof Error ? e.message : String(e);
+        console.error("[plan-grant] error:", errMsg);
+        await intakeRef.set({
+          ...intakeData,
+          grantAdaptations: { ...existing, [grantType]: { grantType, grantLabel: meta.label, status: "error", errorMsg: errMsg } },
+        } as unknown as Record<string, unknown>).catch(() => {});
+      }
+    })(),
+  );
+
+  return jsonCors({ planId, grantType, status: "queued" });
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -2060,9 +2086,9 @@ async function handleExternal(request: Request, env: Env): Promise<Response> {
 // ══════════════════════════════════════════════════════════════════════════════
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     try {
-      return await dispatchRequest(request, env);
+      return await dispatchRequest(request, env, ctx);
     } catch (e) {
       // Uncaught exception — ensure CORS headers are always present
       const msg = e instanceof Error ? e.message : String(e);
@@ -2072,7 +2098,7 @@ export default {
   },
 } satisfies ExportedHandler<Env>;
 
-async function dispatchRequest(request: Request, env: Env): Promise<Response> {
+async function dispatchRequest(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     // CORS preflight
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: CORS_HEADERS });
@@ -2117,22 +2143,22 @@ async function dispatchRequest(request: Request, env: Env): Promise<Response> {
 
     // ── /plan-assess — холистическая оценка всего плана ────────────────
     if (request.method === "POST" && url.pathname === "/plan-assess") {
-      return handlePlanAssess(request, env);
+      return handlePlanAssess(request, env, ctx);
     }
 
     // ── /plan-reform — переформирование плана с принятыми правками ─────
     if (request.method === "POST" && url.pathname === "/plan-reform") {
-      return handlePlanReform(request, env);
+      return handlePlanReform(request, env, ctx);
     }
 
     // ── /plan-roadmap — LLM-дорожная карта из финального плана ─────────
     if (request.method === "POST" && url.pathname === "/plan-roadmap") {
-      return handlePlanRoadmap(request, env);
+      return handlePlanRoadmap(request, env, ctx);
     }
 
     // ── /plan-grant — адаптация под грантовую программу ────────────────
     if (request.method === "POST" && url.pathname === "/plan-grant") {
-      return handlePlanGrant(request, env);
+      return handlePlanGrant(request, env, ctx);
     }
 
     // ── /external — внешние сигналы §12 (Firebase auth или API key) ───────
