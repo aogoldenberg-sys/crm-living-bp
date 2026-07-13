@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useAuth } from "../auth/AuthContext";
+import { useAuth } from "../auth/useAuth";
 import { SUBSCRIPTIONS, TG_MANAGER } from "./pricing";
 import "./ServicesPage.css";
 

@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+const randomUUID = () => globalThis.crypto.randomUUID();
 import type { BusinessEvent, BusinessPlanV1, IsoDate, StrategyLever } from "@crm/schemas";
 import type { ScenarioResult } from "@crm/schemas";
 import { forecastCash } from "../forecast/forecast.js";

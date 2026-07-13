@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+const randomUUID = () => globalThis.crypto.randomUUID();
 import type { BusinessEvent } from "@crm/schemas";
 import type { OwnerReport, Deviation } from "@crm/schemas";
 import { aggregateEvents } from "../planfact/aggregate.js";
