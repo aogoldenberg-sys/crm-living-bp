@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@crm/core": "workspace:*",
@@ -21,10 +23,15 @@
     "zustand": "^4.5.7"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.1",
     "@types/react": "^18.3.31",
     "@types/react-dom": "^18.3.7",
     "@vitejs/plugin-react": "^3.1.0",
+    "jsdom": "^26.1.0",
     "typescript": "^5.9.3",
-    "vite": "^4.5.14"
+    "vite": "^4.5.14",
+    "vitest": "^2.1.1"
   }
 }

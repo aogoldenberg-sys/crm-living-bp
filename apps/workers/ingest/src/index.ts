@@ -14,7 +14,7 @@ import type { Db } from "@crm/firestore-adapter";
 import { BusinessEvent, ExternalPushSignal, RequestItem, INTAKE_TO_BOOK_ID, BOOK_SECTION_IDS, type SourceDocKind, Entitlements, BusinessPlanV1 } from "@crm/schemas";
 import { handleDocuments } from "./documents.js";
 import { createFirestoreRestClient, saveEvents, registerTenant, loadEvents, loadForecast, loadBusinessPlan, saveBusinessPlan } from "@crm/firestore-adapter";
-import { generatePlan, ExtractedPlanSchema, AssessmentOutputSchema } from "@crm/ai-kit";
+import { generatePlan, ExtractedPlanSchema, AssessmentOutputSchema, transcribeAudio } from "@crm/ai-kit";
 import { REQUIRED_SECTIONS, mapToSections, gateIntake, classifyDocument, checkAccess, startTrial, simulateScenario, rankScenarios, buildPlanDiff } from "@crm/core";
 import { mulberry32 } from "@crm/core";
 import { EXTRACT_SYSTEM, ASSESS_SYSTEM } from "./prompts.generated.js";
@@ -2469,6 +2469,11 @@ async function dispatchRequest(request: Request, env: Env, ctx: ExecutionContext
       return handleScenariosAccept(request, env);
     }
 
+    // ── /voice/upload — транскрипция аудио через AI ───────────────────────
+    if (request.method === "POST" && url.pathname === "/voice/upload") {
+      return handleVoiceUpload(request, env);
+    }
+
     // ── / — события (API secret) ──────────────────────────────────────────
     const incoming = request.headers.get("x-api-secret") ?? "";
     if (!isValidSecret(incoming, env.INGEST_API_SECRET)) {
@@ -2520,4 +2525,33 @@ function jsonCors(body: unknown, status = 200): Response {
     status,
     headers: { "Content-Type": "application/json", ...CORS_HEADERS },
   });
+}
+
+// ── /voice/upload ─────────────────────────────────────────────────────────────
+// POST  Headers: x-business-id  Body: raw audio bytes (≤10 MB)
+
+const MAX_AUDIO_BYTES = 10 * 1024 * 1024; // 10 MB
+
+async function handleVoiceUpload(request: Request, env: Env): Promise<Response> {
+  const businessId = request.headers.get("x-business-id");
+  if (!businessId) return jsonCors({ error: "Missing x-business-id header" }, 400);
+
+  let audioBytes: ArrayBuffer;
+  try {
+    audioBytes = await request.arrayBuffer();
+  } catch {
+    return jsonCors({ error: "Failed to read request body" }, 400);
+  }
+
+  if (audioBytes.byteLength === 0) return jsonCors({ error: "Empty audio body" }, 400);
+  if (audioBytes.byteLength > MAX_AUDIO_BYTES) return jsonCors({ error: "Audio exceeds 10 MB limit" }, 400);
+
+  try {
+    const result = await transcribeAudio(audioBytes, env.ANTHROPIC_API_KEY);
+    return jsonCors(result);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[voice/upload] error:", msg);
+    return jsonCors({ error: msg }, 500);
+  }
 }

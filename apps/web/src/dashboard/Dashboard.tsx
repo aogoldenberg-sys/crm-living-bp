@@ -24,6 +24,7 @@ import { ReportingScreen } from "../features/reporting/ReportingScreen.js";
 import { AccountingCards } from "../features/accounting/AccountingCards.js";
 import { useEntitlements } from "../services/useEntitlements.js";
 import { ScenariosPage } from "../scenarios/ScenariosPage.js";
+import { VoiceInput } from "../voice/index.js";
 import "./Dashboard.css";
 
 function LockedFeature({ title }: { title: string }) {
@@ -877,6 +878,7 @@ export function Dashboard() {
   const [activePlanSection, setActivePlanSection] = useState<string | null>(null);
   const [planSidebarOpen, setPlanSidebarOpen] = useState(false);
   const [uploadToast, setUploadToast] = useState<{ msg: string; kind: "progress" | "error" | "done" } | null>(null);
+  const [voiceOpen, setVoiceOpen] = useState(false);
 
   const { containerRef } = useBalls();
 
@@ -1380,6 +1382,59 @@ export function Dashboard() {
           </div>{/* end k-body dashboard */}
         </main>
       </div>
+
+      {/* ── Плавающая кнопка голосового ввода ───────────────────────── */}
+      <button
+        type="button"
+        aria-label="Голосовой ввод"
+        onClick={() => setVoiceOpen(true)}
+        style={{
+          position: "fixed", bottom: 28, right: 28, zIndex: 50,
+          width: 52, height: 52, borderRadius: "50%", border: "none",
+          background: "linear-gradient(135deg,#C89A34,#E4C260)",
+          color: "#fff", fontSize: 22, cursor: "pointer",
+          boxShadow: "0 4px 16px rgba(200,154,52,.4)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+        }}
+      >
+        🎤
+      </button>
+
+      {/* ── Оверлей голосового ввода ─────────────────────────────────── */}
+      {voiceOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Голосовой ввод"
+          onClick={(e) => { if (e.target === e.currentTarget) setVoiceOpen(false); }}
+          style={{
+            position: "fixed", inset: 0, zIndex: 100,
+            background: "rgba(0,0,0,.45)", display: "flex", alignItems: "center", justifyContent: "center",
+          }}
+        >
+          <div style={{
+            background: "#FEFCF6", borderRadius: 16, padding: "28px 32px",
+            boxShadow: "0 12px 40px rgba(0,0,0,.25)", minWidth: 300, position: "relative",
+          }}>
+            <button
+              type="button"
+              aria-label="Закрыть"
+              onClick={() => setVoiceOpen(false)}
+              style={{ position: "absolute", top: 12, right: 14, background: "none", border: "none", fontSize: 18, cursor: "pointer", color: "#888" }}
+            >
+              ×
+            </button>
+            <h3 style={{ margin: "0 0 16px", fontSize: 16, fontWeight: 700, color: "#1A1814" }}>Голосовой ввод</h3>
+            <VoiceInput
+              businessId={bid}
+              onResult={(result) => {
+                console.log("[VoiceInput] result:", result);
+                setVoiceOpen(false);
+              }}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
