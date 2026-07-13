@@ -1,0 +1,7 @@
+{
+  "Date": "2026-07-13T00:00:00+03:00",
+  "Valute": {
+    "USD": { "CharCode": "USD", "Value": 88.45, "Previous": 87.90 },
+    "EUR": { "CharCode": "EUR", "Value": 96.12, "Previous": 96.00 }
+  }
+}

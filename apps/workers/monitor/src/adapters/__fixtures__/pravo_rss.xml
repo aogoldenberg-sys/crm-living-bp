@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>pravo.gov.ru</title>
+    <item>
+      <title><![CDATA[Постановление Правительства РФ от 10.07.2026 №1234 «О субсидии для МСП»]]></title>
+      <link>http://publication.pravo.gov.ru/Document/View/0001202607100012</link>
+      <description>Установлены новые субсидии для малого бизнеса</description>
+      <pubDate>Thu, 10 Jul 2026 09:00:00 +0300</pubDate>
+    </item>
+    <item>
+      <title><![CDATA[Приказ Минфина от 08.07.2026 №567 «Об изменении форм отчётности»]]></title>
+      <link>http://publication.pravo.gov.ru/Document/View/0001202607080034</link>
+      <description>Скорректированы формы налоговой отчётности</description>
+      <pubDate>Tue, 08 Jul 2026 12:00:00 +0300</pubDate>
+    </item>
+  </channel>
+</rss>

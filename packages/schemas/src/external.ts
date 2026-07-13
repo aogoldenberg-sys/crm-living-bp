@@ -1,19 +1,20 @@
 import { z } from "zod";
 
-export const ExternalSignalType = z.enum([
+export const ExternalPushSignalType = z.enum([
   "competitor_price",
   "trend",
   "news",
   "regulation",
 ]);
-export type ExternalSignalType = z.infer<typeof ExternalSignalType>;
+export type ExternalPushSignalType = z.infer<typeof ExternalPushSignalType>;
 
-export const ExternalSignal = z
+/** Сигнал, пришедший через POST /external (push от внешних систем). */
+export const ExternalPushSignal = z
   .object({
-    type: ExternalSignalType,
+    type: ExternalPushSignalType,
     source: z.string().min(1),
     payload: z.record(z.unknown()),
     ts: z.string().datetime(),
   })
   .strict();
-export type ExternalSignal = z.infer<typeof ExternalSignal>;
+export type ExternalPushSignal = z.infer<typeof ExternalPushSignal>;

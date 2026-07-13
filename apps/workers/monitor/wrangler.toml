@@ -1,0 +1,13 @@
+name = "crm-monitor"
+main = "src/index.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat_v2"]
+
+# Ежедневно в 05:00 UTC (08:00 МСК)
+[triggers]
+crons = ["0 5 * * *"]
+
+# Секреты (платформенные — единые на всех тенантов):
+#   wrangler secret put FIREBASE_SERVICE_ACCOUNT_JSON
+#   wrangler secret put WORDSTAT_TOKEN       ← Яндекс Директ/Wordstat API token
+#   wrangler secret put DADATA_TOKEN         ← DaData API key

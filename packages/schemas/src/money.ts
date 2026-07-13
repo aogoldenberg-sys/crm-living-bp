@@ -37,5 +37,10 @@ export const DataSource = z.enum([
   "n8n_parser",
   "voice",
   "manual",
+  "wordstat",
+  "cbr",
+  "pravo_rss",
+  "kad_arbitr",
+  "dadata",
 ]);
 export type DataSource = z.infer<typeof DataSource>;

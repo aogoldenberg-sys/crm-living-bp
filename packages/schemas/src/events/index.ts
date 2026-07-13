@@ -12,6 +12,8 @@ export { LeadCaptured } from "./lead.js";
 export { CallLogged } from "./call.js";
 export { BalanceAnchor } from "./balance_anchor.js";
 export type { BalanceAnchor as BalanceAnchorType } from "./balance_anchor.js";
+export { ExternalSignal, DemandTrendPoint, CounterpartyRiskSignal } from "./monitor.js";
+export type { ExternalSignal as ExternalSignalType, DemandTrendPoint as DemandTrendPointType, CounterpartyRiskSignal as CounterpartyRiskSignalType } from "./monitor.js";
 
 /**
  * Все бизнес-события системы в одном дискриминированном юнионе.

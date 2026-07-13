@@ -11,11 +11,11 @@
 import mammoth from "mammoth";
 import { timingSafeEqual } from "node:crypto";
 import type { Db } from "@crm/firestore-adapter";
-import { BusinessEvent, ExternalSignal, RequestItem, INTAKE_TO_BOOK_ID, BOOK_SECTION_IDS, type SourceDocKind } from "@crm/schemas";
+import { BusinessEvent, ExternalPushSignal, RequestItem, INTAKE_TO_BOOK_ID, BOOK_SECTION_IDS, type SourceDocKind, Entitlements } from "@crm/schemas";
 import { handleDocuments } from "./documents.js";
 import { createFirestoreRestClient, saveEvents, registerTenant } from "@crm/firestore-adapter";
 import { generatePlan, ExtractedPlanSchema, AssessmentOutputSchema } from "@crm/ai-kit";
-import { REQUIRED_SECTIONS, mapToSections, gateIntake, classifyDocument } from "@crm/core";
+import { REQUIRED_SECTIONS, mapToSections, gateIntake, classifyDocument, checkAccess, startTrial } from "@crm/core";
 import { EXTRACT_SYSTEM, ASSESS_SYSTEM } from "./prompts.generated.js";
 
 interface Env {
@@ -470,6 +470,11 @@ async function handlePlanAssess(request: Request, env: Env, ctx: ExecutionContex
   const { planId } = body;
   if (!planId) return jsonCors({ error: "Missing planId" }, 400);
 
+  // ── Billing gate ──────────────────────────────────────────────────────────
+  const ent = await loadEntitlements(db, businessId);
+  const access = checkAccess(ent, "plan_assess", planId, new Date().toISOString());
+  if (!access.allowed) return jsonCors({ error: access.reason, requiredProduct: access.requiredProduct, requiredTier: access.requiredTier }, 402);
+
   const intakeRef = db.collection(`tenants/${businessId}/plan_intakes`).doc(planId);
   const intakeDoc = await intakeRef.get();
   if (!intakeDoc.exists) return jsonCors({ error: "Plan not found" }, 404);
@@ -566,6 +571,11 @@ async function handlePlanReform(request: Request, env: Env, ctx: ExecutionContex
   const { planId, acceptedChanges } = body;
   if (!planId) return jsonCors({ error: "Missing planId" }, 400);
   if (!acceptedChanges?.length) return jsonCors({ error: "No accepted changes" }, 400);
+
+  // ── Billing gate ──────────────────────────────────────────────────────────
+  const entR = await loadEntitlements(db, businessId);
+  const accessR = checkAccess(entR, "plan_reform", planId, new Date().toISOString());
+  if (!accessR.allowed) return jsonCors({ error: accessR.reason, requiredProduct: accessR.requiredProduct, requiredTier: accessR.requiredTier }, 402);
 
   const intakeRef = db.collection(`tenants/${businessId}/plan_intakes`).doc(planId);
   const intakeDoc = await intakeRef.get();
@@ -691,6 +701,11 @@ async function handlePlanRoadmap(request: Request, env: Env, ctx: ExecutionConte
   }
   const { planId } = body;
   if (!planId) return jsonCors({ error: "Missing planId" }, 400);
+
+  // ── Billing gate ──────────────────────────────────────────────────────────
+  const entRm = await loadEntitlements(db, businessId);
+  const accessRm = checkAccess(entRm, "plan_roadmap", planId, new Date().toISOString());
+  if (!accessRm.allowed) return jsonCors({ error: accessRm.reason, requiredProduct: accessRm.requiredProduct, requiredTier: accessRm.requiredTier }, 402);
 
   const intakeRef = db.collection(`tenants/${businessId}/plan_intakes`).doc(planId);
   const intakeDoc = await intakeRef.get();
@@ -819,6 +834,11 @@ async function handlePlanGrant(request: Request, env: Env, ctx: ExecutionContext
   if (!grantType || !(grantType in GRANT_META)) {
     return jsonCors({ error: `Неверный grantType. Допустимые: ${Object.keys(GRANT_META).join(", ")}` }, 400);
   }
+
+  // ── Billing gate ──────────────────────────────────────────────────────────
+  const entG = await loadEntitlements(db, businessId);
+  const accessG = checkAccess(entG, "grant_adapt", planId, new Date().toISOString());
+  if (!accessG.allowed) return jsonCors({ error: accessG.reason, requiredProduct: accessG.requiredProduct, requiredTier: accessG.requiredTier }, 402);
 
   const meta = GRANT_META[grantType as GrantType];
 
@@ -2038,7 +2058,7 @@ async function handleExternal(request: Request, env: Env): Promise<Response> {
     return jsonCors({ error: "Invalid JSON" }, 400);
   }
 
-  const parsed = ExternalSignal.safeParse(body);
+  const parsed = ExternalPushSignal.safeParse(body);
   if (!parsed.success) {
     return jsonCors({ error: "Validation error", details: parsed.error.issues }, 422);
   }
@@ -2079,6 +2099,87 @@ async function handleExternal(request: Request, env: Env): Promise<Response> {
     } as unknown as Record<string, unknown>);
 
   return jsonCors({ hash, status: "ok" });
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Billing helpers — gate + trial
+// ══════════════════════════════════════════════════════════════════════════════
+
+const DEFAULT_ENTITLEMENTS = (businessId: string): Entitlements => ({
+  businessId,
+  plan: "free",
+  paidUntil: null,
+  freeComplianceUsed: false,
+  freeReportUsed: false,
+  updatedAt: new Date().toISOString() as `${string}T${string}Z`,
+  tier: "free",
+  trialEndsAt: null,
+  purchases: [],
+  usage: { complianceCases: 0, taxReports: 0, planAssessRuns: 0 },
+});
+
+async function loadEntitlements(
+  db: ReturnType<typeof createFirestoreRestClient>,
+  businessId: string,
+): Promise<Entitlements> {
+  const doc = await db.collection(`tenants/${businessId}/_meta`).doc("entitlements").get();
+  if (!doc.exists) return DEFAULT_ENTITLEMENTS(businessId);
+  const parsed = Entitlements.safeParse({ ...doc.data(), businessId });
+  return parsed.success ? parsed.data : DEFAULT_ENTITLEMENTS(businessId);
+}
+
+async function saveEntitlements(
+  db: ReturnType<typeof createFirestoreRestClient>,
+  businessId: string,
+  ent: Entitlements,
+): Promise<void> {
+  await db.collection(`tenants/${businessId}/_meta`).doc("entitlements").set(ent as unknown as Record<string, unknown>);
+}
+
+async function handleBillingStartTrial(request: Request, env: Env): Promise<Response> {
+  const authHeader = request.headers.get("Authorization") ?? "";
+  const idToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  if (!idToken) return jsonCors({ error: "Unauthorized" }, 401);
+
+  const claims = await verifyFirebaseIdToken(idToken, env.FIREBASE_PROJECT_ID || "crm-living-bp");
+  if (!claims) return jsonCors({ error: "Unauthorized" }, 401);
+
+  const db = createFirestoreRestClient(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+  const userDoc = await db.collection("users").doc(claims.uid).get();
+  if (!userDoc.exists) return jsonCors({ error: "User not registered" }, 400);
+  const { businessId } = userDoc.data() as { businessId: string };
+
+  let body: { tier?: string };
+  try { body = await request.json() as typeof body; } catch { return jsonCors({ error: "Invalid JSON" }, 400); }
+
+  const tier = body.tier;
+  if (!tier || !["pulse", "operator", "director"].includes(tier)) {
+    return jsonCors({ error: "tier должен быть pulse|operator|director" }, 400);
+  }
+
+  const ent = await loadEntitlements(db, businessId);
+  const result = startTrial(ent, tier as "pulse" | "operator" | "director", new Date().toISOString());
+  if (!result.ok) return jsonCors({ error: result.error.message }, 409);
+
+  await saveEntitlements(db, businessId, result.value);
+  return jsonCors({ trialEndsAt: result.value.trialEndsAt });
+}
+
+async function handleBillingState(request: Request, env: Env): Promise<Response> {
+  const authHeader = request.headers.get("Authorization") ?? "";
+  const idToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  if (!idToken) return jsonCors({ error: "Unauthorized" }, 401);
+
+  const claims = await verifyFirebaseIdToken(idToken, env.FIREBASE_PROJECT_ID || "crm-living-bp");
+  if (!claims) return jsonCors({ error: "Unauthorized" }, 401);
+
+  const db = createFirestoreRestClient(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+  const userDoc = await db.collection("users").doc(claims.uid).get();
+  if (!userDoc.exists) return jsonCors({ error: "User not registered" }, 400);
+  const { businessId } = userDoc.data() as { businessId: string };
+
+  const ent = await loadEntitlements(db, businessId);
+  return jsonCors(ent);
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -2139,6 +2240,16 @@ async function dispatchRequest(request: Request, env: Env, ctx: ExecutionContext
     // ── /section-accept — принять версию Клода ─────────────────────────
     if (request.method === "POST" && url.pathname === "/section-accept") {
       return handleSectionAccept(request, env);
+    }
+
+    // ── /billing/start-trial ─────────────────────────────────────────────
+    if (request.method === "POST" && url.pathname === "/billing/start-trial") {
+      return handleBillingStartTrial(request, env);
+    }
+
+    // ── /billing/state ───────────────────────────────────────────────────
+    if (request.method === "GET" && url.pathname === "/billing/state") {
+      return handleBillingState(request, env);
     }
 
     // ── /plan-assess — холистическая оценка всего плана ────────────────
