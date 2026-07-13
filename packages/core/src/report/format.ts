@@ -44,3 +44,39 @@ export function formatTelegram(report: OwnerReport): string {
   const text = lines.join("\n");
   return text.length <= MAX_LEN ? text : text.slice(0, MAX_LEN - 3) + "...";
 }
+
+/**
+ * Форматирует срез OwnerReport для конкретной роли.
+ * sections: "cash" → баланс+gap, "deviations" → топ-3, "recommendation" → рекомендация.
+ */
+export function formatTelegramForRole(report: OwnerReport, sections: string[]): string {
+  if (sections.length === 0) return "Нет доступных разделов";
+
+  const lines: string[] = [];
+
+  if (sections.includes("cash")) {
+    lines.push(`💰 Остаток: ${rub(report.cash.balance)}`);
+    if (report.cash.gapDate) {
+      const gapAmt = report.cash.gapAmount !== null ? ` (${rub(report.cash.gapAmount)})` : "";
+      lines.push(`⚠️ Кассовый разрыв: ~${report.cash.gapDate}${gapAmt}, уверенность ${Math.round(report.cash.confidence * 100)}%`);
+    } else {
+      lines.push(`✅ Кассового разрыва не ожидается (уверенность ${Math.round(report.cash.confidence * 100)}%)`);
+    }
+  }
+
+  if (sections.includes("deviations") && report.topDeviations.length > 0) {
+    lines.push(`*Отклонения от плана:*`);
+    for (const d of report.topDeviations) {
+      const sign = d.deviationPct >= 0 ? "+" : "";
+      const chain = d.causeChain.length > 0 ? ` → ${d.causeChain[0]}` : "";
+      lines.push(`• ${d.metric}: ${sign}${d.deviationPct.toFixed(1)}%${chain}`);
+    }
+  }
+
+  if (sections.includes("recommendation") && report.recommendation) {
+    lines.push(`📌 ${report.recommendation}`);
+  }
+
+  const text = lines.join("\n");
+  return text.length <= MAX_LEN ? text : text.slice(0, MAX_LEN - 3) + "...";
+}

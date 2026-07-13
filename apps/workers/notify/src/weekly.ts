@@ -4,7 +4,7 @@
  */
 
 import { createFirestoreRestClient, listTenants, loadForecast, loadEvents } from "@crm/firestore-adapter";
-import { buildOwnerReport, formatTelegram } from "@crm/core";
+import { buildOwnerReport, formatTelegram, formatTelegramForRole } from "@crm/core";
 import type { BusinessEvent, OwnerReport } from "@crm/schemas";
 
 interface ReportSubscriptions {
@@ -89,9 +89,9 @@ async function runForTenant(
 
   await sendTo(botToken, subs.ownerChatId, text);
 
-  // Подписки ролей — только свои срезы (упрощённая реализация)
   for (const sub of subs.roles ?? []) {
-    await sendTo(botToken, sub.chatId, text);
+    const roleText = formatTelegramForRole(report, sub.sections);
+    await sendTo(botToken, sub.chatId, roleText);
   }
 
   const deliveredReport: OwnerReport = { ...report, deliveredTo: ["telegram"] };

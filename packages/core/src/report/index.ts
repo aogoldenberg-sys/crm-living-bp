@@ -1,2 +1,2 @@
 export { buildOwnerReport } from "./build.js";
-export { formatTelegram } from "./format.js";
+export { formatTelegram, formatTelegramForRole } from "./format.js";

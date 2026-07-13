@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildOwnerReport } from "./build.js";
-import { formatTelegram } from "./format.js";
+import { formatTelegram, formatTelegramForRole } from "./format.js";
 import type { BusinessEvent } from "@crm/schemas";
 import type { CashForecast } from "../forecast/types.js";
 
@@ -85,5 +85,58 @@ describe("formatTelegram", () => {
   it("с gap → строка с ⚠️ есть", () => {
     const r = buildOwnerReport("biz1", [], { ...FORECAST, gapDate: "2026-09-01", gapAmount: null }, NOW);
     expect(formatTelegram(r)).toContain("Кассовый разрыв");
+  });
+});
+
+describe("formatTelegramForRole", () => {
+  const BASE = buildOwnerReport(
+    "biz1",
+    Array.from({ length: 15 }, (_, i) => ({
+      ...({
+        type: "payment_in",
+        eventId: `00000000-0000-0000-0000-${String(i + 200).padStart(12, "0")}`,
+        ts: "2026-07-08T10:00:00Z",
+        valueDate: "2026-07-08",
+        amount: 100_000_00,
+        counterpartyInn: null,
+        counterpartyName: "ООО Тест",
+        purpose: "Оплата услуг",
+        matchedInvoiceId: null,
+        source: "bank_api" as const,
+        businessId: "biz1",
+      }),
+    })),
+    { ...FORECAST, gapDate: "2026-08-20", gapAmount: -50_000_00, confidence: 0.65 },
+    NOW,
+  );
+
+  it("sections:[] → строка 'Нет доступных разделов'", () => {
+    expect(formatTelegramForRole(BASE, [])).toBe("Нет доступных разделов");
+  });
+
+  it("sections:['cash'] → есть слово 'Остаток', нет слова 'Отклонения'", () => {
+    const text = formatTelegramForRole(BASE, ["cash"]);
+    expect(text).toContain("Остаток");
+    expect(text).not.toContain("Отклонения");
+  });
+
+  it("sections:['deviations'] → нет суммы баланса и нет даты gap", () => {
+    const withDeviations = {
+      ...BASE,
+      topDeviations: [
+        { metric: "revenue", planValue: 1_000_000_00, factValue: 700_000_00, deviationPct: -30, causeChain: ["снижение трафика"] },
+      ],
+    };
+    const text = formatTelegramForRole(withDeviations, ["deviations"]);
+    expect(text).not.toContain("Остаток");
+    expect(text).not.toContain("2026-08-20"); // gapDate не должен появляться
+    expect(text).toContain("revenue");
+  });
+
+  it("sections:['recommendation'] → только рекомендация", () => {
+    const withRec = { ...BASE, recommendation: "Ускорить сбор дебиторки." };
+    const text = formatTelegramForRole(withRec, ["recommendation"]);
+    expect(text).toContain("Ускорить сбор дебиторки");
+    expect(text).not.toContain("Остаток");
   });
 });
