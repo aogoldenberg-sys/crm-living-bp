@@ -23,6 +23,7 @@ import { ComplianceFlow } from "../features/compliance/ComplianceFlow.js";
 import { ReportingScreen } from "../features/reporting/ReportingScreen.js";
 import { AccountingCards } from "../features/accounting/AccountingCards.js";
 import { useEntitlements } from "../services/useEntitlements.js";
+import { ScenariosPage } from "../scenarios/ScenariosPage.js";
 import "./Dashboard.css";
 
 function LockedFeature({ title }: { title: string }) {
@@ -870,7 +871,7 @@ export function Dashboard() {
 
   const isOwner = !role || role === "owner";
 
-  type View = "dashboard" | "intake" | "risks" | "autonomy" | "compliance" | "documents";
+  type View = "dashboard" | "intake" | "risks" | "autonomy" | "compliance" | "documents" | "scenarios";
   const [view, setView] = useState<View>("dashboard");
   const [activeNav, setActiveNav] = useState(0);
   const [activePlanSection, setActivePlanSection] = useState<string | null>(null);
@@ -940,6 +941,7 @@ export function Dashboard() {
     { label: "Резюме проекта", icon: <IcoAssess />, idx: 2, onClick: () => { setActiveNav(2); setActivePlanSection("mission"); setView("intake"); } },
     { label: "Риски",          icon: <IcoRisk />,   idx: 4, onClick: () => { setActiveNav(4); setView("risks");      setActivePlanSection(null); } },
     { label: "Оценка",         icon: <IcoAssess />, idx: 3, onClick: () => { setActiveNav(3); setView("intake");     setActivePlanSection(null); } },
+    { label: "Сценарии",        icon: <IcoAuto />,   idx: 5, onClick: () => { setActiveNav(5); setView("scenarios"); setActivePlanSection(null); } },
     { label: "Комплаенс",      icon: <IcoShield />, idx: 6, onClick: () => { setActiveNav(6); setView("compliance"); setActivePlanSection(null); } },
     { label: "Отчётность",     icon: <IcoDoc />,    idx: 7, onClick: () => { setActiveNav(7); setView("documents");  setActivePlanSection(null); } },
   ];
@@ -1048,6 +1050,12 @@ export function Dashboard() {
           {/* Блик */}
           <div className="k-main-glint" />
 
+          {/* Сценарии */}
+          {view === "scenarios" && (
+            <div className="k-body">
+              <ScenariosPage />
+            </div>
+          )}
           {/* Риски */}
           {isOwner && (
             <div className="k-body" style={{ display: view === "risks" ? undefined : "none" }}>

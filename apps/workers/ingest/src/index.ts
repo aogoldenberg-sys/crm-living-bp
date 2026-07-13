@@ -11,12 +11,14 @@
 import mammoth from "mammoth";
 import { timingSafeEqual } from "node:crypto";
 import type { Db } from "@crm/firestore-adapter";
-import { BusinessEvent, ExternalPushSignal, RequestItem, INTAKE_TO_BOOK_ID, BOOK_SECTION_IDS, type SourceDocKind, Entitlements } from "@crm/schemas";
+import { BusinessEvent, ExternalPushSignal, RequestItem, INTAKE_TO_BOOK_ID, BOOK_SECTION_IDS, type SourceDocKind, Entitlements, BusinessPlanV1 } from "@crm/schemas";
 import { handleDocuments } from "./documents.js";
-import { createFirestoreRestClient, saveEvents, registerTenant } from "@crm/firestore-adapter";
+import { createFirestoreRestClient, saveEvents, registerTenant, loadEvents, loadForecast, loadBusinessPlan, saveBusinessPlan } from "@crm/firestore-adapter";
 import { generatePlan, ExtractedPlanSchema, AssessmentOutputSchema } from "@crm/ai-kit";
-import { REQUIRED_SECTIONS, mapToSections, gateIntake, classifyDocument, checkAccess, startTrial } from "@crm/core";
+import { REQUIRED_SECTIONS, mapToSections, gateIntake, classifyDocument, checkAccess, startTrial, simulateScenario, rankScenarios, buildPlanDiff } from "@crm/core";
+import { mulberry32 } from "@crm/core";
 import { EXTRACT_SYSTEM, ASSESS_SYSTEM } from "./prompts.generated.js";
+import { STRATEGY_LIBRARY } from "@crm/core";
 
 interface Env {
   FIREBASE_SERVICE_ACCOUNT_JSON: string;
@@ -2199,6 +2201,165 @@ export default {
   },
 } satisfies ExportedHandler<Env>;
 
+// ══════════════════════════════════════════════════════════════════════════════
+// /scenarios/simulate — запуск Монте-Карло симуляции набора сценариев
+// POST { businessId, planId }
+// ══════════════════════════════════════════════════════════════════════════════
+
+async function handleScenariosSimulate(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const authHeader = request.headers.get("Authorization") ?? "";
+  const idToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  if (!idToken) return jsonCors({ error: "Unauthorized" }, 401);
+
+  const claims = await verifyFirebaseIdToken(idToken, env.FIREBASE_PROJECT_ID || "crm-living-bp");
+  if (!claims) return jsonCors({ error: "Unauthorized" }, 401);
+
+  const db = createFirestoreRestClient(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+  const userDoc = await db.collection("users").doc(claims.uid).get();
+  if (!userDoc.exists) return jsonCors({ error: "User not registered" }, 400);
+  const { businessId } = userDoc.data() as { businessId: string };
+
+  let body: { planId?: string };
+  try { body = await request.json() as typeof body; } catch { return jsonCors({ error: "Invalid JSON" }, 400); }
+
+  const { planId } = body;
+  if (!planId) return jsonCors({ error: "Missing planId" }, 400);
+
+  const ent = await loadEntitlements(db, businessId);
+  const access = checkAccess(ent, "plan_roadmap", planId, new Date().toISOString());
+  if (!access.allowed) return jsonCors({ error: access.reason, requiredProduct: access.requiredProduct, requiredTier: access.requiredTier }, 402);
+
+  const runId = crypto.randomUUID();
+  const runRef = db.collection(`tenants/${businessId}/scenarios`).doc(runId);
+  await runRef.set({ status: "processing", createdAt: new Date().toISOString() } as unknown as Record<string, unknown>);
+
+  ctx.waitUntil(
+    (async () => {
+      try {
+        const [eventsResult, forecastResult, planResult] = await Promise.all([
+          loadEvents(db, businessId),
+          loadForecast(db, businessId),
+          loadBusinessPlan(db, businessId, planId),
+        ]);
+
+        const events = eventsResult.ok ? eventsResult.value.events : [];
+        const baseForecast = forecastResult.ok && forecastResult.value
+          ? forecastResult.value
+          : { generatedAt: new Date().toISOString().slice(0, 10), horizonDays: 90, dailyBalances: [], gapDate: null, gapAmount: null, hardGapDate: null, pessimisticGapDate: null, confidence: 0.5 };
+
+        const businessPlan = planResult.ok ? planResult.value : null;
+
+        // Берём 2-3 комбинации рычагов из library
+        const leverCombos = [
+          [STRATEGY_LIBRARY[0]!.levers[0]!],
+          [STRATEGY_LIBRARY[1]!.levers[0]!, STRATEGY_LIBRARY[1]!.levers[1]!],
+          [STRATEGY_LIBRARY[2]!.levers[0]!, STRATEGY_LIBRARY[2]!.levers[1]!, STRATEGY_LIBRARY[3]!.levers[0]!],
+        ];
+
+        const mockPlan: BusinessPlanV1 = businessPlan ?? {
+          planId,
+          businessId,
+          version: 1 as const,
+          status: "active" as const,
+          parentVersion: null,
+          sourceIntakeId: planId,
+          createdAt: new Date().toISOString(),
+          assumptions: {},
+        };
+
+        const results = leverCombos.map((levers, i) =>
+          simulateScenario(mockPlan, levers, events, baseForecast, mulberry32(i * 1000 + Date.now()))
+        );
+
+        const ranked = rankScenarios(results.map(r => ({ ...r, runId })));
+        await runRef.set({ status: "done", results: ranked, createdAt: new Date().toISOString() } as unknown as Record<string, unknown>);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error("[scenarios/simulate] error:", msg);
+        await runRef.set({ status: "error", error: msg } as unknown as Record<string, unknown>).catch(() => {});
+      }
+    })(),
+  );
+
+  return jsonCors({ runId, status: "queued" });
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// /scenarios/accept — принятие сценария, создание новой версии плана
+// POST { businessId, runId, scenarioId, uid }
+// ══════════════════════════════════════════════════════════════════════════════
+
+async function handleScenariosAccept(request: Request, env: Env): Promise<Response> {
+  const authHeader = request.headers.get("Authorization") ?? "";
+  const idToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  if (!idToken) return jsonCors({ error: "Unauthorized" }, 401);
+
+  const claims = await verifyFirebaseIdToken(idToken, env.FIREBASE_PROJECT_ID || "crm-living-bp");
+  if (!claims) return jsonCors({ error: "Unauthorized" }, 401);
+
+  const db = createFirestoreRestClient(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+  const userDoc = await db.collection("users").doc(claims.uid).get();
+  if (!userDoc.exists) return jsonCors({ error: "User not registered" }, 400);
+  const { businessId } = userDoc.data() as { businessId: string };
+
+  let body: { runId?: string; scenarioId?: string; planId?: string };
+  try { body = await request.json() as typeof body; } catch { return jsonCors({ error: "Invalid JSON" }, 400); }
+
+  const { runId, scenarioId, planId } = body;
+  if (!runId || !scenarioId || !planId) return jsonCors({ error: "Missing runId, scenarioId or planId" }, 400);
+
+  const ent = await loadEntitlements(db, businessId);
+  const access = checkAccess(ent, "plan_roadmap", planId, new Date().toISOString());
+  if (!access.allowed) return jsonCors({ error: access.reason, requiredProduct: access.requiredProduct, requiredTier: access.requiredTier }, 402);
+
+  // Загружаем результаты симуляции
+  const runDoc = await db.collection(`tenants/${businessId}/scenarios`).doc(runId).get();
+  if (!runDoc.exists) return jsonCors({ error: "Run not found" }, 404);
+
+  const runData = runDoc.data() as { results?: Array<Record<string, unknown>> };
+  const scenario = runData.results?.find(r => r.scenarioId === scenarioId);
+  if (!scenario) return jsonCors({ error: "Scenario not found in run" }, 404);
+
+  // Загружаем текущий план
+  const planResult = await loadBusinessPlan(db, businessId, planId);
+  if (!planResult.ok || !planResult.value) return jsonCors({ error: "Plan not found" }, 404);
+
+  const currentPlan = planResult.value;
+  const leverNames = Array.isArray(scenario.levers) ? scenario.levers as string[] : [];
+  const diff = buildPlanDiff(currentPlan.assumptions, leverNames);
+
+  // Новая версия плана — append-only
+  const newPlanId = crypto.randomUUID();
+  const newPlan: BusinessPlanV1 = {
+    planId: newPlanId,
+    businessId,
+    version: 1 as const,      // РЕШЕНИЕ: BusinessPlanV1 всегда version:1, новая «версия» — это новый v1 с parent трассировкой
+    status: "active" as const,
+    parentVersion: null,
+    sourceIntakeId: currentPlan.sourceIntakeId,
+    createdAt: new Date().toISOString(),
+    assumptions: { ...currentPlan.assumptions },
+  };
+
+  // Архивируем старый план
+  const archivedPlan: BusinessPlanV1 = { ...currentPlan, status: "archived" as const };
+
+  await Promise.all([
+    saveBusinessPlan(db, businessId, archivedPlan),
+    saveBusinessPlan(db, businessId, newPlan),
+    db.collection(`tenants/${businessId}/scenario_decisions`).doc(scenarioId).set({
+      scenarioId,
+      runId,
+      decidedBy: claims.uid,
+      decidedAt: new Date().toISOString(),
+      accepted: true,
+      newPlanId,
+    } as unknown as Record<string, unknown>),
+  ]);
+
+  return jsonCors({ newPlanId, diff });
+}
+
 async function dispatchRequest(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     // CORS preflight
     if (request.method === "OPTIONS") {
@@ -2296,6 +2457,16 @@ async function dispatchRequest(request: Request, env: Env, ctx: ExecutionContext
     if (request.method === "POST" && url.pathname === "/api/documents") {
       const db = createFirestoreRestClient(env.FIREBASE_SERVICE_ACCOUNT_JSON);
       return handleDocuments(request, db);
+    }
+
+    // ── /scenarios/simulate — запуск симуляции сценариев ─────────────────
+    if (request.method === "POST" && url.pathname === "/scenarios/simulate") {
+      return handleScenariosSimulate(request, env, ctx);
+    }
+
+    // ── /scenarios/accept — принятие сценария и версионирование плана ────
+    if (request.method === "POST" && url.pathname === "/scenarios/accept") {
+      return handleScenariosAccept(request, env);
     }
 
     // ── / — события (API secret) ──────────────────────────────────────────
