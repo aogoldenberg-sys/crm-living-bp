@@ -24,6 +24,7 @@ import { ReportingScreen } from "../features/reporting/ReportingScreen.js";
 import { AccountingCards } from "../features/accounting/AccountingCards.js";
 import { useEntitlements } from "../services/useEntitlements.js";
 import { ScenariosPage } from "../scenarios/ScenariosPage.js";
+import { GraphPage } from "../graph/index.js";
 import "./Dashboard.css";
 
 function LockedFeature({ title }: { title: string }) {
@@ -871,7 +872,7 @@ export function Dashboard() {
 
   const isOwner = !role || role === "owner";
 
-  type View = "dashboard" | "intake" | "risks" | "autonomy" | "compliance" | "documents" | "scenarios";
+  type View = "dashboard" | "intake" | "risks" | "autonomy" | "compliance" | "documents" | "scenarios" | "graph";
   const [view, setView] = useState<View>("dashboard");
   const [activeNav, setActiveNav] = useState(0);
   const [activePlanSection, setActivePlanSection] = useState<string | null>(null);
@@ -944,6 +945,7 @@ export function Dashboard() {
     { label: "Сценарии",        icon: <IcoAuto />,   idx: 5, onClick: () => { setActiveNav(5); setView("scenarios"); setActivePlanSection(null); } },
     { label: "Комплаенс",      icon: <IcoShield />, idx: 6, onClick: () => { setActiveNav(6); setView("compliance"); setActivePlanSection(null); } },
     { label: "Отчётность",     icon: <IcoDoc />,    idx: 7, onClick: () => { setActiveNav(7); setView("documents");  setActivePlanSection(null); } },
+    { label: "Граф",           icon: <IcoSearch />, idx: 8, onClick: () => { setActiveNav(8); setView("graph");      setActivePlanSection(null); } },
   ];
 
   // Stage cards — только реальные данные
@@ -1054,6 +1056,12 @@ export function Dashboard() {
           {view === "scenarios" && (
             <div className="k-body">
               <ScenariosPage />
+            </div>
+          )}
+          {/* Граф */}
+          {view === "graph" && (
+            <div className="k-body">
+              <GraphPage />
             </div>
           )}
           {/* Риски */}
