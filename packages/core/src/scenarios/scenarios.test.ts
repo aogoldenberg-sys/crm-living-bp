@@ -3,7 +3,8 @@ import { mulberry32 } from "../forecast/prng.js";
 import { simulateScenario } from "./simulate.js";
 import { rankScenarios } from "./rank.js";
 import { buildPlanDiff } from "./diff.js";
-import type { BusinessPlanV1, StrategyLever, CashForecast } from "@crm/schemas";
+import type { BusinessPlanV1, StrategyLever } from "@crm/schemas";
+import type { CashForecast } from "../forecast/types.js";
 
 const PLAN: BusinessPlanV1 = {
   planId: "550e8400-e29b-41d4-a716-446655440000",
