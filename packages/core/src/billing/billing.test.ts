@@ -17,6 +17,7 @@ function base(overrides: Partial<Entitlements> = {}): Entitlements {
     trialEndsAt: null,
     purchases: [],
     usage: { complianceCases: 0, taxReports: 0, planAssessRuns: 0 },
+    internal: false,
     ...overrides,
   };
 }
@@ -119,6 +120,40 @@ describe("checkAccess / tax_report", () => {
   it("1 отчёт, free → denied", () => {
     const ent = base({ usage: { complianceCases: 0, taxReports: 1, planAssessRuns: 0 } });
     expect(checkAccess(ent, "tax_report", null, NOW).allowed).toBe(false);
+  });
+});
+
+// ── internal flag ─────────────────────────────────────────────────────────────
+
+describe("checkAccess / internal tenant", () => {
+  function internalBase(overrides: Partial<Entitlements> = {}): Entitlements {
+    return base({ internal: true, ...overrides });
+  }
+
+  it("internal: true → allowed для plan_assess (enterprise-only)", () => {
+    expect(checkAccess(internalBase(), "plan_assess", null, NOW).allowed).toBe(true);
+  });
+
+  it("internal: true → allowed для plan_reform даже без подписки", () => {
+    expect(checkAccess(internalBase(), "plan_reform", null, NOW).allowed).toBe(true);
+  });
+
+  it("internal: true → allowed для grant_adapt (обычно требует operator+)", () => {
+    expect(checkAccess(internalBase(), "grant_adapt", null, NOW).allowed).toBe(true);
+  });
+
+  it("internal: true → allowed для compliance_case при исчерпанном лимите", () => {
+    const ent = internalBase({ usage: { complianceCases: 99, taxReports: 0, planAssessRuns: 0 } });
+    expect(checkAccess(ent, "compliance_case", null, NOW).allowed).toBe(true);
+  });
+
+  it("internal: true → allowed для tax_report при исчерпанном лимите", () => {
+    const ent = internalBase({ usage: { complianceCases: 0, taxReports: 99, planAssessRuns: 0 } });
+    expect(checkAccess(ent, "tax_report", null, NOW).allowed).toBe(true);
+  });
+
+  it("internal: false → обычное поведение (free без покупки denied)", () => {
+    expect(checkAccess(base({ internal: false }), "plan_assess", "p1", NOW).allowed).toBe(false);
   });
 });
 

@@ -50,6 +50,8 @@ export function checkAccess(
   planId: string | null,
   now: string,
 ): AccessResult {
+  if (ent.internal === true) return { allowed: true };
+
   const rank = tierRank(ent, now);
   const trial = trialActive(ent, now);
 

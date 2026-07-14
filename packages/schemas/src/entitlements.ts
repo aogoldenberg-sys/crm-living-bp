@@ -47,5 +47,10 @@ export const Entitlements = z.object({
   trialEndsAt: IsoDateTime.nullable().default(null),
   purchases: z.array(OneOffPurchase).default([]),
   usage: UsageCounters.default({ complianceCases: 0, taxReports: 0, planAssessRuns: 0 }),
+  /**
+   * Внутренний тенант OpenTradeGroup: гейт не применяется.
+   * Ставится ТОЛЬКО вручную в Firestore, никогда из клиента и никогда из UI.
+   */
+  internal: z.boolean().default(false),
 }).strict();
 export type Entitlements = z.infer<typeof Entitlements>;

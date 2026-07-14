@@ -67,4 +67,24 @@ describe("Entitlements", () => {
     const r = OneOffPurchase.safeParse({ product: "diag", planId: "", purchasedAt: "2026-07-01T00:00:00Z" });
     expect(r.success).toBe(false);
   });
+
+  it("старый документ без поля internal — парсится, internal=false по умолчанию", () => {
+    const r = Entitlements.safeParse(BASE);
+    expect(r.success).toBe(true);
+    if (!r.success) return;
+    expect(r.data.internal).toBe(false);
+  });
+
+  it("internal: true — парсится без ошибок", () => {
+    const r = Entitlements.safeParse({ ...BASE, internal: true });
+    expect(r.success).toBe(true);
+    if (!r.success) return;
+    expect(r.data.internal).toBe(true);
+  });
+
+  it("internal: true не ломает strict()", () => {
+    // strict() запрещает лишние поля; internal — легальное поле схемы
+    const r = Entitlements.safeParse({ ...BASE, internal: true });
+    expect(r.success).toBe(true);
+  });
 });

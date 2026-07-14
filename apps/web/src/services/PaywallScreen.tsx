@@ -8,6 +8,8 @@ export interface PaywallScreenProps {
   reason: string;
   requiredTier?: string;
   requiredProduct?: string;
+  /** Страховка: если биллинг-стейт вернул internal=true — гейт не рендерим. */
+  internal?: boolean;
   onClose: () => void;
   onRetry?: () => void;
 }
@@ -16,11 +18,11 @@ interface BillingState {
   trialEndsAt: string | null;
 }
 
-
 export function PaywallScreen({
   reason,
   requiredTier,
   requiredProduct,
+  internal,
   onClose,
   onRetry,
 }: PaywallScreenProps) {
@@ -53,6 +55,9 @@ export function PaywallScreen({
     });
     return () => { cancelled = true; };
   }, [user]);
+
+  // Страховка на случай гонки: если billing/state вернул internal=true — не рендерим гейт
+  if (internal === true) return null;
 
   async function startTrial() {
     if (!user) return;
