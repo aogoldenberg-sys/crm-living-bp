@@ -15,7 +15,7 @@ import { BusinessEvent, ExternalPushSignal, RequestItem, INTAKE_TO_BOOK_ID, BOOK
 import { handleDocuments } from "./documents.js";
 import { createFirestoreRestClient, saveEvents, registerTenant, loadEvents, loadForecast, loadBusinessPlan, saveBusinessPlan } from "@crm/firestore-adapter";
 import { generatePlan, ExtractedPlanSchema, AssessmentOutputSchema, transcribeAudio, extractVoiceIntent } from "@crm/ai-kit";
-import { REQUIRED_SECTIONS, mapToSections, gateIntake, classifyDocument, checkAccess, startTrial, simulateScenario, rankScenarios, buildPlanDiff } from "@crm/core";
+import { REQUIRED_SECTIONS, mapToSections, gateIntake, classifyDocument, checkAccess, startTrial, simulateScenario, rankScenarios, buildPlanDiff, computeUnitEconomics, DEFAULT_THRESHOLDS } from "@crm/core";
 import { mulberry32 } from "@crm/core";
 import { EXTRACT_SYSTEM, ASSESS_SYSTEM } from "./prompts.generated.js";
 import { STRATEGY_LIBRARY } from "@crm/core";
@@ -2120,6 +2120,7 @@ const DEFAULT_ENTITLEMENTS = (businessId: string): Entitlements => ({
   trialEndsAt: null,
   purchases: [],
   usage: { complianceCases: 0, taxReports: 0, planAssessRuns: 0 },
+  internal: false,
 });
 
 async function loadEntitlements(
@@ -2362,6 +2363,39 @@ async function handleScenariosAccept(request: Request, env: Env): Promise<Respon
   return jsonCors({ newPlanId, diff });
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// GET /unit-economics — юнит-экономика тенанта (расчёт без Claude)
+// Auth: Firebase ID Token (Bearer)
+// Gate: plan_assess
+// ══════════════════════════════════════════════════════════════════════════════
+
+async function handleUnitEconomics(request: Request, env: Env): Promise<Response> {
+  const authHeader = request.headers.get("Authorization") ?? "";
+  const idToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  if (!idToken) return jsonCors({ error: "Unauthorized" }, 401);
+
+  const claims = await verifyFirebaseIdToken(idToken, env.FIREBASE_PROJECT_ID || "crm-living-bp");
+  if (!claims) return jsonCors({ error: "Unauthorized" }, 401);
+
+  const db = createFirestoreRestClient(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+  const userDoc = await db.collection("users").doc(claims.uid).get();
+  if (!userDoc.exists) return jsonCors({ error: "User not registered" }, 400);
+  const { businessId } = userDoc.data() as { businessId: string };
+
+  const ent = await loadEntitlements(db, businessId);
+  const access = checkAccess(ent, "plan_assess", businessId, new Date().toISOString());
+  if (!access.allowed) return jsonCors({ error: access.reason, requiredProduct: access.requiredProduct, requiredTier: access.requiredTier }, 402);
+
+  const eventsResult = await loadEvents(db, businessId);
+  const events = eventsResult.ok ? eventsResult.value.events : [];
+
+  const newClients = events.filter(e => e.type === "lead_captured").length;
+
+  const result = computeUnitEconomics({ events, newClients }, DEFAULT_THRESHOLDS);
+
+  return jsonCors({ ...result, eventsCount: events.length });
+}
+
 async function dispatchRequest(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     // CORS preflight
     if (request.method === "OPTIONS") {
@@ -2413,6 +2447,11 @@ async function dispatchRequest(request: Request, env: Env, ctx: ExecutionContext
     // ── /billing/state ───────────────────────────────────────────────────
     if (request.method === "GET" && url.pathname === "/billing/state") {
       return handleBillingState(request, env);
+    }
+
+    // ── /unit-economics — юнит-экономика (чистый расчёт, без Claude) ────
+    if (request.method === "GET" && url.pathname === "/unit-economics") {
+      return handleUnitEconomics(request, env);
     }
 
     // ── /plan-assess — холистическая оценка всего плана ────────────────
