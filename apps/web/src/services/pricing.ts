@@ -35,3 +35,6 @@ export const MAGNETS = [
 ];
 
 export const TG_MANAGER = "https://t.me/opentgp";
+
+/** Ссылка для оплаты тарифа через менеджера (не прямая платёжная интеграция). */
+export const CONTACT_URL = "https://t.me/opentgp";

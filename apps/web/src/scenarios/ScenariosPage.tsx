@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useAuth } from "../auth/useAuth";
 import { useIntake } from "../dashboard/useIntake";
 import { PaywallScreen } from "../services/PaywallScreen";
+import { apiFetch, PaywallError } from "../services/apiFetch";
 import { PlanDiffModal } from "./PlanDiffModal";
 import { ScenarioHistory } from "./ScenarioHistory";
 import type { ScenarioResult, PlanDiff } from "@crm/schemas";
@@ -25,7 +26,7 @@ export function ScenariosPage() {
   const [runId, setRunId] = useState<string | null>(null);
   const [results, setResults] = useState<ScenarioResult[]>([]);
   const [err, setErr] = useState<string | null>(null);
-  const [paywallErr, setPaywallErr] = useState<{ reason?: string; requiredTier?: string } | null>(null);
+  const [paywallErr, setPaywallErr] = useState<PaywallError | null>(null);
 
   const [diffModal, setDiffModal] = useState<{ scenarioId: string; diffs: PlanDiff[] } | null>(null);
   const [acceptLoading, setAcceptLoading] = useState(false);
@@ -64,17 +65,11 @@ export function ScenariosPage() {
     setState("loading"); setErr(null); setPaywallErr(null);
     try {
       const token = await user.getIdToken();
-      const res = await fetch(`${import.meta.env.VITE_INGEST_WORKER_URL as string}/scenarios/simulate`, {
+      const res = await apiFetch(`${import.meta.env.VITE_INGEST_WORKER_URL as string}/scenarios/simulate`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify({ planId }),
       });
-      if (res.status === 402) {
-        const d = await res.json() as { error?: string; requiredTier?: string };
-        setPaywallErr({ reason: d.error, requiredTier: d.requiredTier });
-        setState("idle");
-        return;
-      }
       if (!res.ok) {
         const d = await res.json().catch(() => ({})) as { error?: string };
         throw new Error(d.error ?? `Ошибка ${res.status}`);
@@ -83,6 +78,7 @@ export function ScenariosPage() {
       setRunId(d.runId);
     } catch (e) {
       setState("idle");
+      if (e instanceof PaywallError) { setPaywallErr(e); return; }
       setErr(e instanceof Error ? e.message : "Ошибка");
     }
   }
@@ -92,7 +88,7 @@ export function ScenariosPage() {
     setAcceptLoading(true);
     try {
       const token = await user.getIdToken();
-      const res = await fetch(`${import.meta.env.VITE_INGEST_WORKER_URL as string}/scenarios/accept`, {
+      const res = await apiFetch(`${import.meta.env.VITE_INGEST_WORKER_URL as string}/scenarios/accept`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify({ planId, runId, scenarioId }),
@@ -102,6 +98,7 @@ export function ScenariosPage() {
       const d = await res.json() as { diff: PlanDiff[] };
       setDiffModal({ scenarioId, diffs: d.diff ?? [] });
     } catch (e) {
+      if (e instanceof PaywallError) { setPaywallErr(e); return; }
       setErr(e instanceof Error ? e.message : "Ошибка принятия");
     } finally {
       setAcceptLoading(false);
@@ -116,9 +113,11 @@ export function ScenariosPage() {
   if (paywallErr) {
     return (
       <PaywallScreen
-        feature="plan_roadmap"
         reason={paywallErr.reason}
-        onBack={() => setPaywallErr(null)}
+        requiredTier={paywallErr.requiredTier}
+        requiredProduct={paywallErr.requiredProduct}
+        onClose={() => setPaywallErr(null)}
+        onRetry={() => void simulate()}
       />
     );
   }

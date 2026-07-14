@@ -23,6 +23,8 @@ import { ComplianceFlow } from "../features/compliance/ComplianceFlow.js";
 import { ReportingScreen } from "../features/reporting/ReportingScreen.js";
 import { AccountingCards } from "../features/accounting/AccountingCards.js";
 import { useEntitlements } from "../services/useEntitlements.js";
+import { apiFetch, PaywallError } from "../services/apiFetch.js";
+import { PaywallScreen } from "../services/PaywallScreen.js";
 import { ScenariosPage } from "../scenarios/ScenariosPage.js";
 import { VoiceInput } from "../voice/index.js";
 import { GraphPage } from "../graph/index.js";
@@ -127,13 +129,14 @@ function AssessPlanButton({ planId }: { planId: string }) {
   const { user } = useAuth();
   const [status, setStatus] = useState<"idle" | "loading" | "queued" | "error">("idle");
   const [err, setErr] = useState<string | null>(null);
+  const [paywallErr, setPaywallErr] = useState<PaywallError | null>(null);
 
   async function run() {
     if (!user) return;
-    setStatus("loading"); setErr(null);
+    setStatus("loading"); setErr(null); setPaywallErr(null);
     try {
       const token = await user.getIdToken();
-      const res = await fetch(`${import.meta.env.VITE_INGEST_WORKER_URL as string}/plan-assess`, {
+      const res = await apiFetch(`${import.meta.env.VITE_INGEST_WORKER_URL as string}/plan-assess`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify({ planId }),
@@ -144,9 +147,22 @@ function AssessPlanButton({ planId }: { planId: string }) {
       }
       setStatus("queued");
     } catch (e) {
+      if (e instanceof PaywallError) { setStatus("idle"); setPaywallErr(e); return; }
       setStatus("error");
       setErr(e instanceof Error ? e.message : "Ошибка");
     }
+  }
+
+  if (paywallErr) {
+    return (
+      <PaywallScreen
+        reason={paywallErr.reason}
+        requiredTier={paywallErr.requiredTier}
+        requiredProduct={paywallErr.requiredProduct}
+        onClose={() => setPaywallErr(null)}
+        onRetry={() => void run()}
+      />
+    );
   }
 
   return (
@@ -180,6 +196,7 @@ function HolisticResultView({ ha, planId }: { ha: HolisticAssessment; planId: st
   const [decisions, setDecisions] = useState<Record<string, "accepted" | "rejected">>({});
   const [reformStatus, setReformStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [reformErr, setReformErr] = useState<string | null>(null);
+  const [reformPaywall, setReformPaywall] = useState<PaywallError | null>(null);
 
   const flagged = ha.sections.filter(s => s.verdict === "flagged");
   const approved = ha.sections.filter(s => s.verdict === "approved");
@@ -203,10 +220,10 @@ function HolisticResultView({ ha, planId }: { ha: HolisticAssessment; planId: st
 
   async function runReform() {
     if (!user || acceptedChanges.length === 0) return;
-    setReformStatus("loading"); setReformErr(null);
+    setReformStatus("loading"); setReformErr(null); setReformPaywall(null);
     try {
       const token = await user.getIdToken();
-      const res = await fetch(`${import.meta.env.VITE_INGEST_WORKER_URL as string}/plan-reform`, {
+      const res = await apiFetch(`${import.meta.env.VITE_INGEST_WORKER_URL as string}/plan-reform`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify({ planId, acceptedChanges }),
@@ -217,6 +234,7 @@ function HolisticResultView({ ha, planId }: { ha: HolisticAssessment; planId: st
       }
       setReformStatus("done");
     } catch (e) {
+      if (e instanceof PaywallError) { setReformStatus("idle"); setReformPaywall(e); return; }
       setReformStatus("error");
       setReformErr(e instanceof Error ? e.message : "Ошибка");
     }
@@ -312,6 +330,15 @@ function HolisticResultView({ ha, planId }: { ha: HolisticAssessment; planId: st
           ✓ План переформирован — разделы обновлены с учётом каскадных изменений
         </div>
       )}
+      {reformPaywall && (
+        <PaywallScreen
+          reason={reformPaywall.reason}
+          requiredTier={reformPaywall.requiredTier}
+          requiredProduct={reformPaywall.requiredProduct}
+          onClose={() => setReformPaywall(null)}
+          onRetry={() => void runReform()}
+        />
+      )}
     </div>
   );
 }
@@ -322,13 +349,14 @@ function AiRoadmapButton({ planId }: { planId: string }) {
   const { user } = useAuth();
   const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [err, setErr] = useState<string | null>(null);
+  const [paywallErr, setPaywallErr] = useState<PaywallError | null>(null);
 
   async function run() {
     if (!user) return;
-    setStatus("loading"); setErr(null);
+    setStatus("loading"); setErr(null); setPaywallErr(null);
     try {
       const token = await user.getIdToken();
-      const res = await fetch(`${import.meta.env.VITE_INGEST_WORKER_URL as string}/plan-roadmap`, {
+      const res = await apiFetch(`${import.meta.env.VITE_INGEST_WORKER_URL as string}/plan-roadmap`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify({ planId }),
@@ -339,9 +367,22 @@ function AiRoadmapButton({ planId }: { planId: string }) {
       }
       setStatus("done");
     } catch (e) {
+      if (e instanceof PaywallError) { setStatus("idle"); setPaywallErr(e); return; }
       setStatus("error");
       setErr(e instanceof Error ? e.message : "Ошибка");
     }
+  }
+
+  if (paywallErr) {
+    return (
+      <PaywallScreen
+        reason={paywallErr.reason}
+        requiredTier={paywallErr.requiredTier}
+        requiredProduct={paywallErr.requiredProduct}
+        onClose={() => setPaywallErr(null)}
+        onRetry={() => void run()}
+      />
+    );
   }
 
   return (
