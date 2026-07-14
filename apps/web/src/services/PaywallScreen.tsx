@@ -7,6 +7,8 @@ interface Props {
   feature: "compliance" | "report" | "plan_assess" | "plan_reform" | "plan_roadmap" | "grant_adapt";
   reason?: string;
   requiredTier?: string;
+  /** Страховка: если биллинг-стейт вернул internal=true — гейт не рендерим. */
+  internal?: boolean;
   onBack: () => void;
 }
 
@@ -19,11 +21,14 @@ const COPY: Record<Props["feature"], { title: string; desc: string }> = {
   grant_adapt:   { title: "Адаптация под грант",  desc: "Требуется «Под субсидию» или подписка «Операционист»." },
 };
 
-export function PaywallScreen({ feature, reason, onBack }: Props) {
+export function PaywallScreen({ feature, reason, internal, onBack }: Props) {
   const { user } = useAuth();
   const { title, desc } = COPY[feature];
   const [trialStatus, setTrialStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [trialErr, setTrialErr] = useState<string | null>(null);
+
+  // Страховка на случай гонки: если billing/state вернул internal=true — не рендерим гейт
+  if (internal === true) return null;
 
   const suggestedSub = SUBSCRIPTIONS.find(s => s.id === "pulse") ?? SUBSCRIPTIONS[0];
 
