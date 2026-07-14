@@ -42,7 +42,6 @@ function paymentOut(ts: string, amount: number, idx: number): BusinessEvent {
     counterpartyName: "Поставщик",
     purpose: "Аренда",
     expenseCategory: "rent",   // not COGS → doesn't reduce margin
-    matchedInvoiceId: null,
     source: "manual",
     businessId: BASE_EVENT.businessId,
   };
