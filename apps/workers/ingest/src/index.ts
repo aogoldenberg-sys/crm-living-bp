@@ -14,7 +14,7 @@ import type { Db } from "@crm/firestore-adapter";
 import { BusinessEvent, ExternalPushSignal, RequestItem, INTAKE_TO_BOOK_ID, BOOK_SECTION_IDS, type SourceDocKind, Entitlements, BusinessPlanV1 } from "@crm/schemas";
 import { handleDocuments } from "./documents.js";
 import { createFirestoreRestClient, saveEvents, registerTenant, loadEvents, loadForecast, loadBusinessPlan, saveBusinessPlan } from "@crm/firestore-adapter";
-import { generatePlan, ExtractedPlanSchema, AssessmentOutputSchema, transcribeAudio } from "@crm/ai-kit";
+import { generatePlan, ExtractedPlanSchema, AssessmentOutputSchema, transcribeAudio, extractVoiceIntent } from "@crm/ai-kit";
 import { REQUIRED_SECTIONS, mapToSections, gateIntake, classifyDocument, checkAccess, startTrial, simulateScenario, rankScenarios, buildPlanDiff } from "@crm/core";
 import { mulberry32 } from "@crm/core";
 import { EXTRACT_SYSTEM, ASSESS_SYSTEM } from "./prompts.generated.js";
@@ -27,6 +27,8 @@ interface Env {
   ANTHROPIC_API_KEY: string;
   /** Добавить: wrangler secret put FIREBASE_PROJECT_ID  (значение: crm-living-bp) */
   FIREBASE_PROJECT_ID: string;
+  /** Workers AI binding — задаётся в wrangler.toml [ai] */
+  AI: { run(model: string, input: Record<string, unknown>): Promise<unknown> };
 }
 
 export type IngestResult = { events: number; skipped: number };
@@ -2268,7 +2270,7 @@ async function handleScenariosSimulate(request: Request, env: Env, ctx: Executio
         };
 
         const results = leverCombos.map((levers, i) =>
-          simulateScenario(mockPlan, levers, events, baseForecast, mulberry32(i * 1000 + Date.now()))
+          simulateScenario(mockPlan, levers, events, baseForecast, mulberry32(i * 1000 + Date.now()), () => crypto.randomUUID())
         );
 
         const ranked = rankScenarios(results.map(r => ({ ...r, runId })));
@@ -2547,8 +2549,9 @@ async function handleVoiceUpload(request: Request, env: Env): Promise<Response> 
   if (audioBytes.byteLength > MAX_AUDIO_BYTES) return jsonCors({ error: "Audio exceeds 10 MB limit" }, 400);
 
   try {
-    const result = await transcribeAudio(audioBytes, env.ANTHROPIC_API_KEY);
-    return jsonCors(result);
+    const { transcription } = await transcribeAudio(audioBytes, env.AI);
+    const intent = await extractVoiceIntent(transcription, env.ANTHROPIC_API_KEY);
+    return jsonCors({ transcription, intent });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("[voice/upload] error:", msg);

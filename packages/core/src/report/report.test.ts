@@ -33,7 +33,7 @@ const FORECAST: CashForecast = {
 
 describe("buildOwnerReport", () => {
   it("пустой лог → доклад с disclaimer", () => {
-    const r = buildOwnerReport("biz1", [], null, NOW);
+    const r = buildOwnerReport("biz1", [], null, NOW, () => "00000000-0000-0000-0000-000000000000");
     expect(r.recommendation).toBeNull();
     expect(r.cash.confidence).toBeLessThan(0.4);
     expect(r.topDeviations).toHaveLength(0);
@@ -44,7 +44,7 @@ describe("buildOwnerReport", () => {
       ...PAYMENT,
       eventId: `00000000-0000-0000-0000-${String(i + 1).padStart(12, "0")}`,
     }));
-    const r = buildOwnerReport("biz1", events, FORECAST, NOW);
+    const r = buildOwnerReport("biz1", events, FORECAST, NOW, () => "00000000-0000-0000-0000-000000000000");
     expect(r.businessId).toBe("biz1");
     expect(r.cash.confidence).toBeGreaterThanOrEqual(0.4);
     expect(r.deliveredTo).toHaveLength(0);
@@ -56,7 +56,7 @@ describe("buildOwnerReport", () => {
       ...PAYMENT,
       eventId: `00000000-0000-0000-0000-${String(i + 100).padStart(12, "0")}`,
     }));
-    const r = buildOwnerReport("biz1", events, withGap, NOW);
+    const r = buildOwnerReport("biz1", events, withGap, NOW, () => "00000000-0000-0000-0000-000000000000");
     expect(r.recommendation).toContain("2026-08-15");
     expect(r.cash.gapDate).toBe("2026-08-15");
   });
@@ -64,7 +64,7 @@ describe("buildOwnerReport", () => {
 
 describe("formatTelegram", () => {
   it("результат ≤ 3500 символов на длинных данных", () => {
-    const r = buildOwnerReport("longbiz", [], null, NOW);
+    const r = buildOwnerReport("longbiz", [], null, NOW, () => "00000000-0000-0000-0000-000000000000");
     const r2: typeof r = {
       ...r,
       topDeviations: [
@@ -78,12 +78,12 @@ describe("formatTelegram", () => {
   });
 
   it("без gap → нет строки «Кассовый разрыв»", () => {
-    const r = buildOwnerReport("biz1", [], null, NOW);
+    const r = buildOwnerReport("biz1", [], null, NOW, () => "00000000-0000-0000-0000-000000000000");
     expect(formatTelegram(r)).not.toContain("Кассовый разрыв:");
   });
 
   it("с gap → строка с ⚠️ есть", () => {
-    const r = buildOwnerReport("biz1", [], { ...FORECAST, gapDate: "2026-09-01", gapAmount: null }, NOW);
+    const r = buildOwnerReport("biz1", [], { ...FORECAST, gapDate: "2026-09-01", gapAmount: null }, NOW, () => "00000000-0000-0000-0000-000000000000");
     expect(formatTelegram(r)).toContain("Кассовый разрыв");
   });
 });
@@ -108,6 +108,7 @@ describe("formatTelegramForRole", () => {
     })),
     { ...FORECAST, gapDate: "2026-08-20", gapAmount: -50_000_00, confidence: 0.65 },
     NOW,
+    () => "00000000-0000-0000-0000-000000000000",
   );
 
   it("sections:[] → строка 'Нет доступных разделов'", () => {

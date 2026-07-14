@@ -51,8 +51,8 @@ describe("simulateScenario", () => {
   it("детерминизм: один seed → один результат", () => {
     const rng1 = mulberry32(42);
     const rng2 = mulberry32(42);
-    const r1 = simulateScenario(PLAN, LEVERS_LOW, [], BASE_FORECAST, rng1);
-    const r2 = simulateScenario(PLAN, LEVERS_LOW, [], BASE_FORECAST, rng2);
+    const r1 = simulateScenario(PLAN, LEVERS_LOW, [], BASE_FORECAST, rng1, () => "00000000-0000-0000-0000-000000000000");
+    const r2 = simulateScenario(PLAN, LEVERS_LOW, [], BASE_FORECAST, rng2, () => "00000000-0000-0000-0000-000000000000");
 
     // confidence должен совпадать при одинаковом seed
     expect(r1.projectedForecast.confidence).toBe(r2.projectedForecast.confidence);
@@ -60,27 +60,27 @@ describe("simulateScenario", () => {
   });
 
   it("complexity: 1 рычаг → low", () => {
-    const result = simulateScenario(PLAN, LEVERS_LOW, [], BASE_FORECAST, mulberry32(1));
+    const result = simulateScenario(PLAN, LEVERS_LOW, [], BASE_FORECAST, mulberry32(1), () => "00000000-0000-0000-0000-000000000000");
     expect(result.complexity).toBe("low");
   });
 
   it("complexity: 2 рычага → medium", () => {
-    const result = simulateScenario(PLAN, LEVERS_MED, [], BASE_FORECAST, mulberry32(2));
+    const result = simulateScenario(PLAN, LEVERS_MED, [], BASE_FORECAST, mulberry32(2), () => "00000000-0000-0000-0000-000000000000");
     expect(result.complexity).toBe("medium");
   });
 
   it("complexity: 3+ рычагов → high", () => {
-    const result = simulateScenario(PLAN, LEVERS_HIGH, [], BASE_FORECAST, mulberry32(3));
+    const result = simulateScenario(PLAN, LEVERS_HIGH, [], BASE_FORECAST, mulberry32(3), () => "00000000-0000-0000-0000-000000000000");
     expect(result.complexity).toBe("high");
   });
 
   it("drivers ≤ 3 элементов", () => {
-    const result = simulateScenario(PLAN, LEVERS_HIGH, [], BASE_FORECAST, mulberry32(4));
+    const result = simulateScenario(PLAN, LEVERS_HIGH, [], BASE_FORECAST, mulberry32(4), () => "00000000-0000-0000-0000-000000000000");
     expect(result.drivers.length).toBeLessThanOrEqual(3);
   });
 
   it("gapAvoidedProbability в [0,1]", () => {
-    const result = simulateScenario(PLAN, LEVERS_LOW, [], BASE_FORECAST, mulberry32(5));
+    const result = simulateScenario(PLAN, LEVERS_LOW, [], BASE_FORECAST, mulberry32(5), () => "00000000-0000-0000-0000-000000000000");
     expect(result.gapAvoidedProbability).toBeGreaterThanOrEqual(0);
     expect(result.gapAvoidedProbability).toBeLessThanOrEqual(1);
   });
@@ -88,8 +88,8 @@ describe("simulateScenario", () => {
 
 describe("rankScenarios", () => {
   it("правильный порядок: low-complexity с высокой вероятностью — первый", () => {
-    const low = simulateScenario(PLAN, LEVERS_LOW, [], BASE_FORECAST, mulberry32(10));
-    const high = simulateScenario(PLAN, LEVERS_HIGH, [], BASE_FORECAST, mulberry32(11));
+    const low = simulateScenario(PLAN, LEVERS_LOW, [], BASE_FORECAST, mulberry32(10), () => "00000000-0000-0000-0000-000000000000");
+    const high = simulateScenario(PLAN, LEVERS_HIGH, [], BASE_FORECAST, mulberry32(11), () => "00000000-0000-0000-0000-000000000000");
     // Принудительно задаём чтобы тест был детерминированным
     const fakeHigh = { ...high, gapAvoidedProbability: 0.3, projectedForecast: { ...high.projectedForecast, confidence: 0.3 }, complexity: "high" as const };
     const fakeLow  = { ...low,  gapAvoidedProbability: 0.8, projectedForecast: { ...low.projectedForecast, confidence: 0.8 }, complexity: "low" as const };
@@ -100,8 +100,8 @@ describe("rankScenarios", () => {
   });
 
   it("не мутирует входной массив", () => {
-    const r1 = simulateScenario(PLAN, LEVERS_LOW, [], BASE_FORECAST, mulberry32(20));
-    const r2 = simulateScenario(PLAN, LEVERS_MED, [], BASE_FORECAST, mulberry32(21));
+    const r1 = simulateScenario(PLAN, LEVERS_LOW, [], BASE_FORECAST, mulberry32(20), () => "00000000-0000-0000-0000-000000000000");
+    const r2 = simulateScenario(PLAN, LEVERS_MED, [], BASE_FORECAST, mulberry32(21), () => "00000000-0000-0000-0000-000000000000");
     const input = [r2, r1];
     const ranked = rankScenarios(input);
     expect(input[0]).toBe(r2); // original not mutated

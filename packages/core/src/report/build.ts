@@ -1,4 +1,3 @@
-const randomUUID = () => globalThis.crypto.randomUUID();
 import type { BusinessEvent } from "@crm/schemas";
 import type { OwnerReport, Deviation } from "@crm/schemas";
 import { aggregateEvents } from "../planfact/aggregate.js";
@@ -50,6 +49,7 @@ export function buildOwnerReport(
   events: BusinessEvent[],
   forecast: CashForecast | null,
   now: string,
+  genId: () => string,
 ): OwnerReport {
   const { from, to } = weekBounds(now);
   const metricsResult = aggregateEvents(events, { from, to });
@@ -71,7 +71,7 @@ export function buildOwnerReport(
       : null;
 
   return {
-    reportId: randomUUID(),
+    reportId: genId(),
     businessId,
     periodStart: from,
     periodEnd: to,

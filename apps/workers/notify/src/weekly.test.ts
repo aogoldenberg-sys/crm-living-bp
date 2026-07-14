@@ -42,7 +42,7 @@ const mockFormatTelegramForRole: Mock = vi.fn(
 );
 
 vi.mock("@crm/core", () => ({
-  buildOwnerReport: (a: unknown, b: unknown, c: unknown, d: unknown) =>
+  buildOwnerReport: (a: unknown, b: unknown, c: unknown, d: unknown, _genId: unknown) =>
     mockBuildOwnerReport(a, b, c, d),
   formatTelegram: (r: unknown) => mockFormatTelegram(r),
   formatTelegramForRole: (r: unknown, s: unknown[]) => mockFormatTelegramForRole(r, s),

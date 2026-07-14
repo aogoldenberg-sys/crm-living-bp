@@ -76,7 +76,7 @@ async function runForTenant(
   const events: BusinessEvent[] = eventsResult.ok ? eventsResult.value.events : [];
   const forecast = forecastResult.ok ? forecastResult.value : null;
 
-  const report = buildOwnerReport(businessId, events, forecast, now);
+  const report = buildOwnerReport(businessId, events, forecast, now, () => crypto.randomUUID());
 
   // Идемпотентность: доклад за этот период уже отправлен
   if (await reportExists(db, businessId, report.periodStart)) {

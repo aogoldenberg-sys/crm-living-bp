@@ -11,3 +11,6 @@ compatibility_flags = ["nodejs_compat_v2"]
 #   wrangler secret put INGEST_API_SECRET
 #
 # Не хранить в .toml или репозитории — только в Cloudflare dashboard.
+
+[ai]
+binding = "AI"

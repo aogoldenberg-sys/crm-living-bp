@@ -1,4 +1,3 @@
-const randomUUID = () => globalThis.crypto.randomUUID();
 import type { BusinessEvent, BusinessPlanV1, IsoDate, StrategyLever } from "@crm/schemas";
 import type { ScenarioResult } from "@crm/schemas";
 import { forecastCash } from "../forecast/forecast.js";
@@ -71,9 +70,10 @@ export function simulateScenario(
   events: BusinessEvent[],
   baseForecast: CashForecast,
   rng: () => number,
+  genId: () => string,
 ): ScenarioResult {
-  const runId = randomUUID();
-  const scenarioId = randomUUID();
+  const runId = genId();
+  const scenarioId = genId();
 
   const basePlan = planFromAssumptions(plan.assumptions);
 

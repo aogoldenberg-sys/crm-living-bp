@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 export interface VoiceInputProps {
   businessId: string;
-  onResult: (result: { transcription: string; fields: Record<string, unknown> }) => void;
+  onResult: (result: { transcription: string; intent: Record<string, unknown> }) => void;
 }
 
 type RecordState = "idle" | "recording" | "uploading" | "error";
@@ -107,7 +107,7 @@ export function VoiceInput({ businessId, onResult }: VoiceInputProps) {
         throw new Error(errData.error ?? `Ошибка ${res.status}`);
       }
 
-      const data = await res.json() as { transcription: string; fields: Record<string, unknown> };
+      const data = await res.json() as { transcription: string; intent: Record<string, unknown> };
       setState("idle");
       onResult(data);
     } catch (e) {

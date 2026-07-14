@@ -12,3 +12,4 @@ export { extractRequest, draftResponse } from "./compliance/index.js";
 export type { DraftInput } from "./compliance/index.js";
 export * from "./revision/index.js";
 export * from "./voice/transcribe.js";
+export { extractVoiceIntent } from "./voice/extract.js";
