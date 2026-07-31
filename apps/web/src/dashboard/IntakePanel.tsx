@@ -5,7 +5,7 @@
 
 import { useState } from "react";
 import { useAuth } from "../auth/useAuth";
-import type { AssumptionEntry, Gap, PlanIntake } from "./useIntake";
+import type { Gap, PlanIntake } from "./useIntake";
 
 // ── Section labels — book-IDs (primary) + intake-IDs (backward-compat) ──────
 
@@ -59,42 +59,6 @@ function sectionLabel(key: string): string {
 function gapToQuestion(gap: Gap): string {
   if (gap.description) return `Расскажите подробнее: ${gap.description}`;
   return `Опишите раздел «${sectionLabel(gap.missingSection)}» — ключевые факты, цифры, договорённости.`;
-}
-
-// ── Assumption display ────────────────────────────────────────────────────────
-
-const ASSUMPTION_LABELS: Record<string, string> = {
-  adr_blended:        "Средний тариф/ночь",
-  adr_peak:           "Тариф пиковый/ночь",
-  bep_occupancy:      "Загрузка для БЕП",
-  cac:                "CAC",
-  capex_total:        "Капвложения (итого)",
-  ebitda_margin_base: "Маржа EBITDA",
-  ebitda_year2_base:  "EBITDA год 2",
-  grant_agrostartup:  "Грант АгроСтартап",
-  grant_minek:        "Грант Минэка",
-  grant_minvostok:    "Грант Минвостокразвития",
-  modules_count:      "Количество модулей",
-  occupancy_annual:   "Загрузка среднегодовая",
-  occupancy_peak:     "Загрузка пиковая",
-  occupancy_shoulder: "Загрузка межсезонье",
-  occupancy_winter:   "Загрузка зимой",
-  payback_months:     "Срок окупаемости",
-  revenue_year1:      "Выручка год 1",
-  revenue_year2_base: "Выручка год 2",
-  trip_check:         "Средний чек",
-};
-
-function formatAssumptionValue(entry: AssumptionEntry): string {
-  const { value, unit } = entry;
-  const isKopecks = unit === "kopecks" || unit === "₽";
-  const fmt = (n: number) =>
-    isKopecks
-      ? (n / 100).toLocaleString("ru-RU", { maximumFractionDigits: 0 }) + " ₽"
-      : n.toLocaleString("ru-RU") + (unit ? ` ${unit}` : "");
-  if (value.point !== undefined) return fmt(value.point);
-  if (value.lo !== undefined && value.hi !== undefined) return `${fmt(value.lo)} – ${fmt(value.hi)}`;
-  return "—";
 }
 
 // ── RefineDialog ──────────────────────────────────────────────────────────────

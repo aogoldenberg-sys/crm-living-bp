@@ -8,10 +8,8 @@ import { usePipeline } from "../funnel/usePipeline";
 import { useIntake } from "./useIntake";
 import type { AssumptionEntry } from "./useIntake";
 import { PipelinePanel } from "../funnel/PipelinePanel";
-import { StageChart } from "./StageChart";
 import { RoadmapPanel } from "./RoadmapPanel";
 import { UploadPlanButton } from "./UploadPlanButton";
-import { buildGraph, deriveSWOT, RETAIL_TEMPLATE, selectInitialStrategy } from "@crm/core";
 import { BOOK_SECTION_ALIAS } from "@crm/schemas";
 import { PlanSidebar } from "./PlanSidebar";
 import { IntakePanel } from "./IntakePanel";
@@ -52,7 +50,7 @@ function LockedFeature({ title }: { title: string }) {
 
 // ── Reprocess button ──────────────────────────────────────────────────────────
 
-function ReprocessButton({ businessId }: { businessId: string }) {
+function ReprocessButton(_: { businessId: string }) {
   const { user } = useAuth();
   const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [msg, setMsg] = useState<string | null>(null);
@@ -919,51 +917,20 @@ export function Dashboard() {
   const [view, setView] = useState<View>("dashboard");
   const [activeNav, setActiveNav] = useState(0);
   const [activePlanSection, setActivePlanSection] = useState<string | null>(null);
-  const [planSidebarOpen, setPlanSidebarOpen] = useState(false);
+  const [planSidebarOpen, _setPlanSidebarOpen] = useState(false);
   const [uploadToast, setUploadToast] = useState<{ msg: string; kind: "progress" | "error" | "done" } | null>(null);
   const [voiceOpen, setVoiceOpen] = useState(false);
 
   const { containerRef } = useBalls();
 
   // CRM data
-  const nonTerminal = stages.filter(s => !s.terminal);
   const totalDeals = pipeline?.size ?? funnelTotalDeals;
   const pipelineWt = stages.reduce((sum, s) => sum + s.weightedPipeline, 0);
-  const firstConv = nonTerminal[0]?.factConversion;
   const hasDeals = totalDeals > 0;
 
   const capexEntry = useMemo(() => findAssumption(intake?.assessment.assumptionsExtracted ?? {}, "capex", "capital", "invest", "инвест", "капит"), [intake]);
   const opexEntry  = useMemo(() => findAssumption(intake?.assessment.assumptionsExtracted ?? {}, "opex", "oper", "расход", "затрат", "expense", "cost"), [intake]);
   const paybackEntry = useMemo(() => findAssumption(intake?.assessment.assumptionsExtracted ?? {}, "payback", "окупаем", "срок"), [intake]);
-  const marginEntry  = useMemo(() => findAssumption(intake?.assessment.assumptionsExtracted ?? {}, "margin", "маржа", "рентаб"), [intake]);
-
-  const marginDisplay = useMemo((): string | null => {
-    if (!marginEntry) return null;
-    const raw = marginEntry.value.point ?? marginEntry.value.lo ?? marginEntry.value.hi;
-    if (raw == null) return null;
-    return `${Math.round(raw > 1 ? raw : raw * 100)}%`;
-  }, [marginEntry]);
-
-  const opportunities = useMemo(() => {
-    const graph = buildGraph(RETAIL_TEMPLATE);
-    return deriveSWOT(graph).opportunities;
-  }, []);
-
-  const initialStrategy = useMemo(() => {
-    const texts = [
-      ...(intake?.assessment.strengths ?? []),
-      ...(intake?.assessment.concerns ?? []).map(c => c.description),
-    ].join(" ").toLowerCase();
-    return selectInitialStrategy({
-      nicheTags: texts.match(/[а-яёa-z]+/g) ?? [],
-      assessment: intake?.assessment ? {
-        strengths: intake.assessment.strengths,
-        concerns: intake.assessment.concerns,
-        gaps: intake.assessment.gaps,
-      } : undefined,
-    });
-  }, [intake]);
-
   const showDeals = entityAccess.deals !== "none" && dashboardWidgets.includes("pipeline");
   const showFinancials = entityAccess.financials !== "none" && dashboardWidgets.includes("cash_forecast");
   const showDemandSignals = signals !== null && dashboardWidgets.includes("demand_signals");
