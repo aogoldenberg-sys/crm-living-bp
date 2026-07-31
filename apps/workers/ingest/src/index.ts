@@ -14,8 +14,9 @@ import type { Db } from "@crm/firestore-adapter";
 import { BusinessEvent, ExternalPushSignal, RequestItem, INTAKE_TO_BOOK_ID, BOOK_SECTION_IDS, type SourceDocKind, Entitlements, BusinessPlanV1 } from "@crm/schemas";
 import { handleDocuments } from "./documents.js";
 import { createFirestoreRestClient, saveEvents, registerTenant, loadEvents, loadForecast, loadBusinessPlan, saveBusinessPlan } from "@crm/firestore-adapter";
-import { generatePlan, ExtractedPlanSchema, AssessmentOutputSchema, transcribeAudio, extractVoiceIntent } from "@crm/ai-kit";
-import { REQUIRED_SECTIONS, mapToSections, gateIntake, classifyDocument, checkAccess, startTrial, simulateScenario, rankScenarios, buildPlanDiff, computeUnitEconomics, DEFAULT_THRESHOLDS } from "@crm/core";
+import { generatePlan, ExtractedPlanSchema, AssessmentOutputSchema, transcribeAudio, extractVoiceIntent, createAnthropicClient, runPipeline } from "@crm/ai-kit";
+import type { ClarifyAnswer } from "@crm/ai-kit";
+import { REQUIRED_SECTIONS, mapToSections, gateIntake, classifyDocument, checkAccess, startTrial, simulateScenario, rankScenarios, buildPlanDiff, computeUnitEconomics, DEFAULT_THRESHOLDS, buildChecklist } from "@crm/core";
 import { mulberry32 } from "@crm/core";
 import { EXTRACT_SYSTEM, ASSESS_SYSTEM } from "./prompts.generated.js";
 import { STRATEGY_LIBRARY } from "@crm/core";
@@ -1169,7 +1170,10 @@ async function handleIntake(request: Request, env: Env): Promise<Response> {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// /compliance/extract — разбор требования контролирующего органа
+// /compliance/extract — разбор требования + billing gate + Firestore save
+// /compliance/clarify  — применение ответов клиента к чек-листу
+// /compliance/package  — запуск сборки пакета (async, ctx.waitUntil)
+// GET /compliance/case/:caseId — polling статуса кейса
 // ══════════════════════════════════════════════════════════════════════════════
 
 const COMPLIANCE_EXTRACT_SYSTEM = `Роль: юридический аналитик-экстрактор.
@@ -1196,6 +1200,19 @@ async function handleComplianceExtract(request: Request, env: Env): Promise<Resp
   const claims = await verifyFirebaseIdToken(idToken, projectId);
   if (!claims) return jsonCors({ error: "Unauthorized" }, 401);
 
+  const db = createFirestoreRestClient(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+  const userDoc = await db.collection("users").doc(claims.uid).get();
+  if (!userDoc.exists) return jsonCors({ error: "User not registered" }, 400);
+  const { businessId } = userDoc.data() as { businessId: string };
+
+  // ── Billing gate ────────────────────────────────────────────────────────────
+  const ent = await loadEntitlements(db, businessId);
+  const access = checkAccess(ent, "compliance_case", null, new Date().toISOString());
+  if (!access.allowed) {
+    return jsonCors({ error: access.reason, requiredTier: access.requiredTier }, 402);
+  }
+
+  // ── Parse file ──────────────────────────────────────────────────────────────
   let form: FormData;
   try {
     form = await request.formData();
@@ -1232,6 +1249,7 @@ async function handleComplianceExtract(request: Request, env: Env): Promise<Resp
     return jsonCors({ error: `Неподдерживаемый тип: ${mimeType}. Используйте PDF, JPEG, PNG.` }, 400);
   }
 
+  // ── Claude extract ──────────────────────────────────────────────────────────
   let raw: unknown;
   try {
     raw = await callClaude(env.ANTHROPIC_API_KEY, COMPLIANCE_EXTRACT_SYSTEM, content);
@@ -1251,7 +1269,199 @@ async function handleComplianceExtract(request: Request, env: Env): Promise<Resp
     return jsonCors({ code: "INSUFFICIENT_DATA", message: "Требование не распознано" }, 422);
   }
 
-  return jsonCors({ items: validated.data });
+  // ── Build checklist from event log ──────────────────────────────────────────
+  const eventsRes = await loadEvents(db, businessId);
+  const events = eventsRes.ok ? eventsRes.value.events : [];
+  const checklistResult = buildChecklist(
+    validated.data,
+    events,
+    new Map(),                   // нет загруженных файлов на этом шаге
+    () => crypto.randomUUID(),
+  );
+  if (!checklistResult.ok) {
+    return jsonCors({ error: checklistResult.error.detail }, 422);
+  }
+
+  // ── Save case to Firestore ──────────────────────────────────────────────────
+  const caseId = crypto.randomUUID();
+  const now = new Date().toISOString();
+  const caseData = {
+    caseId,
+    businessId,
+    authority: "fns_kameral",
+    createdAt: now,
+    sourceFileRef: "uploaded",
+    items: validated.data,
+    checklist: checklistResult.value,
+    drafts: [],
+    response: null,
+    completeness: 0,
+    status: "checklist_review",
+  };
+  await db.collection(`tenants/${businessId}/compliance_cases`).doc(caseId).set(
+    caseData as unknown as Record<string, unknown>,
+  );
+
+  // ── Increment usage ─────────────────────────────────────────────────────────
+  const updatedEnt: typeof ent = {
+    ...ent,
+    usage: { ...ent.usage, complianceCases: ent.usage.complianceCases + 1 },
+  };
+  await saveEntitlements(db, businessId, updatedEnt);
+
+  return jsonCors({ caseId, items: validated.data, entries: checklistResult.value });
+}
+
+// ── /compliance/clarify ────────────────────────────────────────────────────────
+
+async function handleComplianceClarify(request: Request, env: Env): Promise<Response> {
+  const authHeader = request.headers.get("Authorization") ?? "";
+  const idToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  if (!idToken) return jsonCors({ error: "Unauthorized" }, 401);
+
+  const claims = await verifyFirebaseIdToken(idToken, env.FIREBASE_PROJECT_ID || "crm-living-bp");
+  if (!claims) return jsonCors({ error: "Unauthorized" }, 401);
+
+  const db = createFirestoreRestClient(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+  const userDoc = await db.collection("users").doc(claims.uid).get();
+  if (!userDoc.exists) return jsonCors({ error: "User not registered" }, 400);
+  const { businessId } = userDoc.data() as { businessId: string };
+
+  let body: { caseId?: string; answers?: ClarifyAnswer[] };
+  try { body = await request.json() as typeof body; } catch { return jsonCors({ error: "Invalid JSON" }, 400); }
+
+  const { caseId, answers } = body;
+  if (!caseId || !Array.isArray(answers)) return jsonCors({ error: "Missing caseId or answers" }, 400);
+
+  const caseDoc = await db.collection(`tenants/${businessId}/compliance_cases`).doc(caseId).get();
+  if (!caseDoc.exists) return jsonCors({ error: "Case not found" }, 404);
+
+  const caseData = caseDoc.data() as Record<string, unknown>;
+  if (caseData.businessId !== businessId) return jsonCors({ error: "Forbidden" }, 403);
+
+  // Apply answers: update missing_no_event entries based on ClarifyAnswer.status
+  const checklist = caseData.checklist as Array<Record<string, unknown>>;
+  const byItem = new Map<string, ClarifyAnswer>(answers.map(a => [a.itemId, a]));
+
+  const updated = checklist.map(e => {
+    if (e.availability !== "missing_no_event") return e;
+    const ans = byItem.get(e.requestItemId as string);
+    if (!ans) return e;
+    const newAvail = ans.status === "have_paper" ? "have_paper"
+      : ans.status === "not_applicable" ? "not_applicable"
+      : "missing_no_event";
+    return { ...e, availability: newAvail };
+  });
+
+  await db.collection(`tenants/${businessId}/compliance_cases`).doc(caseId).set(
+    { ...caseData, checklist: updated } as unknown as Record<string, unknown>,
+  );
+
+  return jsonCors({ caseId, status: "checklist_review" });
+}
+
+// ── /compliance/package ────────────────────────────────────────────────────────
+
+async function handleCompliancePackage(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const authHeader = request.headers.get("Authorization") ?? "";
+  const idToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  if (!idToken) return jsonCors({ error: "Unauthorized" }, 401);
+
+  const claims = await verifyFirebaseIdToken(idToken, env.FIREBASE_PROJECT_ID || "crm-living-bp");
+  if (!claims) return jsonCors({ error: "Unauthorized" }, 401);
+
+  const db = createFirestoreRestClient(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+  const userDoc = await db.collection("users").doc(claims.uid).get();
+  if (!userDoc.exists) return jsonCors({ error: "User not registered" }, 400);
+  const { businessId } = userDoc.data() as { businessId: string };
+
+  let body: { caseId?: string; meta?: { authority?: string; incomingRef?: { number: string | null; date: string | null }; companyName?: string; companyInn?: string } };
+  try { body = await request.json() as typeof body; } catch { return jsonCors({ error: "Invalid JSON" }, 400); }
+
+  const { caseId, meta } = body;
+  if (!caseId) return jsonCors({ error: "Missing caseId" }, 400);
+
+  const caseDoc = await db.collection(`tenants/${businessId}/compliance_cases`).doc(caseId).get();
+  if (!caseDoc.exists) return jsonCors({ error: "Case not found" }, 404);
+
+  const caseData = caseDoc.data() as Record<string, unknown>;
+  if (caseData.businessId !== businessId) return jsonCors({ error: "Forbidden" }, 403);
+
+  // Mark as assembling
+  await db.collection(`tenants/${businessId}/compliance_cases`).doc(caseId).set(
+    { ...caseData, status: "assembling" } as unknown as Record<string, unknown>,
+  );
+
+  const pipelineMeta = {
+    authority: meta?.authority ?? (caseData.authority as string) ?? "other",
+    incomingRef: meta?.incomingRef ?? { number: null, date: null },
+    companyName: meta?.companyName ?? "[ЗАПОЛНИТЬ]",
+    companyInn: meta?.companyInn ?? "[ЗАПОЛНИТЬ]",
+  };
+
+  ctx.waitUntil(
+    (async () => {
+      try {
+        const client = createAnthropicClient(env.ANTHROPIC_API_KEY);
+        const items = caseData.items as Parameters<typeof runPipeline>[1];
+        const entries = caseData.checklist as Parameters<typeof runPipeline>[2];
+        const result = await runPipeline(client, items, entries, [], pipelineMeta);
+        if (!result.ok) {
+          await db.collection(`tenants/${businessId}/compliance_cases`).doc(caseId).set(
+            { ...caseData, status: "checklist_review", packageError: result.error.message } as unknown as Record<string, unknown>,
+          );
+          return;
+        }
+        const responseId = crypto.randomUUID();
+        const response = {
+          responseId,
+          authority: pipelineMeta.authority,
+          incomingRef: { ...pipelineMeta.incomingRef, fileRef: "uploaded" },
+          letterDraft: result.value.draftLetter,
+          legalRefs: [],
+          providedEntryIds: [],
+          missingExplained: [],
+          deadline: null,
+          status: "draft",
+        };
+        await db.collection(`tenants/${businessId}/compliance_cases`).doc(caseId).set(
+          { ...caseData, status: "done", response, registry: result.value.registry } as unknown as Record<string, unknown>,
+        );
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error("[compliance/package] error:", msg);
+        await db.collection(`tenants/${businessId}/compliance_cases`).doc(caseId).set(
+          { ...caseData, status: "checklist_review", packageError: msg } as unknown as Record<string, unknown>,
+        ).catch(() => {});
+      }
+    })(),
+  );
+
+  return jsonCors({ caseId, status: "assembling" });
+}
+
+// ── GET /compliance/case/:caseId ──────────────────────────────────────────────
+
+async function handleComplianceCaseGet(request: Request, env: Env, caseId: string): Promise<Response> {
+  const authHeader = request.headers.get("Authorization") ?? "";
+  const idToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  if (!idToken) return jsonCors({ error: "Unauthorized" }, 401);
+
+  const claims = await verifyFirebaseIdToken(idToken, env.FIREBASE_PROJECT_ID || "crm-living-bp");
+  if (!claims) return jsonCors({ error: "Unauthorized" }, 401);
+
+  const db = createFirestoreRestClient(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+  const userDoc = await db.collection("users").doc(claims.uid).get();
+  if (!userDoc.exists) return jsonCors({ error: "User not registered" }, 400);
+  const { businessId } = userDoc.data() as { businessId: string };
+
+  const caseDoc = await db.collection(`tenants/${businessId}/compliance_cases`).doc(caseId).get();
+  if (!caseDoc.exists) return jsonCors({ error: "Case not found" }, 404);
+
+  const caseData = caseDoc.data() as Record<string, unknown>;
+  if (caseData.businessId !== businessId) return jsonCors({ error: "Forbidden" }, 403);
+
+  return jsonCors(caseData);
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -2484,9 +2694,25 @@ async function dispatchRequest(request: Request, env: Env, ctx: ExecutionContext
       return handleEventsUser(request, env);
     }
 
-    // ── /compliance/extract — разбор требования ──────────────────────────
+    // ── /compliance/extract — разбор требования + billing + Firestore ──────
     if (request.method === "POST" && url.pathname === "/compliance/extract") {
       return handleComplianceExtract(request, env);
+    }
+
+    // ── /compliance/clarify — применение ответов клиента ────────────────────
+    if (request.method === "POST" && url.pathname === "/compliance/clarify") {
+      return handleComplianceClarify(request, env);
+    }
+
+    // ── /compliance/package — запуск сборки пакета (async) ──────────────────
+    if (request.method === "POST" && url.pathname === "/compliance/package") {
+      return handleCompliancePackage(request, env, ctx);
+    }
+
+    // ── GET /compliance/case/:caseId — polling статуса ───────────────────────
+    if (request.method === "GET" && url.pathname.startsWith("/compliance/case/")) {
+      const caseId = url.pathname.replace("/compliance/case/", "");
+      if (caseId) return handleComplianceCaseGet(request, env, caseId);
     }
 
     // ── /revision-doc — загрузка исходного документа ревизии, dedup SHA-256

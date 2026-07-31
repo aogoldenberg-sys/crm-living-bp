@@ -1,3 +1,11 @@
 export { extractRequest } from "./extract.js";
 export { draftResponse } from "./draft.js";
 export type { DraftInput } from "./draft.js";
+export { selectOpenItems, parseClarifyAnswers, buildDraftInput } from "./clarify.js";
+export type { ClarifyAnswer } from "./clarify.js";
+export { buildRegistry } from "./registry.js";
+export type { RegistryRow } from "./registry.js";
+export { buildClientPosition, CLIENT_POSITION_SYSTEM } from "./position.js";
+export type { MissingItem } from "./position.js";
+export { runPipeline } from "./pipeline.js";
+export type { PipelineMeta, PipelineResult } from "./pipeline.js";

@@ -17,7 +17,7 @@ import { SECTIONS, SECTION_TO_INTAKE_ID } from "../plan/PlanSectionPage";
 import type { MappedSection, HolisticAssessment, GeneratedRoadmap, GrantType, GrantResult } from "./useIntake";
 import { RisksPanel } from "../panels/RisksPanel";
 import { AutonomyPanel } from "../panels/AutonomyPanel";
-import { ComplianceFlow } from "../features/compliance/ComplianceFlow.js";
+import { ComplianceV2 } from "../compliance/ComplianceV2.js";
 import { ReportingScreen } from "../features/reporting/ReportingScreen.js";
 import { AccountingCards } from "../features/accounting/AccountingCards.js";
 import { useEntitlements } from "../services/useEntitlements.js";
@@ -954,7 +954,7 @@ export function Dashboard() {
     { label: "Риски",          icon: <IcoRisk />,   idx: 4, onClick: () => { setActiveNav(4); setView("risks");      setActivePlanSection(null); } },
     { label: "Оценка",         icon: <IcoAssess />, idx: 3, onClick: () => { setActiveNav(3); setView("intake");     setActivePlanSection(null); } },
     { label: "Сценарии",        icon: <IcoAuto />,   idx: 5, onClick: () => { setActiveNav(5); setView("scenarios"); setActivePlanSection(null); } },
-    { label: "Комплаенс",      icon: <IcoShield />, idx: 6, onClick: () => { setActiveNav(6); setView("compliance"); setActivePlanSection(null); } },
+    { label: "Требования",      icon: <IcoShield />, idx: 6, onClick: () => { setActiveNav(6); setView("compliance"); setActivePlanSection(null); } },
     { label: "Отчётность",     icon: <IcoDoc />,    idx: 7, onClick: () => { setActiveNav(7); setView("documents");  setActivePlanSection(null); } },
     { label: "Граф",           icon: <IcoSearch />, idx: 8, onClick: () => { setActiveNav(8); setView("graph");      setActivePlanSection(null); } },
     { label: "Рентабельность", icon: <IcoDoc />,    idx: 9, onClick: () => { setActiveNav(9); setView("profitability"); setActivePlanSection(null); } },
@@ -1094,11 +1094,11 @@ export function Dashboard() {
               <AutonomyPanel businessId={bid} />
             </div>
           )}
-          {/* Комплаенс */}
+          {/* Требования */}
           {view === "compliance" && (
             <div className="k-body">
               {canCompliance
-                ? <ComplianceFlow businessId={bid} />
+                ? <ComplianceV2 businessId={bid} />
                 : <LockedFeature title="Ответ на требование налоговой" />}
             </div>
           )}
