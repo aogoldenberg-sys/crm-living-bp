@@ -1,13 +1,12 @@
-import { useEffect } from "react";
-import { BrowserRouter, Routes, Route, Navigate, useNavigate } from "react-router-dom";
-import { onAuthStateChanged, signInWithCustomToken } from "firebase/auth";
+import { useEffect, useState } from "react";
+import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
+import { onAuthStateChanged, sendEmailVerification, signInWithCustomToken } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "./firebase";
 import { useAuth } from "./auth/useAuth";
 import type { UserRole } from "./auth/useAuth";
 import { LandingPage } from "./landing/LandingPage";
 import { LoginPage } from "./auth/LoginPage";
-import { RegisterPage } from "./auth/RegisterPage";
 import { Dashboard } from "./dashboard/Dashboard";
 import { PlanSectionPage } from "./plan/PlanSectionPage";
 import { OnboardingFlow } from "./onboarding/OnboardingFlow";
@@ -46,6 +45,37 @@ function YandexAuthHandler() {
   }, []);
 
   return null;
+}
+
+// Показывает баннер "подтвердите email" везде кроме / и /login
+function EmailVerifyBanner() {
+  const { user } = useAuth();
+  const { pathname } = useLocation();
+  const [countdown, setCountdown] = useState(0);
+
+  useEffect(() => {
+    if (countdown <= 0) return;
+    const t = setTimeout(() => setCountdown((c) => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [countdown]);
+
+  if (!user || user.emailVerified) return null;
+  if (pathname === "/" || pathname === "/login") return null;
+
+  const handleResend = async () => {
+    if (countdown > 0) return;
+    await sendEmailVerification(user).catch(() => {});
+    setCountdown(60);
+  };
+
+  return (
+    <div className="lp-email-banner">
+      <span>Подтвердите email, чтобы разблокировать все функции.</span>
+      <button type="button" onClick={handleResend} disabled={countdown > 0}>
+        {countdown > 0 ? `Отправить ещё раз (${countdown}с)` : "Отправить письмо"}
+      </button>
+    </div>
+  );
 }
 
 function DashboardOrOnboarding() {
@@ -121,18 +151,19 @@ export default function App() {
   return (
     <BrowserRouter basename={import.meta.env.BASE_URL.slice(0, -1)}>
       <YandexAuthHandler />
+      <EmailVerifyBanner />
       <Routes>
         {/* Лендинг — всегда доступен */}
         <Route path="/" element={<LandingPage />} />
 
-        {/* Вход — редирект на дашборд если уже залогинен */}
+        {/* Вход/регистрация — один роут, unverified users остаются здесь */}
         <Route
           path="/login"
-          element={user ? <Navigate to="/dashboard" replace /> : <LoginPage />}
+          element={user && user.emailVerified ? <Navigate to="/dashboard" replace /> : <LoginPage />}
         />
 
-        {/* Регистрация — при живой сессии RegisterPage сам выйдет из аккаунта */}
-        <Route path="/register" element={<RegisterPage />} />
+        {/* Старый /register — редирект на /login в режиме регистрации */}
+        <Route path="/register" element={<Navigate to="/login" state={{ mode: "register" }} replace />} />
 
         {/* Онбординг — только для авторизованных */}
         <Route

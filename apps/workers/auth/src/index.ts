@@ -10,6 +10,8 @@
 // Валидация: SHA-256(входящий_секрет) === storedHash для конкретного businessId.
 // Чужой секрет → 401, даже если businessId существует.
 
+import { handleRegisterProfile } from "./register-profile.js";
+
 export interface Env {
   FIREBASE_SERVICE_ACCOUNT_JSON: string;
   YANDEX_CLIENT_ID: string;
@@ -258,6 +260,7 @@ async function handleYandexCallback(request: Request, env: Env): Promise<Respons
 // ──────────────────────────────────────────
 // Main handler
 // ──────────────────────────────────────────
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     if (request.method === "OPTIONS") {
@@ -273,6 +276,11 @@ export default {
     }
     if (url.pathname === "/auth/yandex/callback" && request.method === "GET") {
       return handleYandexCallback(request, env);
+    }
+
+    // Register profile (idempotent, called after createUserWithEmailAndPassword)
+    if (url.pathname === "/auth/register-profile" && request.method === "POST") {
+      return handleRegisterProfile(request, env);
     }
 
     if (request.method !== "POST" || url.pathname !== "/token") {

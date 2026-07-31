@@ -25,3 +25,4 @@ export * from "./report.js";
 export * from "./revision/index.js";
 export * from "./plan/taxonomy.js";
 export * from "./scenario.js";
+export * from "./user.js";

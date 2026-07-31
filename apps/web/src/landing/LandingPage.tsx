@@ -66,7 +66,7 @@ export function LandingPage() {
             <Link to="/login" className="cta-primary">
               Войти
             </Link>
-            <Link to="/register" className="cta-ghost">
+            <Link to="/login" state={{ mode: "register" }} className="cta-ghost">
               Создать аккаунт
             </Link>
           </div>

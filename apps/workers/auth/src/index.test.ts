@@ -17,6 +17,7 @@
 
 import { describe, it, expect } from "vitest";
 import { sha256hex, secretMatchesHash } from "./index.js";
+import { extractBusinessId } from "./register-profile.js";
 
 // ── sha256hex ─────────────────────────────────────────────────────────────────
 
@@ -93,5 +94,32 @@ describe("изоляция тенантов — secret_A не открывает
     const hashB = await sha256hex("secret-b");
     // SHA-256 collision-resistant — разные секреты → разные хэши
     expect(hashA).not.toBe(hashB);
+  });
+});
+
+// ── register-profile — идемпотентность ───────────────────────────────────────
+
+describe("register-profile идемпотентность", () => {
+  it("существующий документ: извлекает businessId, не требует записи", () => {
+    const doc = { fields: { businessId: { stringValue: "biz-existing-123" } } };
+    expect(extractBusinessId(doc)).toBe("biz-existing-123");
+  });
+
+  it("повторный вызов с тем же документом возвращает тот же businessId", () => {
+    const doc = { fields: { businessId: { stringValue: "biz-stable-uuid" } } };
+    // Оба вызова читают один и тот же документ — businessId не меняется
+    expect(extractBusinessId(doc)).toBe(extractBusinessId(doc));
+  });
+
+  it("отсутствующий документ (null): нужна запись (возвращает null)", () => {
+    expect(extractBusinessId(null)).toBeNull();
+  });
+
+  it("документ без поля businessId: нужна запись (возвращает null)", () => {
+    expect(extractBusinessId({ fields: { uid: { stringValue: "u1" } } })).toBeNull();
+  });
+
+  it("пустой fields: нужна запись (возвращает null)", () => {
+    expect(extractBusinessId({ fields: {} })).toBeNull();
   });
 });

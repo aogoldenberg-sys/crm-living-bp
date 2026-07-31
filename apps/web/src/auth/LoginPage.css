@@ -312,3 +312,87 @@
   color: #8B7355;
   user-select: none;
 }
+
+/* ── Кнопка-ссылка (переключатель режима, без навигации) ─────────────────── */
+.lf-link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--color-sand);
+  font-family: var(--font-sans);
+  font-size: inherit;
+  cursor: pointer;
+  border-bottom: 1px solid rgba(201, 185, 154, 0.3);
+  padding-bottom: 1px;
+  transition: color var(--duration-base), border-color var(--duration-base);
+}
+.lf-link-btn:hover {
+  color: var(--color-ivory);
+  border-color: rgba(232, 223, 208, 0.5);
+}
+
+/* ── Outline-вариант кнопки (отправить письмо ещё раз) ──────────────────── */
+.lf-submit--outline {
+  background: transparent;
+  color: var(--color-gold);
+  border: 1px solid var(--color-gold);
+}
+.lf-submit--outline:hover:not(:disabled) {
+  background: rgba(184, 150, 78, 0.10);
+  box-shadow: none;
+  transform: none;
+}
+
+/* ── Экран верификации email ─────────────────────────────────────────────── */
+.verify-card {
+  text-align: center;
+}
+.verify-icon {
+  font-size: 48px;
+  margin-bottom: var(--space-4);
+}
+.verify-email {
+  color: var(--color-ivory);
+  word-break: break-all;
+}
+.verify-spam {
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  margin-top: var(--space-2);
+  margin-bottom: var(--space-6);
+}
+
+/* ── Баннер «подтвердите email» внутри приложения ───────────────────────── */
+.lp-email-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-6);
+  background: rgba(184, 150, 78, 0.15);
+  border-bottom: 1px solid rgba(184, 150, 78, 0.35);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--color-sand);
+}
+.lp-email-banner button {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--color-gold);
+  font-family: var(--font-sans);
+  font-size: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.lp-email-banner button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  text-decoration: none;
+}
