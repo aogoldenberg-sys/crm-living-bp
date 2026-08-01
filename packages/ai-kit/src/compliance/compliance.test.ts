@@ -48,11 +48,11 @@ const validRequestItem = {
 const validItemsJson = JSON.stringify([validRequestItem]);
 
 const validDraftInput: DraftInput = {
-  authority: "fns_kameral",
+  authority: "fns_kameral" as const,
   incomingRef: { number: "12-34/567", date: "2025-05-01" },
   companyName: 'ООО "Ромашка"',
   companyInn: "7701234567",
-  provided: [{ docKind: "payment_order", label: "Платёжное поручение №1 от 15.01.2025" }],
+  provided: [{ docKind: "payment_order", label: "Платёжное поручение №1 от 15.01.2025", attachmentNo: 1 }],
   missing: [],
   restoredDuplicates: [],
 };
@@ -206,7 +206,7 @@ const entryClosed: ChecklistEntry = {
 };
 
 const validMeta = {
-  authority: "fns_kameral",
+  authority: "fns_kameral" as const,
   incomingRef: { number: "12-34/567", date: "2025-05-01" },
   companyName: 'ООО "Ромашка"',
   companyInn: "7701234567",

@@ -22,6 +22,7 @@ export const RequestingAuthority = z.enum([
   "prosecutor",         // прокуратура
   "bank_compliance",    // 115-ФЗ, комплаенс банка
   "court",              // судебный запрос
+  "labor_inspection",   // ГИТ (ст. 357 ТК РФ)
   "audit_internal",     // подготовка к аудиту (внутренний режим)
   "counterparty",       // запрос контрагента (сверка)
   "other",
@@ -40,6 +41,15 @@ export const PrimaryDocKind = z.enum([
   "invoice_facture",    // счёт-фактура / УПД
   "order_internal",     // приказ
   "explanatory",        // пояснительная записка
+  "order_hire",         // приказ о приёме на работу
+  "personal_card",      // личная карточка (Т-2)
+  "staffing_table",     // штатное расписание
+  "timesheet",          // табель учёта рабочего времени
+  "workbook_extract",   // выписка из трудовой книжки
+  "debt_calculation",   // расчёт задолженности
+  "art236_calculation", // расчёт компенсации ст. 236 ТК
+  "payroll_regulation", // положение об оплате труда
+  "written_clarification", // письменные пояснения
   "other",
 ]);
 export type PrimaryDocKind = z.infer<typeof PrimaryDocKind>;

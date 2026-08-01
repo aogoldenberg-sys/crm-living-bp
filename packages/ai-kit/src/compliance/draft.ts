@@ -1,61 +1,83 @@
 import type { AnthropicClient } from "../client.js";
-import { type Result, ok, err } from "@crm/core";
+import type { RequestingAuthority } from "@crm/schemas";
+import { type Result, ok, err, LEGAL_BASIS } from "@crm/core";
 
 export type DraftInput = {
-  authority: string;
+  authority: RequestingAuthority;
   incomingRef: { number: string | null; date: string | null };
   companyName: string;
   companyInn: string;
-  provided: Array<{ docKind: string; label: string }>;
+  provided: Array<{ docKind: string; label: string; attachmentNo: number }>;
   missing: Array<{ docKind: string; label: string; reason: string }>;
-  restoredDuplicates: Array<{ docKind: string; label: string }>;
+  restoredDuplicates: Array<{ docKind: string; label: string; attachmentNo: number }>;
 };
 
-// Промпт инлайном — CF Workers не поддерживают readFileSync
-const DRAFT_SYSTEM_PROMPT = `# motivated_response_v1
+const DRAFT_SYSTEM_PROMPT = `# motivated_response_v2
 
-Роль: юрист-практик по налоговым проверкам и банковскому комплаенсу РФ.
-Задача: черновик сопроводительного письма-ответа на запрос органа.
-
-## Вход (JSON)
-- authority: тип органа (fns_kameral | fns_vyezd | fns_vstrechka | police | prosecutor | bank_compliance | court | audit_internal | counterparty)
-- incomingRef: номер и дата требования
-- companyName, companyInn
-- provided: [{docKind, label}] — что предоставляем
-- missing: [{docKind, label, reason}] — что отсутствует, с причиной
-- restoredDuplicates: [{docKind, label}] — дубликаты, помеченные грифом
+Роль: юрист-практик по проверкам контролирующих органов и банковскому комплаенсу РФ.
+Задача: черновик мотивированного ответа на запрос (требование) органа.
 
 ## Жёсткие правила
-1. Только черновик. Первая строка вывода: \`[ПРОЕКТ — требует проверки юристом]\`.
-2. Тон: нейтрально-деловой. Без оправданий, без лишних сведений.
-   Правило проверок: отвечаем строго на заданный вопрос, не больше.
-3. Правовые основания подбирать по органу:
-   - fns_kameral: ст. 88, 93 НК РФ, срок 10 раб. дней (п.3 ст.93)
-   - fns_vstrechka: ст. 93.1 НК РФ, срок 5 раб. дней
-   - fns_vyezd: ст. 89, 93 НК РФ
-   - police: ст. 13 ФЗ «О полиции»; отметить право запросить
-     мотивировку и реквизиты проверки
-   - bank_compliance: 115-ФЗ; цель — снять подозрения, дать
-     экономический смысл операций
-   - court: ст. 57 ГПК / 66 АПК
-4. Отсутствующие документы: причину формулировать фактически
-   («документ находится у контрагента», «операция не совершалась»),
+
+1. ЗАПРЕТ: Правовое основание бери ТОЛЬКО из переданных данных.
+   НЕ подбирай норму по аналогии, НЕ используй нормы другой отрасли права.
+   Основание не передано — пиши [УТОЧНИТЬ: правовое основание].
+   Ошибка в норме опаснее её отсутствия.
+
+2. Только черновик. Первая строка: \`[ПРОЕКТ — требует проверки юристом]\`.
+
+3. Тон: нейтрально-деловой. Без оправданий, без лишних сведений.
+   Отвечаем строго на заданный вопрос, не больше.
+
+4. Даты, суммы, номера, ФИО — только из переданных данных.
+   Не сообщено — [ЗАПОЛНИТЬ].
+   Правдоподобная выдумка реквизитов запрещена.
+
+5. Отсутствующие документы: причину формулировать фактически
+   («документ находится у контрагента», «операция не совершалась»).
    НИКОГДА не предлагать изготовить документ задним числом.
-5. Дубликаты упоминать явно: «предоставляется дубликат, оригинал …».
-6. Если authority = police или prosecutor — добавить абзац о праве
+
+6. Дубликаты упоминать явно: «предоставляется дубликат, оригинал …».
+
+7. Если authority = police или prosecutor — добавить абзац о праве
    предоставить документы в присутствии представителя (адвоката).
-7. Вывод: только текст письма, без markdown, без комментариев.
-8. Не хватает данных для правильной ссылки на норму — писать
-   \`[УТОЧНИТЬ: ...]\`, не угадывать.
+
+8. Вывод: только текст письма, без markdown, без комментариев.
 
 ## Структура письма
-1. Шапка: кому (орган), от кого (компания, ИНН), исх. номер/дата.
-2. «На Ваше требование №… от … сообщаем следующее.»
-3. Перечень предоставляемых документов (нумерованный).
-4. Пояснения по отсутствующим (если есть).
-5. Правовое основание предоставления.
-6. Приложения: количество листов по каждой позиции — \`[ЗАПОЛНИТЬ]\`.
-7. Подпись: должность, ФИО — \`[ЗАПОЛНИТЬ]\`.`;
+
+[ПРОЕКТ — требует проверки юристом]
+Шапка: орган, адрес [ЗАПОЛНИТЬ], от кого (реквизиты из данных)
+1. Ссылка на требование: номер, дата, основание
+2. ПО КАЖДОМУ пункту отдельной строкой:
+   - представляется (приложение № N)
+   - составлен и представляется (приложение № N)
+   - не может быть представлен — фактическая причина
+3. Пояснения по существу
+4. Приложение: реестр на [ЗАПОЛНИТЬ] листах
+Подпись: должность, ФИО — [ЗАПОЛНИТЬ]
+Дата`;
+
+/** Собирает user message с правовыми основаниями из справочника. */
+function buildUserMessage(input: DraftInput): string {
+  const basis = LEGAL_BASIS[input.authority];
+  const normsText = basis.norms.length > 0
+    ? basis.norms.join(", ")
+    : "[УТОЧНИТЬ: правовое основание]";
+  const liabilityText = basis.liability
+    ? `Ответственность за непредоставление: ${basis.liability}`
+    : "";
+  const deadlineText = basis.deadlineDays
+    ? `Срок ответа: ${basis.deadlineDays} рабочих дней`
+    : "";
+
+  return JSON.stringify({
+    ...input,
+    legalBasis: normsText,
+    liability: liabilityText || undefined,
+    deadline: deadlineText || undefined,
+  }, null, 2);
+}
 
 export async function draftResponse(
   client: AnthropicClient,
@@ -69,10 +91,7 @@ export async function draftResponse(
       max_tokens: 4096,
       system: DRAFT_SYSTEM_PROMPT,
       messages: [
-        {
-          role: "user",
-          content: JSON.stringify(input, null, 2),
-        },
+        { role: "user", content: buildUserMessage(input) },
       ],
     });
 

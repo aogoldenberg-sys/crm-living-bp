@@ -8,7 +8,7 @@
  */
 
 import type { AnthropicClient } from "../client.js";
-import type { RequestItem, ChecklistEntry } from "@crm/schemas";
+import type { RequestItem, ChecklistEntry, RequestingAuthority } from "@crm/schemas";
 import { type Result, ok, err } from "@crm/core";
 import { selectOpenItems, buildDraftInput, type ClarifyAnswer } from "./clarify.js";
 import { draftResponse } from "./draft.js";
@@ -16,7 +16,7 @@ import { buildRegistry, type RegistryRow } from "./registry.js";
 import { buildClientPosition } from "./position.js";
 
 export type PipelineMeta = {
-  authority: string;
+  authority: RequestingAuthority;
   incomingRef: { number: string | null; date: string | null };
   companyName: string;
   companyInn: string;

@@ -40,6 +40,15 @@ const EVIDENCE_MAP: Record<PrimaryDocKind, ReadonlyArray<BusinessEvent["type"]>>
   contract: ["deal_stage_changed"],
   order_internal: [],       // приказы из лога не восстановимы — только have/missing
   explanatory: [],          // пояснительная пишется, не восстанавливается
+  order_hire: [],
+  personal_card: [],
+  staffing_table: [],
+  timesheet: [],
+  workbook_extract: [],
+  debt_calculation: [],
+  art236_calculation: [],
+  payroll_regulation: [],
+  written_clarification: [],
   other: [],
 };
 
@@ -77,7 +86,7 @@ export type UploadedDocIndex = ReadonlyMap<string, string>;
  */
 export function buildChecklist(
   items: ReadonlyArray<RequestItem>,
-  events: ReadonlyArray<BusinessEvent>,
+  events: ReadonlyArray<BusinessEvent> = [],
   uploaded: UploadedDocIndex,
   makeId: () => string,          // uuid снаружи — детерминизм в тестах
 ): MatchResult<ChecklistEntry[]> {
@@ -166,6 +175,15 @@ const RU_KIND: Record<PrimaryDocKind, string> = {
   invoice_facture: "Счёт-фактура",
   order_internal: "Приказ",
   explanatory: "Пояснительная записка",
+  order_hire: "Приказ о приёме",
+  personal_card: "Личная карточка",
+  staffing_table: "Штатное расписание",
+  timesheet: "Табель учёта",
+  workbook_extract: "Выписка из трудовой",
+  debt_calculation: "Расчёт задолженности",
+  art236_calculation: "Расчёт ст. 236 ТК",
+  payroll_regulation: "Положение об оплате",
+  written_clarification: "Письменные пояснения",
   other: "Прочее",
 };
 

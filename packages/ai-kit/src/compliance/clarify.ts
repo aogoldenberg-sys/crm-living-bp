@@ -120,7 +120,7 @@ export async function parseClarifyAnswers(
 // ── buildDraftInput ───────────────────────────────────────────────────────────
 
 type Meta = {
-  authority: string;
+  authority: DraftInput["authority"];
   incomingRef: { number: string | null; date: string | null };
   companyName: string;
   companyInn: string;
@@ -150,20 +150,21 @@ export function buildDraftInput(
   const provided: DraftInput["provided"] = [];
   const missing: DraftInput["missing"] = [];
   const restoredDuplicates: DraftInput["restoredDuplicates"] = [];
+  let attachNo = 1;
 
   for (const e of entries) {
     switch (e.availability) {
       case "have_file":
       case "have_paper":
-        provided.push({ docKind: e.docKind, label: e.label });
+        provided.push({ docKind: e.docKind, label: e.label, attachmentNo: attachNo++ });
         break;
       case "restorable":
-        restoredDuplicates.push({ docKind: e.docKind, label: e.label });
+        restoredDuplicates.push({ docKind: e.docKind, label: e.label, attachmentNo: attachNo++ });
         break;
       case "missing_no_event": {
         const ans = byItem.get(e.requestItemId);
         if (ans?.status === "have_paper") {
-          provided.push({ docKind: e.docKind, label: e.label });
+          provided.push({ docKind: e.docKind, label: e.label, attachmentNo: attachNo++ });
         } else if (ans?.status === "not_applicable") {
           // не включаем в письмо
         } else {

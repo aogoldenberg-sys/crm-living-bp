@@ -1384,8 +1384,8 @@ async function handleCompliancePackage(request: Request, env: Env, ctx: Executio
     { ...caseData, status: "assembling" } as unknown as Record<string, unknown>,
   );
 
-  const pipelineMeta = {
-    authority: meta?.authority ?? (caseData.authority as string) ?? "other",
+  const pipelineMeta: Parameters<typeof runPipeline>[4] = {
+    authority: (meta?.authority ?? (caseData.authority as string) ?? "other") as Parameters<typeof runPipeline>[4]["authority"],
     incomingRef: meta?.incomingRef ?? { number: null, date: null },
     companyName: meta?.companyName ?? "[ЗАПОЛНИТЬ]",
     companyInn: meta?.companyInn ?? "[ЗАПОЛНИТЬ]",
