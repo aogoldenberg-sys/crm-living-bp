@@ -140,7 +140,7 @@ export function PaywallScreen({
 
         {/* в) Все тарифы */}
         <a
-          href="/crm_life/services"
+          href="/kairos/services"
           className="paywall-btn"
           style={{ display: "block", textAlign: "center", marginTop: 8, background: "transparent", color: "#8B6914", border: "1px solid #C89A34", textDecoration: "none" }}
         >

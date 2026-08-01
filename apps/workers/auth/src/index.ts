@@ -252,7 +252,7 @@ async function handleYandexCallback(request: Request, env: Env): Promise<Respons
   // 5. Редирект во фронтенд с customToken в URL-фрагменте (#)
   // Фронт читает fragment, вызывает signInWithCustomToken и очищает URL.
   // РЕШЕНИЕ: fragment не попадает в сервер-логи — безопаснее query param.
-  const appUrl = new URL("https://opentgp.ru/crm_life/");
+  const appUrl = new URL("https://opentgp.ru/kairos/");
   appUrl.hash = `yandex_token=${encodeURIComponent(customToken)}&businessId=${encodeURIComponent(businessId)}`;
   return Response.redirect(appUrl.toString(), 302);
 }

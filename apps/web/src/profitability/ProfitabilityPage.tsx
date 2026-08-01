@@ -159,7 +159,7 @@ export function ProfitabilityPage() {
         </div>
         <div style={{ marginTop: 16 }}>
           <a
-            href="/crm_life/intake"
+            href="/kairos/intake"
             style={{ display: "inline-block", padding: "10px 22px", background: "linear-gradient(135deg,#C89A34,#E4C260)", borderRadius: 8, fontWeight: 700, fontSize: 13, color: "#3A2800", textDecoration: "none" }}
           >
             Загрузить выписку →

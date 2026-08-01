@@ -13,7 +13,7 @@ import { usePlanExists } from "./onboarding/usePlanExists";
 import { ServicesPage } from "./services/ServicesPage";
 import { BusinessPage } from "./features/revision/BusinessPage";
 
-// Обрабатывает #yandex_token= на ЛЮБОМ роуте — Worker редиректит на /crm_life/
+// Обрабатывает #yandex_token= на ЛЮБОМ роуте — Worker редиректит на /kairos/
 function YandexAuthHandler() {
   const navigate = useNavigate();
 

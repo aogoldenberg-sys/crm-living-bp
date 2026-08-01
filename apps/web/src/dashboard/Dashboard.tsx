@@ -37,7 +37,7 @@ function LockedFeature({ title }: { title: string }) {
       <p style={{ margin: "0 0 20px", fontSize: 13, color: "#8B7355" }}>
         Первый раз — бесплатно. Для повторного использования подключите тариф.
       </p>
-      <a href="/crm_life/services" style={{
+      <a href="/kairos/services" style={{
         display: "inline-block", padding: "10px 24px",
         background: "linear-gradient(135deg,#C89A34,#E4C260)",
         borderRadius: 8, fontWeight: 700, fontSize: 13, color: "#3A2800", textDecoration: "none",
