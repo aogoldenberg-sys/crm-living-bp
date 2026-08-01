@@ -281,15 +281,30 @@ describe("buildDraftInput", () => {
 // ─── buildRegistry ────────────────────────────────────────────────────────────
 
 describe("buildRegistry", () => {
-  it("13. have_file → provided; missing_no_event + answer have_paper → pending_scan", () => {
+  it("13. have_file → provided; missing_no_event + answer have_paper → pending_scan; missing answer → исключён", () => {
+    const entryMissing: ChecklistEntry = {
+      entryId: "entry-missing",
+      requestItemId: "550e8400-e29b-41d4-a716-446655440003",
+      docKind: "act",
+      label: "Акт",
+      availability: "missing_no_event",
+      fileRef: null,
+      evidence: [],
+      confirmedByOwner: false,
+    };
     const registry = buildRegistry(
-      [entryOpen, entryClosed],
-      [{ itemId: ITEM_ID, status: "have_paper", note: null }],
+      [entryOpen, entryClosed, entryMissing],
+      [
+        { itemId: ITEM_ID, status: "have_paper", note: null },
+        { itemId: "550e8400-e29b-41d4-a716-446655440003", status: "missing", note: null },
+      ],
     );
     const open = registry.find(r => r.entryId === "entry-1");
     const closed = registry.find(r => r.entryId === "entry-2");
+    const absent = registry.find(r => r.entryId === "entry-missing");
     expect(open?.resolution).toBe("pending_scan");
     expect(closed?.resolution).toBe("provided");
+    expect(absent).toBeUndefined(); // missing → не в реестр
   });
 });
 
@@ -330,6 +345,7 @@ describe("runPipeline", () => {
       expect(result.value.draftLetter.startsWith("[ПРОЕКТ")).toBe(true);
       expect(result.value.openItemCount).toBe(0);
       expect(result.value.registry).toHaveLength(1);
+      expect(typeof result.value.clientPosition).toBe("string"); // "" — нет missing
     }
   });
 });

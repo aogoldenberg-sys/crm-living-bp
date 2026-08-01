@@ -14,7 +14,7 @@ import type { Db } from "@crm/firestore-adapter";
 import { BusinessEvent, ExternalPushSignal, RequestItem, INTAKE_TO_BOOK_ID, BOOK_SECTION_IDS, type SourceDocKind, Entitlements, BusinessPlanV1 } from "@crm/schemas";
 import { handleDocuments } from "./documents.js";
 import { createFirestoreRestClient, saveEvents, registerTenant, loadEvents, loadForecast, loadBusinessPlan, saveBusinessPlan } from "@crm/firestore-adapter";
-import { generatePlan, ExtractedPlanSchema, AssessmentOutputSchema, transcribeAudio, extractVoiceIntent, createAnthropicClient, runPipeline } from "@crm/ai-kit";
+import { generatePlan, ExtractedPlanSchema, AssessmentOutputSchema, transcribeAudio, extractVoiceIntent, createAnthropicClient, runPipeline, parseClarifyAnswers, selectOpenItems } from "@crm/ai-kit";
 import type { ClarifyAnswer } from "@crm/ai-kit";
 import { REQUIRED_SECTIONS, mapToSections, gateIntake, classifyDocument, checkAccess, startTrial, simulateScenario, rankScenarios, buildPlanDiff, computeUnitEconomics, DEFAULT_THRESHOLDS, buildChecklist } from "@crm/core";
 import { mulberry32 } from "@crm/core";
@@ -1313,6 +1313,8 @@ async function handleComplianceExtract(request: Request, env: Env): Promise<Resp
 }
 
 // ── /compliance/clarify ────────────────────────────────────────────────────────
+// Принимает { caseId, userAnswer: string }, вызывает parseClarifyAnswers,
+// возвращает { caseId, answers: ClarifyAnswer[] } для показа таблицы с селектами.
 
 async function handleComplianceClarify(request: Request, env: Env): Promise<Response> {
   const authHeader = request.headers.get("Authorization") ?? "";
@@ -1327,11 +1329,11 @@ async function handleComplianceClarify(request: Request, env: Env): Promise<Resp
   if (!userDoc.exists) return jsonCors({ error: "User not registered" }, 400);
   const { businessId } = userDoc.data() as { businessId: string };
 
-  let body: { caseId?: string; answers?: ClarifyAnswer[] };
+  let body: { caseId?: string; userAnswer?: string };
   try { body = await request.json() as typeof body; } catch { return jsonCors({ error: "Invalid JSON" }, 400); }
 
-  const { caseId, answers } = body;
-  if (!caseId || !Array.isArray(answers)) return jsonCors({ error: "Missing caseId or answers" }, 400);
+  const { caseId, userAnswer } = body;
+  if (!caseId || typeof userAnswer !== "string") return jsonCors({ error: "Missing caseId or userAnswer" }, 400);
 
   const caseDoc = await db.collection(`tenants/${businessId}/compliance_cases`).doc(caseId).get();
   if (!caseDoc.exists) return jsonCors({ error: "Case not found" }, 404);
@@ -1339,25 +1341,15 @@ async function handleComplianceClarify(request: Request, env: Env): Promise<Resp
   const caseData = caseDoc.data() as Record<string, unknown>;
   if (caseData.businessId !== businessId) return jsonCors({ error: "Forbidden" }, 403);
 
-  // Apply answers: update missing_no_event entries based on ClarifyAnswer.status
-  const checklist = caseData.checklist as Array<Record<string, unknown>>;
-  const byItem = new Map<string, ClarifyAnswer>(answers.map(a => [a.itemId, a]));
+  const items = caseData.items as Parameters<typeof selectOpenItems>[0];
+  const entries = caseData.checklist as Parameters<typeof selectOpenItems>[1];
+  const openItems = selectOpenItems(items, entries);
 
-  const updated = checklist.map(e => {
-    if (e.availability !== "missing_no_event") return e;
-    const ans = byItem.get(e.requestItemId as string);
-    if (!ans) return e;
-    const newAvail = ans.status === "have_paper" ? "have_paper"
-      : ans.status === "not_applicable" ? "not_applicable"
-      : "missing_no_event";
-    return { ...e, availability: newAvail };
-  });
+  const client = createAnthropicClient(env.ANTHROPIC_API_KEY);
+  const parseResult = await parseClarifyAnswers(client, openItems, userAnswer);
+  if (!parseResult.ok) return jsonCors({ error: parseResult.error.message }, 500);
 
-  await db.collection(`tenants/${businessId}/compliance_cases`).doc(caseId).set(
-    { ...caseData, checklist: updated } as unknown as Record<string, unknown>,
-  );
-
-  return jsonCors({ caseId, status: "checklist_review" });
+  return jsonCors({ caseId, answers: parseResult.value });
 }
 
 // ── /compliance/package ────────────────────────────────────────────────────────
@@ -1375,10 +1367,10 @@ async function handleCompliancePackage(request: Request, env: Env, ctx: Executio
   if (!userDoc.exists) return jsonCors({ error: "User not registered" }, 400);
   const { businessId } = userDoc.data() as { businessId: string };
 
-  let body: { caseId?: string; meta?: { authority?: string; incomingRef?: { number: string | null; date: string | null }; companyName?: string; companyInn?: string } };
+  let body: { caseId?: string; answers?: ClarifyAnswer[]; meta?: { authority?: string; incomingRef?: { number: string | null; date: string | null }; companyName?: string; companyInn?: string } };
   try { body = await request.json() as typeof body; } catch { return jsonCors({ error: "Invalid JSON" }, 400); }
 
-  const { caseId, meta } = body;
+  const { caseId, answers: clarifyAnswers, meta } = body;
   if (!caseId) return jsonCors({ error: "Missing caseId" }, 400);
 
   const caseDoc = await db.collection(`tenants/${businessId}/compliance_cases`).doc(caseId).get();
@@ -1405,7 +1397,7 @@ async function handleCompliancePackage(request: Request, env: Env, ctx: Executio
         const client = createAnthropicClient(env.ANTHROPIC_API_KEY);
         const items = caseData.items as Parameters<typeof runPipeline>[1];
         const entries = caseData.checklist as Parameters<typeof runPipeline>[2];
-        const result = await runPipeline(client, items, entries, [], pipelineMeta);
+        const result = await runPipeline(client, items, entries, clarifyAnswers ?? [], pipelineMeta);
         if (!result.ok) {
           await db.collection(`tenants/${businessId}/compliance_cases`).doc(caseId).set(
             { ...caseData, status: "checklist_review", packageError: result.error.message } as unknown as Record<string, unknown>,
@@ -1425,7 +1417,7 @@ async function handleCompliancePackage(request: Request, env: Env, ctx: Executio
           status: "draft",
         };
         await db.collection(`tenants/${businessId}/compliance_cases`).doc(caseId).set(
-          { ...caseData, status: "done", response, registry: result.value.registry } as unknown as Record<string, unknown>,
+          { ...caseData, status: "done", response, registry: result.value.registry, clientPosition: result.value.clientPosition } as unknown as Record<string, unknown>,
         );
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);

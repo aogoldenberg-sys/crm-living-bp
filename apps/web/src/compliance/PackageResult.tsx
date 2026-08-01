@@ -4,24 +4,23 @@ export type RegistryRow = {
   entryId: string;
   docKind: string;
   label: string;
-  resolution: "provided" | "duplicate" | "pending_scan" | "missing" | "not_applicable";
+  resolution: "provided" | "duplicate" | "pending_scan";
 };
 
 interface Props {
   caseId: string;
   letter: string;
   registry: RegistryRow[];
+  clientPosition?: string;
 }
 
 const RESOLUTION_LABEL: Record<string, string> = {
   provided: "📄 Оригинал",
   duplicate: "📋 Дубликат",
   pending_scan: "🔎 На бумаге (сканировать)",
-  missing: "⚠️ Отсутствует",
-  not_applicable: "— Не применимо",
 };
 
-export function PackageResult({ letter, registry }: Props) {
+export function PackageResult({ letter, registry, clientPosition }: Props) {
   const [letterText, setLetterText] = useState(letter);
 
   function handlePrint() {
@@ -35,8 +34,16 @@ export function PackageResult({ letter, registry }: Props) {
     w.print();
   }
 
-  const provided = registry.filter(r => r.resolution === "provided" || r.resolution === "duplicate" || r.resolution === "pending_scan");
-  const absent = registry.filter(r => r.resolution === "missing" || r.resolution === "not_applicable");
+  function handlePositionDownload() {
+    if (!clientPosition) return;
+    const blob = new Blob([clientPosition], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "позиция_клиента.txt";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   return (
     <div className="crm-v2-panel">
@@ -47,10 +54,10 @@ export function PackageResult({ letter, registry }: Props) {
       </div>
 
       {/* Document registry */}
-      {provided.length > 0 && (
+      {registry.length > 0 && (
         <section className="crm-v2-group">
           <p className="crm-v2-group-text">Документы к представлению</p>
-          {provided.map(r => (
+          {registry.map(r => (
             <div key={r.entryId} className="crm-v2-entry">
               <span className="crm-v2-entry-label">{r.label}</span>
               <span className="crm-v2-badge-sm">{RESOLUTION_LABEL[r.resolution]}</span>
@@ -59,15 +66,14 @@ export function PackageResult({ letter, registry }: Props) {
         </section>
       )}
 
-      {absent.length > 0 && (
+      {/* Client position */}
+      {clientPosition && (
         <section className="crm-v2-group">
-          <p className="crm-v2-group-text">Пояснения по отсутствующим</p>
-          {absent.map(r => (
-            <div key={r.entryId} className="crm-v2-entry">
-              <span className="crm-v2-entry-label">{r.label}</span>
-              <span className="crm-v2-badge-sm">{RESOLUTION_LABEL[r.resolution]}</span>
-            </div>
-          ))}
+          <p className="crm-v2-group-text">Ваша позиция по отсутствующим документам</p>
+          <pre className="crm-v2-position">{clientPosition}</pre>
+          <button type="button" className="crm-v2-btn-sm" onClick={handlePositionDownload}>
+            ⬇ Скачать позицию
+          </button>
         </section>
       )}
 

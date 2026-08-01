@@ -13,6 +13,7 @@ import { type Result, ok, err } from "@crm/core";
 import { selectOpenItems, buildDraftInput, type ClarifyAnswer } from "./clarify.js";
 import { draftResponse } from "./draft.js";
 import { buildRegistry, type RegistryRow } from "./registry.js";
+import { buildClientPosition } from "./position.js";
 
 export type PipelineMeta = {
   authority: string;
@@ -24,6 +25,7 @@ export type PipelineMeta = {
 export type PipelineResult = {
   draftLetter: string;
   registry: RegistryRow[];
+  clientPosition: string;
   openItemCount: number;
 };
 
@@ -49,9 +51,16 @@ export async function runPipeline(
 
   const registry = buildRegistry(entries, answers);
 
+  const positionResult = await buildClientPosition(
+    client,
+    draftInput.missing.map(m => ({ docKind: m.docKind, label: m.label, userNote: m.reason })),
+  );
+  if (!positionResult.ok) return err(positionResult.error);
+
   return ok({
     draftLetter: letterResult.value,
     registry,
+    clientPosition: positionResult.value,
     openItemCount: openItems.length,
   });
 }

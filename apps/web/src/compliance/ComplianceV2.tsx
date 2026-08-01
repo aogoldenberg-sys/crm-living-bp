@@ -17,7 +17,7 @@ interface Props {
   businessId: string;
 }
 
-type Step = "upload" | "review" | "clarify" | "assembling" | "done";
+type Step = "upload" | "review" | "clarify" | "clarify_confirm" | "assembling" | "done";
 
 type State = {
   step: Step;
@@ -25,8 +25,10 @@ type State = {
   items: RequestItem[];
   entries: ChecklistEntry[];
   openItems: RequestItem[];
+  parsedAnswers: ClarifyAnswer[];
   letter: string;
   registry: RegistryRow[];
+  clientPosition: string;
   error: string | null;
   paywall: { reason: string; requiredTier?: string } | null;
 };
@@ -37,8 +39,10 @@ const INITIAL: State = {
   items: [],
   entries: [],
   openItems: [],
+  parsedAnswers: [],
   letter: "",
   registry: [],
+  clientPosition: "",
   error: null,
   paywall: null,
 };
@@ -121,30 +125,43 @@ export function ComplianceV2({ businessId: _businessId }: Props) {
     }
   }
 
-  // ── Submit clarify answers ────────────────────────────────────────────────────
-  async function handleClarify(answers: ClarifyAnswer[]) {
+  // ── Receive raw text from ClarifyDialog → parse on server ────────────────────
+  async function handleClarifyText(userAnswer: string) {
     const token = await getToken();
     try {
-      await fetch(`${WORKER}/compliance/clarify`, {
+      const res = await fetch(`${WORKER}/compliance/clarify`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ caseId: state.caseId, answers }),
+        body: JSON.stringify({ caseId: state.caseId, userAnswer }),
       });
-    } catch {
-      // non-fatal: if clarify fails, package still works with unanswered items
+      const data = await res.json().catch(() => ({})) as { answers?: ClarifyAnswer[]; error?: string };
+      if (!res.ok || !data.answers) {
+        setState(s => ({ ...s, error: data.error ?? `Ошибка ${res.status}` }));
+        return;
+      }
+      setState(s => ({ ...s, step: "clarify_confirm", parsedAnswers: data.answers! }));
+    } catch (e) {
+      setState(s => ({ ...s, error: e instanceof Error ? e.message : "Ошибка сети" }));
     }
-    await triggerPackage(answers);
+  }
+
+  // ── Update a single parsed answer (manual correction) ────────────────────────
+  function setParsedAnswerStatus(itemId: string, status: ClarifyAnswer["status"]) {
+    setState(s => ({
+      ...s,
+      parsedAnswers: s.parsedAnswers.map(a => a.itemId === itemId ? { ...a, status } : a),
+    }));
   }
 
   // ── Trigger package assembly ──────────────────────────────────────────────────
-  async function triggerPackage(_answers: ClarifyAnswer[]) {
+  async function triggerPackage(answers: ClarifyAnswer[]) {
     setState(s => ({ ...s, step: "assembling", error: null }));
     const token = await getToken();
     try {
       await fetch(`${WORKER}/compliance/package`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ caseId: state.caseId }),
+        body: JSON.stringify({ caseId: state.caseId, answers }),
       });
     } catch {
       // assembling in background, poll regardless
@@ -171,6 +188,7 @@ export function ComplianceV2({ businessId: _businessId }: Props) {
         status?: string;
         response?: { letterDraft?: string };
         registry?: RegistryRow[];
+        clientPosition?: string;
         packageError?: string;
       };
       if (data.status === "done" && data.response?.letterDraft) {
@@ -180,6 +198,7 @@ export function ComplianceV2({ businessId: _businessId }: Props) {
           step: "done",
           letter: data.response!.letterDraft!,
           registry: data.registry ?? [],
+          clientPosition: data.clientPosition ?? "",
         }));
       } else if (data.packageError) {
         if (pollRef.current) clearInterval(pollRef.current);
@@ -211,7 +230,45 @@ export function ComplianceV2({ businessId: _businessId }: Props) {
   }
 
   if (state.step === "clarify") {
-    return <ClarifyDialog openItems={state.openItems} onSubmit={a => { void handleClarify(a); }} />;
+    return <ClarifyDialog openItems={state.openItems} onSubmit={a => { void handleClarifyText(a); }} />;
+  }
+
+  if (state.step === "clarify_confirm") {
+    const labelMap: Record<string, string> = {
+      have_paper: "Есть на бумаге",
+      not_applicable: "Не наша операция",
+      missing: "Отсутствует",
+    };
+    return (
+      <div className="crm-v2-panel">
+        <h2 className="crm-v2-title">Проверьте распознанные ответы</h2>
+        <p className="crm-v2-sub">При необходимости скорректируйте и нажмите «Собрать пакет».</p>
+        {state.parsedAnswers.map(ans => {
+          const item = state.openItems.find(it => it.itemId === ans.itemId);
+          const label = item
+            ? (item.rawText.length > 80 ? item.rawText.slice(0, 80) + "…" : item.rawText)
+            : ans.itemId;
+          return (
+            <div key={ans.itemId} className="crm-v2-group">
+              <p className="crm-v2-group-text">{label}</p>
+              <select
+                className="crm-v2-select"
+                value={ans.status}
+                onChange={e => setParsedAnswerStatus(ans.itemId, e.target.value as ClarifyAnswer["status"])}
+              >
+                <option value="have_paper">{labelMap.have_paper}</option>
+                <option value="not_applicable">{labelMap.not_applicable}</option>
+                <option value="missing">{labelMap.missing}</option>
+              </select>
+            </div>
+          );
+        })}
+        {state.error && <p className="crm-v2-error">{state.error}</p>}
+        <button type="button" className="crm-v2-btn" onClick={() => { void triggerPackage(state.parsedAnswers); }}>
+          Собрать пакет
+        </button>
+      </div>
+    );
   }
 
   if (state.step === "assembling") {
@@ -223,7 +280,14 @@ export function ComplianceV2({ businessId: _businessId }: Props) {
   }
 
   if (state.step === "done") {
-    return <PackageResult caseId={state.caseId!} letter={state.letter} registry={state.registry} />;
+    return (
+      <PackageResult
+        caseId={state.caseId!}
+        letter={state.letter}
+        registry={state.registry}
+        clientPosition={state.clientPosition}
+      />
+    );
   }
 
   // upload step
