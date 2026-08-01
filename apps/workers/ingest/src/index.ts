@@ -1309,7 +1309,7 @@ async function handleComplianceExtract(request: Request, env: Env): Promise<Resp
   };
   await saveEntitlements(db, businessId, updatedEnt);
 
-  return jsonCors({ caseId, items: validated.data, entries: checklistResult.value });
+  return jsonCors({ caseId, items: validated.data, entries: checklistResult.value, authority: caseData.authority });
 }
 
 // ── /compliance/clarify ────────────────────────────────────────────────────────

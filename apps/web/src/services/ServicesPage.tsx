@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useSearchParams, Link } from "react-router-dom";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/useAuth";
 import { ComplianceFlow } from "../features/compliance/ComplianceFlow";
 import { TaxReportingScreen } from "../features/reporting/TaxReportingScreen";
@@ -9,19 +9,15 @@ import "./ServicesPage.css";
 
 type ServiceTab = "tax" | "compliance";
 
-/** Рендерит ComplianceFlow и помечает entitlement использованным при первом входе */
 function GatedCompliance({
-  businessId,
-  onUsed,
+  businessId, onUsed,
 }: { businessId: string; onUsed: () => Promise<void> }) {
   useEffect(() => { void onUsed(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   return <ComplianceFlow businessId={businessId} />;
 }
 
-/** Рендерит TaxReportingScreen и помечает entitlement использованным при первом входе */
 function GatedTax({
-  businessId,
-  onUsed,
+  businessId, onUsed,
 }: { businessId: string; onUsed: () => Promise<void> }) {
   useEffect(() => { void onUsed(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   return <TaxReportingScreen businessId={businessId} />;
@@ -32,10 +28,11 @@ export function ServicesPage() {
   const initialTab = (searchParams.get("tab") ?? "compliance") as ServiceTab;
   const [tab, setTab] = useState<ServiceTab>(initialTab);
   const { businessId } = useAuth();
+  const navigate = useNavigate();
   const { loading, canCompliance, canReport, markComplianceUsed, markReportUsed } =
     useEntitlements(businessId);
 
-  if (loading) return <div className="loading-screen">Загрузка…</div>;
+  if (loading) return <div className="loading-screen">Загрузка\u2026</div>;
 
   const tabBtn = (id: ServiceTab, label: string) => (
     <button
@@ -50,18 +47,29 @@ export function ServicesPage() {
   return (
     <div className="svc-page">
       <header className="svc-header">
-        <Link to="/" className="svc-brand">
-          <img src={import.meta.env.BASE_URL + "logo-badge.png"} alt="Kairos" className="svc-logo" />
+        <a href="/" className="svc-brand" target="_blank" rel="noopener noreferrer">
+          <img src={import.meta.env.BASE_URL + "logo-badge.png"} alt="Kairos"
+            className="svc-logo svc-logo--transparent" />
           <span className="svc-wordmark">Kairos</span>
-        </Link>
+        </a>
         <nav className="svc-tabs">
-          {tabBtn("compliance", "Требование налоговой")}
-          {tabBtn("tax", "Отчётность")}
+          {tabBtn("compliance", "Требование / Запрос")}
+          {tabBtn("tax", "Составить отчётность")}
         </nav>
-        <Link to="/dashboard" className="svc-dashboard-link">
-          Дашборд →
-        </Link>
       </header>
+
+      {/* Quick-action cards */}
+      <div className="svc-cards">
+        <button type="button" className="svc-card" onClick={() => navigate("/onboarding")}>
+          Создать бизнес-план
+        </button>
+        <button type="button" className="svc-card" onClick={() => navigate("/onboarding")}>
+          Оценить бизнес-план
+        </button>
+        <button type="button" className="svc-card" onClick={() => navigate("/business")}>
+          Анализ текущего бизнеса
+        </button>
+      </div>
 
       <main className="svc-content">
         {tab === "compliance" && (

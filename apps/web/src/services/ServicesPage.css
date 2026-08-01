@@ -30,6 +30,10 @@
   object-fit: contain;
 }
 
+.svc-logo--transparent {
+  mix-blend-mode: multiply;
+}
+
 .svc-wordmark {
   font-family: var(--font-serif, Georgia, serif);
   font-size: 20px;
@@ -40,16 +44,16 @@
 
 .svc-tabs {
   display: flex;
-  gap: 4px;
+  gap: 8px;
   flex: 1;
 }
 
 .svc-tab {
-  padding: 8px 18px;
+  padding: 12px 24px;
   border: 1px solid rgba(200,160,60,0.3);
-  border-radius: 8px;
+  border-radius: 14px;
   background: transparent;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 500;
   color: #8B7355;
   cursor: pointer;
@@ -68,17 +72,40 @@
   color: #5A3D00;
 }
 
-.svc-dashboard-link {
-  font-size: 13px;
-  color: #8B7355;
-  text-decoration: none;
-  margin-left: auto;
-  white-space: nowrap;
+/* ── Quick-action cards ───────────────────────────────────────────────────── */
+
+.svc-cards {
+  display: flex;
+  gap: 12px;
+  padding: 16px 24px 0;
+  max-width: 900px;
+  margin: 0 auto;
+  width: 100%;
+  flex-wrap: wrap;
 }
 
-.svc-dashboard-link:hover {
-  color: #C89A34;
+.svc-card {
+  flex: 1;
+  min-width: 180px;
+  padding: 16px 20px;
+  border: 1px solid rgba(200,160,60,0.25);
+  border-radius: 14px;
+  background: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  color: #5A3D00;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: center;
 }
+
+.svc-card:hover {
+  border-color: #C89A34;
+  box-shadow: 0 2px 12px rgba(200,160,60,0.15);
+  transform: translateY(-1px);
+}
+
+/* ── Main content ─────────────────────────────────────────────────────────── */
 
 .svc-content {
   flex: 1;
@@ -86,6 +113,53 @@
   max-width: 900px;
   margin: 0 auto;
   width: 100%;
+}
+
+/* ── Upload bubble animation (CSS only) ───────────────────────────────────── */
+
+.crm-v2-upload-wrap {
+  position: relative;
+  overflow: hidden;
+}
+
+.crm-v2-upload-wrap::before,
+.crm-v2-upload-wrap::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  opacity: 0.12;
+  pointer-events: none;
+  animation: svc-float 8s ease-in-out infinite;
+}
+
+.crm-v2-upload-wrap::before {
+  width: 120px;
+  height: 120px;
+  background: #C89A34;
+  bottom: -30px;
+  left: 10%;
+  animation-delay: 0s;
+}
+
+.crm-v2-upload-wrap::after {
+  width: 80px;
+  height: 80px;
+  background: #E4C260;
+  bottom: -20px;
+  right: 15%;
+  animation-delay: 3s;
+}
+
+@keyframes svc-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-20px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .crm-v2-upload-wrap::before,
+  .crm-v2-upload-wrap::after {
+    animation: none;
+  }
 }
 
 /* ── Paywall ───────────────────────────────────────────────────────────────── */
@@ -156,7 +230,7 @@
   padding: 14px;
   background: linear-gradient(135deg, #C89A34, #E4C260);
   border: none;
-  border-radius: 10px;
+  border-radius: 14px;
   font-size: 15px;
   font-weight: 700;
   color: #3A2800;
@@ -179,4 +253,49 @@
 
 .paywall-back:hover {
   color: #5A3D00;
+}
+
+/* ── Checkbox styles in checklist ──────────────────────────────────────────── */
+
+.crm-v2-check-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.crm-v2-check-label input[type="checkbox"] {
+  margin-top: 3px;
+  accent-color: #C89A34;
+}
+
+.crm-v2-summary-list {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0;
+}
+
+.crm-v2-summary-list li {
+  padding: 4px 0;
+  font-size: 14px;
+  color: #3A2800;
+}
+
+.crm-v2-input {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid rgba(200,160,60,0.3);
+  border-radius: 10px;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s;
+  box-sizing: border-box;
+}
+
+.crm-v2-input:focus {
+  border-color: #C89A34;
+}
+
+.crm-v2-gen-doc {
+  margin-bottom: 8px;
 }
