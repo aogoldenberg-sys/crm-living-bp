@@ -5,7 +5,6 @@ import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "./firebase";
 import { useAuth } from "./auth/useAuth";
 import type { UserRole } from "./auth/useAuth";
-import { LandingPage } from "./landing/LandingPage";
 import { LoginPage } from "./auth/LoginPage";
 import { Dashboard } from "./dashboard/Dashboard";
 import { PlanSectionPage } from "./plan/PlanSectionPage";
@@ -153,8 +152,8 @@ export default function App() {
       <YandexAuthHandler />
       <EmailVerifyBanner />
       <Routes>
-        {/* Лендинг — всегда доступен */}
-        <Route path="/" element={<LandingPage />} />
+        {/* Корень → сразу на логин, лендинг не нужен */}
+        <Route path="/" element={<Navigate to="/login" replace />} />
 
         {/* Вход/регистрация — один роут, unverified users остаются здесь */}
         <Route
