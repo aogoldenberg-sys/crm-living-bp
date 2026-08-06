@@ -1,4 +1,4 @@
-import { ONE_OFF, SUBSCRIPTIONS, MAGNETS, TG_MANAGER } from "./pricing";
+import { ONE_OFF, SUBSCRIPTIONS, TG_MANAGER } from "./pricing";
 
 export function TariffsPage() {
   return (
@@ -6,7 +6,7 @@ export function TariffsPage() {
       <h2 style={{ marginBottom: 8 }}>Тарифы Kairos</h2>
 
       <section style={{ marginBottom: 32 }}>
-        <h3 style={{ marginBottom: 12, fontSize: 15 }}>Разовые услуги по бизнес-плану</h3>
+        <h3 style={{ marginBottom: 12, fontSize: 15 }}>Линия 1 — разовые задачи</h3>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
             <tr style={{ background: "#f5f5f5" }}>
@@ -18,7 +18,7 @@ export function TariffsPage() {
           <tbody>
             {ONE_OFF.map(p => (
               <tr key={p.id}>
-                <td style={TD}><strong>{p.name}</strong></td>
+                <td style={TD}><strong>{p.name}</strong>{p.freeFirst && <><br/><span style={{ color: "#C89A34", fontSize: 11 }}>{p.freeFirst}</span></>}</td>
                 <td style={TD}>{p.price}</td>
                 <td style={TD}>{p.includes}</td>
               </tr>
@@ -28,7 +28,7 @@ export function TariffsPage() {
       </section>
 
       <section style={{ marginBottom: 32 }}>
-        <h3 style={{ marginBottom: 12, fontSize: 15 }}>Подписка «AI-исполнительный директор»</h3>
+        <h3 style={{ marginBottom: 12, fontSize: 15 }}>Линия 2 — подписка</h3>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
             <tr style={{ background: "#f5f5f5" }}>
@@ -47,18 +47,6 @@ export function TariffsPage() {
             ))}
           </tbody>
         </table>
-        <p style={{ fontSize: 12, color: "#666", marginTop: 8 }}>
-          Триал 14 дней — без карты, на любом тарифе подписки.
-        </p>
-      </section>
-
-      <section style={{ marginBottom: 32 }}>
-        <h3 style={{ marginBottom: 12, fontSize: 15 }}>Сервисы-магниты</h3>
-        {MAGNETS.map(m => (
-          <div key={m.name} style={{ marginBottom: 8, fontSize: 13 }}>
-            <strong>{m.name}</strong> — {m.price}. <span style={{ color: "#666" }}>{m.note}</span>
-          </div>
-        ))}
       </section>
 
       <a

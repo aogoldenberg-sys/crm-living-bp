@@ -1,103 +1,69 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/useAuth";
-import { CONTACT_URL } from "./pricing";
-import { priceForPaywall, tierLabel } from "./paywallHelpers";
+import { ONE_OFF, SUBSCRIPTIONS, PRICING_URL, CONTACT_URL } from "./pricing";
 import "./ServicesPage.css";
 
 export interface PaywallScreenProps {
-  reason: string;
+  /** Какой продукт заблокирован: id из ONE_OFF или SUBSCRIPTIONS */
+  feature?: string;
+  onBack?: () => void;
+  /** Legacy props — backward compat */
+  reason?: string;
   requiredTier?: string;
   requiredProduct?: string;
-  /** Страховка: если биллинг-стейт вернул internal=true — гейт не рендерим. */
   internal?: boolean;
-  onClose: () => void;
+  onClose?: () => void;
   onRetry?: () => void;
 }
 
-interface BillingState {
-  trialEndsAt: string | null;
+/** Резолвит продукт/тариф по feature id */
+function resolve(feature: string) {
+  const product = ONE_OFF.find(p => p.id === feature);
+  if (product) return { name: product.name, price: product.price, freeFirst: product.freeFirst };
+  const sub = SUBSCRIPTIONS.find(s => s.id === feature);
+  if (sub) return { name: sub.name, price: sub.price, freeFirst: undefined };
+  if (feature === "report") {
+    const kudir = ONE_OFF.find(p => p.id === "kudir");
+    if (kudir) return { name: kudir.name, price: kudir.price, freeFirst: kudir.freeFirst };
+  }
+  return { name: "Kairos", price: "", freeFirst: undefined };
 }
 
-export function PaywallScreen({
-  reason,
-  requiredTier,
-  requiredProduct,
-  internal,
-  onClose,
-  onRetry,
-}: PaywallScreenProps) {
-  const { user, businessId } = useAuth();
+export function PaywallScreen(props: PaywallScreenProps) {
+  const { businessId } = useAuth();
+  const navigate = useNavigate();
 
-  const [trialEndsAt, setTrialEndsAt] = useState<string | null | undefined>(undefined);
-  const [trialStatus, setTrialStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
-  const [trialErr, setTrialErr] = useState<string | null>(null);
+  if (props.internal === true) return null;
 
-  const price = priceForPaywall(requiredTier, requiredProduct);
-  const label = tierLabel(requiredTier, requiredProduct);
-  const tier = requiredTier ?? "pulse";
+  // Resolve feature from either new or legacy props
+  const featureId = props.feature ?? props.requiredProduct ?? props.requiredTier ?? "pulse";
+  const goBack = () => navigate("/dashboard");
+  const { name, price, freeFirst } = resolve(featureId);
+  const [payStatus, setPayStatus] = useState<string | null>(null);
+  const [paying, setPaying] = useState(false);
 
-  // Проверяем статус триала при маунте
-  useEffect(() => {
-    if (!user) return;
-    let cancelled = false;
-    void user.getIdToken().then(async token => {
-      try {
-        const res = await fetch(
-          `${import.meta.env.VITE_INGEST_WORKER_URL as string}/billing/state`,
-          { headers: { Authorization: `Bearer ${token}` } },
-        );
-        if (!res.ok || cancelled) return;
-        const d = await res.json() as BillingState;
-        if (!cancelled) setTrialEndsAt(d.trialEndsAt);
-      } catch {
-        if (!cancelled) setTrialEndsAt(null); // при ошибке показываем кнопку триала
-      }
-    });
-    return () => { cancelled = true; };
-  }, [user]);
-
-  // Страховка на случай гонки: если billing/state вернул internal=true — не рендерим гейт
-  if (internal === true) return null;
-
-  async function startTrial() {
-    if (!user) return;
-    setTrialStatus("loading"); setTrialErr(null);
+  async function openPayLink() {
+    setPaying(true);
+    setPayStatus(null);
     try {
-      const token = await user.getIdToken();
-      const res = await fetch(
-        `${import.meta.env.VITE_INGEST_WORKER_URL as string}/billing/start-trial`,
-        {
-          method: "POST",
-          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ tier }),
-        },
-      );
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({})) as { error?: string };
-        throw new Error(d.error ?? `Ошибка ${res.status}`);
+      const workerUrl = import.meta.env.VITE_INGEST_WORKER_URL as string;
+      const res = await fetch(`${workerUrl}/billing/pay?product=${featureId}&businessId=${businessId ?? ""}`);
+      const data = await res.json() as { success?: boolean; paymentUrl?: string; fallback?: boolean; message?: string; error?: string };
+      if (data.success && data.paymentUrl) {
+        window.open(data.paymentUrl, "_blank", "noopener,noreferrer");
+      } else {
+        setPayStatus(data.message ?? data.error ?? "Ошибка оплаты");
       }
-      // Обновляем billing state чтобы скрыть кнопку
-      const stateRes = await fetch(
-        `${import.meta.env.VITE_INGEST_WORKER_URL as string}/billing/state`,
-        { headers: { Authorization: `Bearer ${token}` } },
-      ).catch(() => null);
-      if (stateRes?.ok) {
-        const d = await stateRes.json() as BillingState;
-        setTrialEndsAt(d.trialEndsAt);
-      }
-      setTrialStatus("done");
-      onClose();
-      onRetry?.();
-    } catch (e) {
-      setTrialStatus("error");
-      setTrialErr(e instanceof Error ? e.message : "Ошибка");
+    } catch {
+      setPayStatus("Не удалось связаться с сервером оплаты");
+    } finally {
+      setPaying(false);
     }
   }
 
-  function openPayLink() {
-    const params = new URLSearchParams({
-      start: `Тариф ${tier} businessId ${businessId ?? ""}`,
-    });
+  function openTelegram() {
+    const params = new URLSearchParams({ start: `${name} businessId ${businessId ?? ""}` });
     window.open(`${CONTACT_URL}?${params.toString()}`, "_blank", "noopener,noreferrer");
   }
 
@@ -105,49 +71,51 @@ export function PaywallScreen({
     <div className="paywall">
       <div className="paywall-card">
         <span className="paywall-lock">🔒</span>
-        <h2 className="paywall-title">Требуется подписка</h2>
-        <p className="paywall-desc">{reason}</p>
+        <h2 className="paywall-title">Бесплатный лимит исчерпан</h2>
+        <p className="paywall-desc">
+          {freeFirst
+            ? `${freeFirst}. Для следующих — оплата.`
+            : `Для доступа к «${name}» необходима оплата.`}
+        </p>
 
         <div className="paywall-price">
-          <span className="paywall-price-label">Тариф «{label}»</span>
+          <span className="paywall-price-label">Тариф «{name}»</span>
           <span className="paywall-price-amount">{price}</span>
         </div>
 
-        {/* а) Триал — только если trialEndsAt === null (не использован) */}
-        {trialEndsAt === null && (
-          <button
-            type="button"
-            className="paywall-btn"
-            disabled={trialStatus === "loading"}
-            onClick={() => void startTrial()}
-          >
-            {trialStatus === "loading" ? "Активируем…" : "Начать бесплатно на 14 дней"}
-          </button>
-        )}
-        {trialErr && (
-          <p style={{ color: "#c62828", fontSize: 12, margin: "4px 0 0" }}>{trialErr}</p>
-        )}
-
-        {/* б) Оплатить */}
+        {/* Оплатить через Т-Банк */}
         <button
           type="button"
           className="paywall-btn"
-          style={{ marginTop: 8, background: "#e3f2fd", color: "#0d47a1" }}
           onClick={openPayLink}
+          disabled={paying}
         >
-          Оплатить
+          {paying ? "Подключение…" : `Оплатить ${price}`}
+        </button>
+        {payStatus && <p style={{ fontSize: 13, color: "#8B4513", margin: 0 }}>{payStatus}</p>}
+
+        {/* Техподдержка в Telegram */}
+        <button
+          type="button"
+          className="paywall-btn"
+          style={{ marginTop: 8, background: "#6B4226", color: "#fff" }}
+          onClick={openTelegram}
+        >
+          Техподдержка
         </button>
 
-        {/* в) Все тарифы */}
+        {/* Все тарифы */}
         <a
-          href="/kairos/services"
+          href={PRICING_URL}
+          target="_blank"
+          rel="noopener noreferrer"
           className="paywall-btn"
           style={{ display: "block", textAlign: "center", marginTop: 8, background: "transparent", color: "#8B6914", border: "1px solid #C89A34", textDecoration: "none" }}
         >
           Все тарифы
         </a>
 
-        <button type="button" className="paywall-back" onClick={onClose}>
+        <button type="button" className="paywall-back" onClick={goBack}>
           ← Назад
         </button>
       </div>

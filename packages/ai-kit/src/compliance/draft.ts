@@ -7,6 +7,7 @@ export type DraftInput = {
   incomingRef: { number: string | null; date: string | null };
   companyName: string;
   companyInn: string;
+  rawRequestTexts: string[];
   provided: Array<{ docKind: string; label: string; attachmentNo: number }>;
   missing: Array<{ docKind: string; label: string; reason: string }>;
   restoredDuplicates: Array<{ docKind: string; label: string; attachmentNo: number }>;
@@ -33,8 +34,8 @@ const DRAFT_SYSTEM_PROMPT = `# motivated_response_v2
    Не сообщено — [ЗАПОЛНИТЬ].
    Правдоподобная выдумка реквизитов запрещена.
 
-5. Отсутствующие документы: причину формулировать фактически
-   («документ находится у контрагента», «операция не совершалась»).
+5. Отсутствующие документы: причину формулировать фактически,
+   исходя из типа документа и контекста (см. п.9).
    НИКОГДА не предлагать изготовить документ задним числом.
 
 6. Дубликаты упоминать явно: «предоставляется дубликат, оригинал …».
@@ -42,7 +43,19 @@ const DRAFT_SYSTEM_PROMPT = `# motivated_response_v2
 7. Если authority = police или prosecutor — добавить абзац о праве
    предоставить документы в присутствии представителя (адвоката).
 
-8. Вывод: только текст письма, без markdown, без комментариев.
+8. В поле originalRequestItems передаётся дословный текст каждого пункта требования.
+   Используй его для точного понимания контекста: кто запрашивает, что именно,
+   по какому основанию, кто фигурирует (сотрудник, контрагент, должностное лицо).
+   Определяй роли лиц из контекста — не все ФИО являются контрагентами.
+
+9. Для отсутствующих документов причину формулируй исходя из контекста:
+   - кадровые документы сотрудника → «в процессе восстановления из кадрового архива»
+   - документы контрагента → «направлен запрос контрагенту»
+   - документы, которые организация обязана иметь → «ведётся поиск в архиве»
+   - если характер документа неясен → «документ не обнаружен, причина уточняется»
+   Не повторяй одну и ту же формулировку для всех пунктов — каждый пункт уникален.
+
+10. Вывод: только текст письма, без markdown, без комментариев.
 
 ## Структура письма
 
@@ -76,6 +89,7 @@ function buildUserMessage(input: DraftInput): string {
     legalBasis: normsText,
     liability: liabilityText || undefined,
     deadline: deadlineText || undefined,
+    originalRequestItems: input.rawRequestTexts,
   }, null, 2);
 }
 

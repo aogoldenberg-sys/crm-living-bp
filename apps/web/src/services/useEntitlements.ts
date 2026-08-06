@@ -8,7 +8,25 @@ const DEFAULT: Omit<Entitlements, "businessId" | "updatedAt"> = {
   paidUntil: null,
   freeComplianceUsed: false,
   freeReportUsed: false,
+  tier: "free",
+  trialEndsAt: null,
+  purchases: [],
+  usage: { complianceCases: 0, taxReports: 0, planAssessRuns: 0 },
+  internal: false,
 };
+
+function localKey(businessId: string) { return `kairos_entitlements_${businessId}`; }
+
+function readLocal(businessId: string): { compliance?: boolean; report?: boolean } {
+  try {
+    return JSON.parse(localStorage.getItem(localKey(businessId)) ?? "{}");
+  } catch { return {}; }
+}
+
+function writeLocal(businessId: string, patch: { compliance?: boolean; report?: boolean }) {
+  const prev = readLocal(businessId);
+  localStorage.setItem(localKey(businessId), JSON.stringify({ ...prev, ...patch }));
+}
 
 export function useEntitlements(businessId: string | null) {
   const [data, setData] = useState<Entitlements | null>(null);
@@ -16,14 +34,32 @@ export function useEntitlements(businessId: string | null) {
 
   useEffect(() => {
     if (!businessId) { setLoading(false); return; }
+
+    // Старый баг помечал compliance: true при монтировании, даже без реальной работы.
+    // Если флаг есть, но кейс не сохранён — сбрасываем ложный флаг.
+    const local = readLocal(businessId);
+    const caseKey = `kairos_compliance_case_${businessId}`;
+    if (local.compliance && !localStorage.getItem(caseKey)) {
+      local.compliance = false;
+      writeLocal(businessId, { compliance: false });
+    }
+
     const ref = doc(db, `tenants/${businessId}/_meta/entitlements`);
     getDoc(ref)
       .then((snap) => {
         if (snap.exists()) {
-          setData(snap.data() as Entitlements);
+          const ent = snap.data() as Entitlements;
+          if (local.compliance) ent.freeComplianceUsed = true;
+          if (local.report) ent.freeReportUsed = true;
+          setData(ent);
         } else {
-          // Doc not yet created by Worker — use in-memory defaults (no client writes per arch rules)
-          setData({ ...DEFAULT, businessId, updatedAt: new Date().toISOString() as `${string}T${string}Z` });
+          setData({
+            ...DEFAULT,
+            freeComplianceUsed: !!local.compliance,
+            freeReportUsed: !!local.report,
+            businessId,
+            updatedAt: new Date().toISOString() as `${string}T${string}Z`,
+          });
         }
       })
       .finally(() => setLoading(false));
@@ -31,26 +67,14 @@ export function useEntitlements(businessId: string | null) {
 
   async function markComplianceUsed() {
     if (!businessId || !data) return;
-    const updated = {
-      ...data,
-      freeComplianceUsed: true,
-      updatedAt: new Date().toISOString() as `${string}T${string}Z`,
-    };
-    const ref = doc(db, `tenants/${businessId}/_meta/entitlements`);
-    await setDoc(ref, updated);
-    setData(updated);
+    writeLocal(businessId, { compliance: true });
+    setData({ ...data, freeComplianceUsed: true });
   }
 
   async function markReportUsed() {
     if (!businessId || !data) return;
-    const updated = {
-      ...data,
-      freeReportUsed: true,
-      updatedAt: new Date().toISOString() as `${string}T${string}Z`,
-    };
-    const ref = doc(db, `tenants/${businessId}/_meta/entitlements`);
-    await setDoc(ref, updated);
-    setData(updated);
+    writeLocal(businessId, { report: true });
+    setData({ ...data, freeReportUsed: true });
   }
 
   const canCompliance =

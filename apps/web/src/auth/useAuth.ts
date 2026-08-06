@@ -121,6 +121,9 @@ export const useAuth = create<AuthState>((set) => ({
   },
 
   logout: async () => {
+    // Очищаем все kairos-данные из localStorage
+    const keysToRemove = Object.keys(localStorage).filter(k => k.startsWith("kairos_"));
+    for (const k of keysToRemove) localStorage.removeItem(k);
     await signOut(auth);
     set({ authReady: true, user: null, businessId: null, role: null });
   },

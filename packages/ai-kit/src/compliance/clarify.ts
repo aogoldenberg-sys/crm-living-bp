@@ -76,10 +76,10 @@ export async function parseClarifyAnswers(
 
   let raw: string;
   try {
-    const msg = await client.beta.promptCaching.messages.create({
+    const msg = await client.messages.create({
       model: "claude-haiku-4-5-20251001",
       max_tokens: 2048,
-      system: [{ type: "text", text: CLARIFY_SYSTEM, cache_control: { type: "ephemeral" } }],
+      system: CLARIFY_SYSTEM,
       messages: [{ role: "user", content: userMsg }],
     });
     const first = msg.content[0];
@@ -168,7 +168,7 @@ export function buildDraftInput(
         } else if (ans?.status === "not_applicable") {
           // не включаем в письмо
         } else {
-          const reason = ans?.note ?? "Документ не обнаружен в архиве; запрошен у контрагента";
+          const reason = ans?.note ?? "Документ отсутствует";
           missing.push({ docKind: e.docKind, label: e.label, reason });
         }
         break;
@@ -176,5 +176,6 @@ export function buildDraftInput(
     }
   }
 
-  return { ...meta, provided, missing, restoredDuplicates };
+  const rawRequestTexts = _items.map(it => it.rawText);
+  return { ...meta, rawRequestTexts, provided, missing, restoredDuplicates };
 }

@@ -9,47 +9,6 @@ interface Props {
   onComplete: (c: ComplianceCase) => void;
 }
 
-function buildCase(items: RequestItem[], businessId: string): ComplianceCase {
-  const now = new Date().toISOString() as `${string}T${string}Z`;
-  const checklist: ComplianceCase["checklist"] = items.flatMap((item) =>
-    item.docKinds.map((docKind) => ({
-      entryId: crypto.randomUUID(),
-      requestItemId: item.itemId,
-      docKind,
-      label: [docKind, item.periodFrom, item.periodTo].filter(Boolean).join(" — "),
-      availability: "missing_no_event" as const,
-      fileRef: null,
-      evidence: [],
-      confirmedByOwner: false,
-    })),
-  );
-
-  return {
-    caseId: crypto.randomUUID(),
-    businessId,
-    authority: "fns_kameral",
-    createdAt: now,
-    sourceFileRef: "uploaded",
-    items,
-    checklist,
-    drafts: [],
-    response: {
-      responseId: crypto.randomUUID(),
-      authority: "fns_kameral",
-      incomingRef: { number: null, date: null, fileRef: "uploaded" },
-      letterDraft:
-        "В ответ на Ваше требование сообщаем, что в рамках проверки прилагаем запрошенные документы.",
-      legalRefs: ["ст. 93 НК РФ", "ст. 31 НК РФ"],
-      providedEntryIds: [],
-      missingExplained: [],
-      deadline: null,
-      status: "draft",
-    },
-    completeness: 0,
-    status: "checklist_review",
-  };
-}
-
 export function UploadStep({ onComplete }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [processing, setProcessing] = useState(false);
@@ -82,7 +41,11 @@ export function UploadStep({ onComplete }: Props) {
       });
 
       const data = (await res.json().catch(() => ({}))) as {
+        caseId?: string;
         items?: RequestItem[];
+        entries?: ComplianceCase["checklist"];
+        authority?: ComplianceCase["authority"];
+        requestMeta?: ComplianceCase["requestMeta"];
         code?: string;
         error?: string;
       };
@@ -96,12 +59,27 @@ export function UploadStep({ onComplete }: Props) {
         setScanError(true);
         return;
       }
-      if (!data.items?.length) {
+      if (!data.items?.length || !data.caseId) {
         setScanError(true);
         return;
       }
 
-      onComplete(buildCase(data.items, businessId));
+      // Используем данные от worker'а — caseId, entries, authority
+      const now = new Date().toISOString() as `${string}T${string}Z`;
+      onComplete({
+        caseId: data.caseId,
+        businessId,
+        authority: data.authority ?? "fns_kameral",
+        requestMeta: data.requestMeta,
+        createdAt: now,
+        sourceFileRef: "uploaded",
+        items: data.items,
+        checklist: data.entries ?? [],
+        drafts: [],
+        response: null,
+        completeness: 0,
+        status: "checklist_review",
+      });
     } catch (e) {
       console.error("[compliance/extract] fetch failed:", e);
       setScanError(true);

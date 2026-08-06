@@ -30,6 +30,9 @@ interface Env {
   FIREBASE_PROJECT_ID: string;
   /** Workers AI binding — задаётся в wrangler.toml [ai] */
   AI: { run(model: string, input: Record<string, unknown>): Promise<unknown> };
+  /** Т-Банк Acquiring API — wrangler secret put TBANK_TERMINAL_KEY / TBANK_TERMINAL_PASSWORD */
+  TBANK_TERMINAL_KEY?: string;
+  TBANK_TERMINAL_PASSWORD?: string;
 }
 
 export type IngestResult = { events: number; skipped: number };
@@ -114,6 +117,7 @@ function inferIntakeId(text: string): string | null {
 interface FirebaseClaims {
   uid: string;
   email_verified: boolean;
+  email: string | null;
 }
 
 function b64decode(s: string): string {
@@ -138,7 +142,7 @@ async function verifyFirebaseIdToken(
     iat?: number;
     sub?: string;
     email_verified?: boolean;
-
+    email?: string;
   };
   try {
     header = JSON.parse(b64decode(hPart));
@@ -186,7 +190,7 @@ async function verifyFirebaseIdToken(
     return null;
   }
 
-  return { uid: payload.sub, email_verified: !!payload.email_verified };
+  return { uid: payload.sub, email_verified: !!payload.email_verified, email: payload.email ?? null };
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1176,20 +1180,76 @@ async function handleIntake(request: Request, env: Env): Promise<Response> {
 // GET /compliance/case/:caseId — polling статуса кейса
 // ══════════════════════════════════════════════════════════════════════════════
 
-const COMPLIANCE_EXTRACT_SYSTEM = `Роль: юридический аналитик-экстрактор.
-Вход: текст или скан-изображение требования контролирующего органа (PDF/JPEG через vision).
-Задача: разобрать на позиции и вернуть JSON массив RequestItem.
+const COMPLIANCE_EXTRACT_SYSTEM = `Роль: юридический аналитик. Читаешь требование контролирующего органа и извлекаешь всё что в нём написано.
 
-КРИТИЧЕСКОЕ ПРАВИЛО ПРОТИВ ФАБРИКАЦИИ:
-- Если документ пустой, нечитаемый, не является требованием или не содержит явных
-  запросов документов — верни ПУСТОЙ МАССИВ: []
-- НИКОГДА не выдумывай позиции, которых нет в документе
-- НИКОГДА не заполняй поля из общих знаний — только из буквального текста документа
+ПРАВИЛО ПРОТИВ ФАБРИКАЦИИ:
+- Только то, что буквально написано в документе. Ничего не выдумывать.
+- Поле пустое в документе → null. НЕ писать "не указан", "не проставлен" — только null.
+- Документ нечитаем или не является требованием → {"authority":"other","requestMeta":{},"items":[]}
 
-Схема одного элемента:
-{"itemId":"<uuid>","rawText":"<дословно из требования>","docKinds":["contract"|"act"|"invoice_facture"|"payment_order"|"bank_statement"|"account_card"|"waybill"|"invoice"|"order_internal"|"explanatory"|"other"],"periodFrom":"YYYY-MM-DD"|null,"periodTo":"YYYY-MM-DD"|null,"counterpartyInn":"XXXXXXXXXX"|null,"counterpartyName":"..."|null,"extractConfidence":0.0-1.0}
+## ШАГ 1. ОПРЕДЕЛИ authority
 
-Верни ТОЛЬКО валидный JSON массив, без markdown, без комментариев.`;
+- "fns_kameral" — ФНС, камеральная проверка (ст. 88 НК)
+- "fns_vyezd" — ФНС, выездная проверка (ст. 89 НК)
+- "fns_vstrechka" — ФНС, встречная проверка (ст. 93.1 НК)
+- "police" — МВД, полиция
+- "prosecutor" — прокуратура
+- "bank_compliance" — банк, 115-ФЗ
+- "court" — суд
+- "labor_inspection" — ГИТ, трудовая инспекция
+- "audit_internal" — внутренний аудит
+- "counterparty" — контрагент
+- "other" — иной орган
+
+## ШАГ 2. ИЗВЛЕКИ requestMeta
+
+Из текста документа дословно:
+
+{
+  "authorityName": "полное наименование органа-отправителя или null",
+  "authorityAddress": "адрес органа или null",
+  "officerName": "ФИО и должность подписанта или null",
+  "executorName": "ФИО исполнителя или null",
+  "executorPhone": "телефон исполнителя или null",
+  "requestNumber": "номер требования или null если поле пустое",
+  "requestDate": "YYYY-MM-DD или null",
+  "deadlineText": "срок дословно из документа или null",
+  "deliveryMethod": "in_person если нарочно/лично, mail если почта, electronic если email/ЭДО, unknown если не указано",
+  "deliveryAddress": "место/кабинет для нарочной подачи или null",
+  "legalBasisText": "правовое основание дословно из документа или null",
+  "subjectText": "повод/суть проверки дословно или null",
+  "complainantName": "ФИО заявителя если проверка по обращению, иначе null",
+  "complainantRef": "номер и дата обращения заявителя или null",
+  "recipientName": "наименование организации-получателя или null",
+  "recipientInn": "ИНН получателя или null",
+  "recipientDirector": "ФИО и должность руководителя получателя или null",
+  "recipientAddress": "адрес получателя или null",
+  "topic": "аналитический абзац 3-5 предложений для получателя требования. Структура: (1) что именно проверяет орган — прочитай из состава позиций, назови конкретные пункты и что за ними стоит; (2) есть ли второй сюжет — если позиции делятся на разные темы, обозначь оба; (3) оценка серьёзности — это рутина или реальный риск, и какой именно. Не пересказывай subjectText дословно — анализируй. Пиши от лица советника: коротко, конкретно, без воды.",
+  "sanctionsText": "2-3 предложения: что конкретно грозит организации и её руководителю по данной ситуации согласно законодательству РФ. Называй конкретные последствия (штраф, дисквалификация, уголовное преследование, блокировка счёта), а не только статьи. Выводи из authority + состава позиций. Не выдумывай нормы которых нет."
+}
+
+## ШАГ 3. ИЗВЛЕКИ items
+
+Каждый пункт требования — отдельный элемент.
+СЧИТАЙ позиции по фактическим строкам списка, НЕ по номерам. Пропуски в нумерации (4, 5, 6 нет, следующий 7) — норма для госорганов, это не значит что позиций больше.
+
+Схема элемента:
+{
+  "itemId": "<uuid v4>",
+  "rawText": "<дословный текст пункта из документа>",
+  "docKinds": ["один или несколько из: contract|act|invoice_facture|payment_order|bank_statement|account_card|waybill|invoice|order_internal|order_hire|personal_card|staffing_table|timesheet|workbook_extract|debt_calculation|art236_calculation|payroll_regulation|written_clarification|explanatory|other"],
+  "periodFrom": "YYYY-MM-DD или null",
+  "periodTo": "YYYY-MM-DD или null",
+  "counterpartyInn": "XXXXXXXXXX или null",
+  "counterpartyName": "наименование контрагента или null",
+  "extractConfidence": 0.0-1.0
+}
+
+## ФОРМАТ ОТВЕТА
+
+Верни ТОЛЬКО валидный JSON, без markdown, без комментариев:
+{"authority":"<тип>","requestMeta":{...},"items":[...]}`;
+
 
 async function handleComplianceExtract(request: Request, env: Env): Promise<Response> {
   const authHeader = request.headers.get("Authorization") ?? "";
@@ -1259,7 +1319,22 @@ async function handleComplianceExtract(request: Request, env: Env): Promise<Resp
     return jsonCors({ error: `Ошибка извлечения: ${msg}` }, 500);
   }
 
-  const validated = RequestItem.array().safeParse(raw);
+  // Claude возвращает { authority, requestMeta, items } или просто массив (обратная совместимость)
+  let extractedAuthority = "other";
+  let extractedMeta: Record<string, unknown> = {};
+  let rawItems: unknown;
+  if (raw && typeof raw === "object" && !Array.isArray(raw) && "items" in (raw as Record<string, unknown>)) {
+    const obj = raw as Record<string, unknown>;
+    extractedAuthority = typeof obj.authority === "string" ? obj.authority : "other";
+    extractedMeta = (obj.requestMeta && typeof obj.requestMeta === "object" && !Array.isArray(obj.requestMeta))
+      ? obj.requestMeta as Record<string, unknown>
+      : {};
+    rawItems = obj.items;
+  } else {
+    rawItems = raw;
+  }
+
+  const validated = RequestItem.array().safeParse(rawItems);
   if (!validated.success) {
     console.error("[compliance/extract] schema error:", validated.error.issues);
     return jsonCors({ error: "Ответ AI не прошёл валидацию", details: validated.error.issues }, 502);
@@ -1288,7 +1363,8 @@ async function handleComplianceExtract(request: Request, env: Env): Promise<Resp
   const caseData = {
     caseId,
     businessId,
-    authority: "fns_kameral",
+    authority: extractedAuthority,
+    requestMeta: extractedMeta,
     createdAt: now,
     sourceFileRef: "uploaded",
     items: validated.data,
@@ -1309,7 +1385,7 @@ async function handleComplianceExtract(request: Request, env: Env): Promise<Resp
   };
   await saveEntitlements(db, businessId, updatedEnt);
 
-  return jsonCors({ caseId, items: validated.data, entries: checklistResult.value, authority: caseData.authority });
+  return jsonCors({ caseId, items: validated.data, entries: checklistResult.value, authority: caseData.authority, requestMeta: extractedMeta });
 }
 
 // ── /compliance/clarify ────────────────────────────────────────────────────────
@@ -1354,7 +1430,7 @@ async function handleComplianceClarify(request: Request, env: Env): Promise<Resp
 
 // ── /compliance/package ────────────────────────────────────────────────────────
 
-async function handleCompliancePackage(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+async function handleCompliancePackage(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
   const authHeader = request.headers.get("Authorization") ?? "";
   const idToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
   if (!idToken) return jsonCors({ error: "Unauthorized" }, 401);
@@ -1367,7 +1443,7 @@ async function handleCompliancePackage(request: Request, env: Env, ctx: Executio
   if (!userDoc.exists) return jsonCors({ error: "User not registered" }, 400);
   const { businessId } = userDoc.data() as { businessId: string };
 
-  let body: { caseId?: string; answers?: ClarifyAnswer[]; meta?: { authority?: string; incomingRef?: { number: string | null; date: string | null }; companyName?: string; companyInn?: string } };
+  let body: { caseId?: string; checklist?: unknown[]; answers?: ClarifyAnswer[]; meta?: { authority?: string; incomingRef?: { number: string | null; date: string | null }; companyName?: string; companyInn?: string } };
   try { body = await request.json() as typeof body; } catch { return jsonCors({ error: "Invalid JSON" }, 400); }
 
   const { caseId, answers: clarifyAnswers, meta } = body;
@@ -1379,57 +1455,64 @@ async function handleCompliancePackage(request: Request, env: Env, ctx: Executio
   const caseData = caseDoc.data() as Record<string, unknown>;
   if (caseData.businessId !== businessId) return jsonCors({ error: "Forbidden" }, 403);
 
-  // Mark as assembling
-  await db.collection(`tenants/${businessId}/compliance_cases`).doc(caseId).set(
-    { ...caseData, status: "assembling" } as unknown as Record<string, unknown>,
-  );
+  if (body.checklist && Array.isArray(body.checklist) && body.checklist.length > 0) {
+    caseData.checklist = body.checklist;
+  }
+
+  // requestMeta из Firestore (извлечённые Claude при загрузке документа)
+  const storedMeta = (caseData.requestMeta ?? {}) as Record<string, unknown>;
 
   const pipelineMeta: Parameters<typeof runPipeline>[4] = {
     authority: (meta?.authority ?? (caseData.authority as string) ?? "other") as Parameters<typeof runPipeline>[4]["authority"],
-    incomingRef: meta?.incomingRef ?? { number: null, date: null },
-    companyName: meta?.companyName ?? "[ЗАПОЛНИТЬ]",
-    companyInn: meta?.companyInn ?? "[ЗАПОЛНИТЬ]",
+    incomingRef: meta?.incomingRef ?? {
+      number: (storedMeta.requestNumber as string | null) ?? null,
+      date: (storedMeta.requestDate as string | null) ?? null,
+    },
+    companyName: meta?.companyName ?? (storedMeta.recipientName as string | null) ?? null,
+    companyInn: meta?.companyInn ?? (storedMeta.recipientInn as string | null) ?? null,
+    requestMeta: storedMeta,
   };
 
-  ctx.waitUntil(
-    (async () => {
-      try {
-        const client = createAnthropicClient(env.ANTHROPIC_API_KEY);
-        const items = caseData.items as Parameters<typeof runPipeline>[1];
-        const entries = caseData.checklist as Parameters<typeof runPipeline>[2];
-        const result = await runPipeline(client, items, entries, clarifyAnswers ?? [], pipelineMeta);
-        if (!result.ok) {
-          await db.collection(`tenants/${businessId}/compliance_cases`).doc(caseId).set(
-            { ...caseData, status: "checklist_review", packageError: result.error.message } as unknown as Record<string, unknown>,
-          );
-          return;
-        }
-        const responseId = crypto.randomUUID();
-        const response = {
-          responseId,
-          authority: pipelineMeta.authority,
-          incomingRef: { ...pipelineMeta.incomingRef, fileRef: "uploaded" },
-          letterDraft: result.value.draftLetter,
-          legalRefs: [],
-          providedEntryIds: [],
-          missingExplained: [],
-          deadline: null,
-          status: "draft",
-        };
-        await db.collection(`tenants/${businessId}/compliance_cases`).doc(caseId).set(
-          { ...caseData, status: "done", response, registry: result.value.registry, clientPosition: result.value.clientPosition } as unknown as Record<string, unknown>,
-        );
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        console.error("[compliance/package] error:", msg);
-        await db.collection(`tenants/${businessId}/compliance_cases`).doc(caseId).set(
-          { ...caseData, status: "checklist_review", packageError: msg } as unknown as Record<string, unknown>,
-        ).catch(() => {});
-      }
-    })(),
-  );
+  if (!env.ANTHROPIC_API_KEY) {
+    return jsonCors({ error: "Сервис генерации временно недоступен" }, 503);
+  }
 
-  return jsonCors({ caseId, status: "assembling" });
+  // Синхронный вызов — Worker ждёт ответ Claude и возвращает результат в response
+  try {
+    const client = createAnthropicClient(env.ANTHROPIC_API_KEY);
+    const items = caseData.items as Parameters<typeof runPipeline>[1];
+    const entries = caseData.checklist as Parameters<typeof runPipeline>[2];
+    const result = await runPipeline(client, items, entries, clarifyAnswers ?? [], pipelineMeta);
+
+    if (!result.ok) {
+      console.error("[compliance/package] pipeline error:", result.error.message);
+      return jsonCors({ error: result.error.message }, 500);
+    }
+
+    const responseId = crypto.randomUUID();
+    const response = {
+      responseId,
+      authority: pipelineMeta.authority,
+      incomingRef: { ...pipelineMeta.incomingRef, fileRef: "uploaded" },
+      letterDraft: result.value.draftLetter,
+      legalRefs: [],
+      providedEntryIds: [],
+      missingExplained: [],
+      deadline: null,
+      status: "draft",
+    };
+
+    const updatedCase = { ...caseData, status: "done", response, documents: result.value.documents };
+    await db.collection(`tenants/${businessId}/compliance_cases`).doc(caseId).set(
+      updatedCase as unknown as Record<string, unknown>,
+    );
+
+    return jsonCors({ caseId, status: "done", response, documents: result.value.documents });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[compliance/package] error:", msg);
+    return jsonCors({ error: msg }, 500);
+  }
 }
 
 // ── GET /compliance/case/:caseId ──────────────────────────────────────────────
@@ -2068,7 +2151,8 @@ async function handleRegister(request: Request, env: Env): Promise<Response> {
   }
 
   try {
-    await db.collection("users").doc(uid).set({ businessId, role: "owner", createdAt: now });
+    const email = claims.email ?? null;
+    await db.collection("users").doc(uid).set({ businessId, role: "owner", createdAt: now, email });
   } catch (e) {
     console.error("[register] SET users/%s threw:", uid, e instanceof Error ? e.message : String(e));
     return jsonCors({ error: `Ошибка записи пользователя: ${e instanceof Error ? e.message : String(e)}` }, 500);
@@ -2733,6 +2817,21 @@ async function dispatchRequest(request: Request, env: Env, ctx: ExecutionContext
       return handleVoiceUpload(request, env);
     }
 
+    // ── /billing/pay — создание платежа Т-Банк Acquiring ────────────────
+    if (request.method === "GET" && url.pathname === "/billing/pay") {
+      return handleBillingPay(request, env);
+    }
+
+    // ── /billing/tbank-notify — webhook от Т-Банк ───────────────────────
+    if (request.method === "POST" && url.pathname === "/billing/tbank-notify") {
+      return handleTbankNotify(request, env);
+    }
+
+    // ── /config/seed-pricing — заливка тарифов в Firestore (admin) ──────
+    if (request.method === "POST" && url.pathname === "/config/seed-pricing") {
+      return handleSeedPricing(request, env);
+    }
+
     // ── / — события (API secret) ──────────────────────────────────────────
     const incoming = request.headers.get("x-api-secret") ?? "";
     if (!isValidSecret(incoming, env.INGEST_API_SECRET)) {
@@ -2768,7 +2867,7 @@ async function dispatchRequest(request: Request, env: Env, ctx: ExecutionContext
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Api-Key",
 };
 
@@ -2814,4 +2913,232 @@ async function handleVoiceUpload(request: Request, env: Env): Promise<Response> 
     console.error("[voice/upload] error:", msg);
     return jsonCors({ error: msg }, 500);
   }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Т-Банк Acquiring API — создание платежа и webhook
+// ══════════════════════════════════════════════════════════════════════════════
+
+const TBANK_API = "https://securepay.tinkoff.ru/v2";
+
+/** Продукты и цены в копейках — единственный источник правды на сервере. */
+const PRODUCTS: Record<string, { name: string; amountKop: number; description: string }> = {
+  start:      { name: "Старт",       amountKop: 49000,   description: "Оценка бизнес-плана по 26 разделам" },
+  life:       { name: "Лайф",        amountKop: 149000,  description: "Составление бизнес-плана с нуля" },
+  grant:      { name: "Грант",       amountKop: 180000,  description: "Бизнес-план для субсидии/гранта" },
+  compliance: { name: "Комплаенс",   amountKop: 99000,   description: "Ответ на запрос ФНС/СФР/банка" },
+  kudir:      { name: "КУДиР / УСН", amountKop: 29000,   description: "Отчётность для ИП/ООО на УСН" },
+  report:     { name: "КУДиР / УСН", amountKop: 29000,   description: "Отчётность для ИП/ООО на УСН" },
+  pulse:      { name: "Пульс",       amountKop: 490000,  description: "Подписка: касса, план/факт, алерты" },
+  operator:   { name: "Операционист", amountKop: 1490000, description: "Подписка: прогноз, контроль, доклад" },
+  director:   { name: "Директор",    amountKop: 2990000, description: "Подписка: автономная стратегия" },
+  enterprise: { name: "Enterprise",  amountKop: 7990000, description: "Подписка: несколько юрлиц" },
+};
+
+function sha256hex(data: string): Promise<string> {
+  return crypto.subtle.digest("SHA-256", new TextEncoder().encode(data))
+    .then(buf => [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, "0")).join(""));
+}
+
+async function tbankToken(terminalKey: string, password: string, params: Record<string, string>): Promise<string> {
+  const sorted = Object.entries({ ...params, TerminalKey: terminalKey, Password: password })
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([, v]) => v)
+    .join("");
+  return sha256hex(sorted);
+}
+
+async function handleBillingPay(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  const productId = url.searchParams.get("product");
+  const businessId = url.searchParams.get("businessId");
+
+  if (!productId || !businessId) {
+    return jsonCors({ error: "Missing product or businessId" }, 400);
+  }
+
+  const product = PRODUCTS[productId];
+  if (!product) {
+    return jsonCors({ error: `Unknown product: ${productId}` }, 400);
+  }
+
+  const terminalKey = env.TBANK_TERMINAL_KEY;
+  const password = env.TBANK_TERMINAL_PASSWORD;
+
+  if (!terminalKey || !password) {
+    return jsonCors({ success: false, fallback: true, message: "Модуль оплаты подключается. Обратитесь в техподдержку." });
+  }
+
+  const orderId = `kairos_${productId}_${businessId}_${Date.now()}`;
+
+  const initParams: Record<string, string> = {
+    TerminalKey: terminalKey,
+    Amount: String(product.amountKop),
+    OrderId: orderId,
+    Description: `Kairos — ${product.name}: ${product.description}`,
+  };
+
+  const token = await tbankToken(terminalKey, password, {
+    Amount: initParams.Amount,
+    OrderId: initParams.OrderId,
+    Description: initParams.Description,
+  });
+
+  const body = {
+    ...initParams,
+    Token: token,
+    NotificationURL: `${url.origin}/billing/tbank-notify`,
+    SuccessURL: "https://opentgp.ru/kairos/app/services?tab=compliance&paid=ok",
+    FailURL: "https://opentgp.ru/kairos/app/services?tab=compliance&paid=fail",
+    DATA: { businessId, productId },
+  };
+
+  try {
+    const res = await fetch(`${TBANK_API}/Init`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    const data = await res.json() as { Success: boolean; PaymentURL?: string; ErrorCode?: string; Message?: string; PaymentId?: string };
+
+    if (data.Success && data.PaymentURL) {
+      // Сохраняем orderId в Firestore для проверки webhook
+      try {
+        const db = createFirestoreRestClient(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+        await db.collection("_config/payments/orders").doc(orderId).set({
+          businessId,
+          productId,
+          amountKop: product.amountKop,
+          paymentId: data.PaymentId ?? null,
+          status: "created",
+          createdAt: new Date().toISOString(),
+        });
+      } catch (e) {
+        console.error("[billing/pay] firestore save error:", e);
+      }
+      return jsonCors({ success: true, paymentUrl: data.PaymentURL });
+    }
+
+    console.error("[billing/pay] TBank Init failed:", data);
+    return jsonCors({ success: false, error: data.Message ?? "Ошибка создания платежа" }, 502);
+  } catch (e) {
+    console.error("[billing/pay] fetch error:", e);
+    return jsonCors({ success: false, error: "Платёжный сервис недоступен" }, 502);
+  }
+}
+
+async function handleTbankNotify(request: Request, env: Env): Promise<Response> {
+  const terminalKey = env.TBANK_TERMINAL_KEY;
+  const password = env.TBANK_TERMINAL_PASSWORD;
+  if (!terminalKey || !password) return new Response("OK");
+
+  let body: Record<string, unknown>;
+  try {
+    body = await request.json() as Record<string, unknown>;
+  } catch {
+    return new Response("Bad Request", { status: 400 });
+  }
+
+  const status = body.Status as string | undefined;
+  const orderId = body.OrderId as string | undefined;
+  const paymentId = body.PaymentId as string | undefined;
+
+  if (!orderId) return new Response("OK");
+
+  // Verify token
+  const checkParams: Record<string, string> = {};
+  for (const [k, v] of Object.entries(body)) {
+    if (k !== "Token" && k !== "DATA" && typeof v === "string") {
+      checkParams[k] = v;
+    }
+    if (typeof v === "number") checkParams[k] = String(v);
+  }
+  const expected = await tbankToken(terminalKey, password, checkParams);
+  if (expected !== body.Token) {
+    console.error("[tbank-notify] token mismatch");
+    return new Response("Forbidden", { status: 403 });
+  }
+
+  console.log(`[tbank-notify] orderId=${orderId} status=${status} paymentId=${paymentId}`);
+
+  try {
+    const db = createFirestoreRestClient(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+    // Обновляем статус заказа
+    await db.collection("_config/payments/orders").doc(orderId).set({
+      status: status ?? "unknown",
+      paymentId: paymentId ?? null,
+      updatedAt: new Date().toISOString(),
+    });
+
+    // При успешной оплате — обновляем entitlements
+    if (status === "CONFIRMED" || status === "AUTHORIZED") {
+      // Парсим orderId: kairos_{productId}_{businessId}_{timestamp}
+      const parts = orderId.split("_");
+      if (parts.length >= 3) {
+        const productId = parts[1];
+        const businessId = parts.slice(2, -1).join("_"); // businessId может содержать _
+        const now = new Date().toISOString();
+
+        // Читаем текущие entitlements
+        const entRef = db.collection(`tenants/${businessId}/_meta`).doc("entitlements");
+        const entSnap = await entRef.get();
+        const ent = entSnap.exists ? (entSnap.data() as Record<string, unknown>) : {};
+
+        const purchases = Array.isArray(ent?.purchases) ? [...(ent.purchases as unknown[])] : [];
+        purchases.push({ product: productId, planId: orderId, purchasedAt: now });
+
+        await entRef.set({
+          ...ent,
+          businessId,
+          plan: "paid",
+          purchases,
+          updatedAt: now,
+        });
+
+        console.log(`[tbank-notify] entitlements updated for ${businessId}, product=${productId}`);
+      }
+    }
+  } catch (e) {
+    console.error("[tbank-notify] firestore error:", e);
+  }
+
+  return new Response("OK");
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// /config/seed-pricing — заливка тарифов в Firestore _config/pricing
+// ══════════════════════════════════════════════════════════════════════════════
+
+async function handleSeedPricing(request: Request, env: Env): Promise<Response> {
+  // Защита: только с API secret
+  const secret = request.headers.get("x-api-secret") ?? "";
+  if (!isValidSecret(secret, env.INGEST_API_SECRET)) {
+    return jsonCors({ error: "Unauthorized" }, 401);
+  }
+
+  const db = createFirestoreRestClient(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+
+  const oneOff = [
+    { id: "start",      name: "Старт",       price: "490 ₽",     amountKop: 49000,   includes: "Оценка бизнес-плана по 26 разделам" },
+    { id: "life",       name: "Лайф",        price: "1 490 ₽",   amountKop: 149000,  includes: "Составление бизнес-плана с нуля онлайн" },
+    { id: "grant",      name: "Грант",       price: "1 800 ₽",   amountKop: 180000,  includes: "Бизнес-план для субсидии/гранта" },
+    { id: "compliance", name: "Комплаенс",   price: "990 ₽",     amountKop: 99000,   includes: "Ответ на запрос ФНС, СФР, банка, прокуратуры", freeFirst: "Первый кейс бесплатно" },
+    { id: "kudir",      name: "КУДиР / УСН", price: "290 ₽/кв",  amountKop: 29000,   includes: "Отчётность для ИП/ООО на УСН", freeFirst: "Первый отчёт бесплатно" },
+  ];
+
+  const subscriptions = [
+    { id: "pulse",      name: "Пульс",        price: "4 900 ₽/мес",   amountKop: 490000,  value: "Касса, план/факт, алерты, Telegram-дайджест" },
+    { id: "operator",   name: "Операционист",  price: "14 900 ₽/мес",  amountKop: 1490000, value: "Прогноз разрыва, контроль задач, доклад" },
+    { id: "director",   name: "Директор",      price: "29 900 ₽/мес",  amountKop: 2990000, value: "Автономная стратегия, сценарии, 26 линз" },
+    { id: "enterprise", name: "Enterprise",    price: "79 900 ₽/мес",  amountKop: 7990000, value: "Несколько юрлиц, консолидация, SLA" },
+  ];
+
+  await db.collection("_config").doc("pricing").set({
+    oneOff,
+    subscriptions,
+    updatedAt: new Date().toISOString(),
+  });
+
+  return jsonCors({ ok: true, oneOff: oneOff.length, subscriptions: subscriptions.length });
 }

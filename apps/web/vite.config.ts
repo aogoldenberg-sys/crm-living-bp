@@ -6,7 +6,7 @@ export default defineConfig(({ command, mode }) => ({
     // РЕШЕНИЕ: в режиме test отключаем fast-refresh — он несовместим с vitest jsdom.
     react({ jsxRuntime: 'automatic', fastRefresh: mode !== 'test' }),
   ],
-  base: command === 'build' ? '/kairos/' : '/',
+  base: command === 'build' ? '/kairos/app/' : '/',
   build: {
     // heic2any — browser-only, не входит в бандл
     rollupOptions: { external: ['heic2any'] },

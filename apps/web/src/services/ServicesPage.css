@@ -5,6 +5,43 @@
   display: flex;
   flex-direction: column;
   background: #FAF8F4;
+  position: relative;
+  overflow: hidden;
+  font-family: 'Inter', Arial, sans-serif;
+}
+
+/* ── Flying balls (figure-8) ─────────────────────────────────────────────── */
+
+.svc-ball {
+  position: fixed;
+  bottom: 40px;
+  pointer-events: none;
+  z-index: 0;
+  animation: svc-lemniscate 12s ease-in-out infinite;
+}
+
+.svc-ball img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.svc-ball--1 { left: 10%; width: 52px; height: 52px; animation-duration: 10s; }
+.svc-ball--2 { left: 28%; width: 38px; height: 38px; animation-duration: 14s; animation-delay: -3s; }
+.svc-ball--3 { left: 48%; width: 46px; height: 46px; animation-duration: 11s; animation-delay: -6s; }
+.svc-ball--4 { left: 66%; width: 34px; height: 34px; animation-duration: 13s; animation-delay: -9s; }
+.svc-ball--5 { left: 84%; width: 44px; height: 44px; animation-duration: 10.5s; animation-delay: -2s; }
+
+@keyframes svc-lemniscate {
+  0%   { transform: translate(0, 0); }
+  25%  { transform: translate(100px, -25px); }
+  50%  { transform: translate(0, 0); }
+  75%  { transform: translate(-100px, -25px); }
+  100% { transform: translate(0, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .svc-ball { animation: none; }
 }
 
 .svc-header {
@@ -35,29 +72,41 @@
 }
 
 .svc-wordmark {
-  font-family: var(--font-serif, Georgia, serif);
-  font-size: 20px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  color: #C8A034;
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  background: linear-gradient(135deg, #C89A34 0%, #F5E6A3 40%, #C89A34 60%, #F5E6A3 100%);
+  background-size: 200% 200%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: svc-gold-shimmer 3s ease-in-out infinite;
+}
+
+@keyframes svc-gold-shimmer {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
 }
 
 .svc-tabs {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   flex: 1;
+  flex-wrap: nowrap;
 }
 
 .svc-tab {
-  padding: 12px 24px;
+  padding: 8px 14px;
   border: 1px solid rgba(200,160,60,0.3);
-  border-radius: 14px;
+  border-radius: 10px;
   background: transparent;
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 500;
   color: #8B7355;
   cursor: pointer;
   transition: all 0.15s;
+  white-space: nowrap;
 }
 
 .svc-tab--active {
@@ -70,6 +119,27 @@
 .svc-tab:not(.svc-tab--active):hover {
   border-color: #C89A34;
   color: #5A3D00;
+}
+
+/* ── Tariffs button (black, right corner) ─────────────────────────────────── */
+
+.svc-tariffs-btn {
+  padding: 8px 18px;
+  background: #1A1814;
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: opacity 0.15s;
+  margin-left: auto;
+}
+
+.svc-tariffs-btn:hover {
+  opacity: 0.8;
 }
 
 /* ── Quick-action cards ───────────────────────────────────────────────────── */
@@ -103,6 +173,36 @@
   border-color: #C89A34;
   box-shadow: 0 2px 12px rgba(200,160,60,0.15);
   transform: translateY(-1px);
+}
+
+/* ── Email banner (inside content, below upload) ─────────────────────────── */
+
+.svc-email-banner {
+  margin-top: 24px;
+  padding: 12px 20px;
+  background: rgba(200,160,60,0.08);
+  border: 1px solid rgba(200,160,60,0.2);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 14px;
+  color: #5A3D00;
+}
+
+.svc-email-banner button {
+  padding: 6px 16px;
+  background: #C89A34;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.svc-email-banner button:disabled {
+  opacity: 0.5;
 }
 
 /* ── Main content ─────────────────────────────────────────────────────────── */
@@ -190,7 +290,8 @@
 }
 
 .paywall-title {
-  font-size: 20px;
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-size: 22px;
   font-weight: 700;
   color: #1A1814;
   margin: 0;
@@ -220,7 +321,8 @@
 }
 
 .paywall-price-amount {
-  font-size: 18px;
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-size: 20px;
   font-weight: 700;
   color: #C89A34;
 }

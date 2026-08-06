@@ -6,6 +6,7 @@ import { auth, db } from "./firebase";
 import { useAuth } from "./auth/useAuth";
 import type { UserRole } from "./auth/useAuth";
 import { LoginPage } from "./auth/LoginPage";
+import { LandingPage } from "./landing/LandingPage";
 import { Dashboard } from "./dashboard/Dashboard";
 import { PlanSectionPage } from "./plan/PlanSectionPage";
 import { OnboardingFlow } from "./onboarding/OnboardingFlow";
@@ -59,7 +60,8 @@ function EmailVerifyBanner() {
   }, [countdown]);
 
   if (!user || user.emailVerified) return null;
-  if (pathname === "/" || pathname === "/login") return null;
+  if (user.uid.startsWith("yandex:")) return null;
+  if (pathname === "/" || pathname === "/login" || pathname === "/services") return null;
 
   const handleResend = async () => {
     if (countdown > 0) return;
@@ -90,6 +92,18 @@ function DashboardOrOnboarding() {
 export default function App() {
   const { user, authReady, _setUser } = useAuth();
 
+  // При возврате в окно — проверить emailVerified и перезагрузить страницу
+  useEffect(() => {
+    const handleFocus = async () => {
+      const u = auth.currentUser;
+      if (!u || u.emailVerified) return;
+      await u.reload();
+      if (u.emailVerified) window.location.reload();
+    };
+    window.addEventListener("focus", handleFocus);
+    return () => window.removeEventListener("focus", handleFocus);
+  }, []);
+
   useEffect(() => {
     const workerUrl = import.meta.env.VITE_INGEST_WORKER_URL as string;
 
@@ -111,21 +125,19 @@ export default function App() {
           } catch { /* ignore */ }
         }
 
-        // 3. Call /register (idempotent) — creates mapping for first-time Google OAuth users
-        if (!businessId) {
-          try {
-            const idToken = await firebaseUser.getIdToken();
-            const res = await fetch(`${workerUrl}/register`, {
-              method: "POST",
-              headers: { Authorization: `Bearer ${idToken}`, "Content-Type": "application/json" },
-              body: JSON.stringify({}),
-            });
-            if (res.ok) {
-              const data = (await res.json()) as { businessId?: string };
-              businessId = data.businessId;
-            }
-          } catch { /* ignore */ }
-        }
+        // 3. Call /register (idempotent) — ensures users/{uid} exists in Firestore
+        try {
+          const idToken = await firebaseUser.getIdToken();
+          const res = await fetch(`${workerUrl}/register`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${idToken}`, "Content-Type": "application/json" },
+            body: JSON.stringify({}),
+          });
+          if (res.ok) {
+            const data = (await res.json()) as { businessId?: string };
+            if (data.businessId) businessId = data.businessId;
+          }
+        } catch { /* ignore */ }
 
         // 4. Preserve existing good businessId on token refresh — don't regress to uid
         const currentStored = useAuth.getState().businessId;
@@ -152,13 +164,13 @@ export default function App() {
       <YandexAuthHandler />
       <EmailVerifyBanner />
       <Routes>
-        {/* Корень → сразу на логин, лендинг не нужен */}
-        <Route path="/" element={<Navigate to="/login" replace />} />
+        {/* Лендинг — главная страница */}
+        <Route path="/" element={user ? <Navigate to="/dashboard" replace /> : <LandingPage />} />
 
         {/* Вход/регистрация — один роут, unverified users остаются здесь */}
         <Route
           path="/login"
-          element={user && user.emailVerified ? <Navigate to="/dashboard" replace /> : <LoginPage />}
+          element={user && (user.emailVerified || user.uid.startsWith("yandex:")) ? <Navigate to="/dashboard" replace /> : <LoginPage />}
         />
 
         {/* Старый /register — редирект на /login в режиме регистрации */}

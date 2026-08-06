@@ -6,7 +6,7 @@ export const PlanTier = z.enum(["free", "pulse", "operator", "director", "enterp
 export type PlanTier = z.infer<typeof PlanTier>;
 
 // ── Разовые продукты (линия 1) ───────────────────────────────────────────────
-export const OneOffProduct = z.enum(["diag", "live_plan", "scenario", "subsidy", "grant_pro"]);
+export const OneOffProduct = z.enum(["start", "life", "grant", "compliance", "kudir", "diag", "live_plan", "scenario", "subsidy", "grant_pro"]);
 export type OneOffProduct = z.infer<typeof OneOffProduct>;
 
 export const OneOffPurchase = z.object({

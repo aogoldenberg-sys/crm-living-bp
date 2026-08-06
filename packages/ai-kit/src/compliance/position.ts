@@ -45,10 +45,10 @@ export async function buildClientPosition(
     .join("\n");
 
   try {
-    const msg = await client.beta.promptCaching.messages.create({
+    const msg = await client.messages.create({
       model: "claude-haiku-4-5-20251001",
       max_tokens: 2048,
-      system: [{ type: "text", text: CLIENT_POSITION_SYSTEM, cache_control: { type: "ephemeral" } }],
+      system: CLIENT_POSITION_SYSTEM,
       messages: [{ role: "user", content: input }],
     });
 

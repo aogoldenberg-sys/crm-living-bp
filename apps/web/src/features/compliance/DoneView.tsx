@@ -1,8 +1,13 @@
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import type { ComplianceCase } from "@crm/schemas";
 import "./ComplianceFlow.css";
 
 interface Props {
   caseData: ComplianceCase;
+  onChange: (updated: ComplianceCase) => void;
+  onNewCase?: () => void;
+  onLogout?: () => void;
 }
 
 // ── Minimal client-side ZIP builder (no dependencies, uncompressed) ──────────
@@ -81,24 +86,35 @@ function buildZip(files: Array<{ name: string; data: Uint8Array }>): Blob {
 
 // ── Main ─────────────────────────────────────────────────────────────────────
 
-export function DoneView({ caseData }: Props) {
+type GeneratedDoc = { fileName: string; title: string; content: string };
+
+export function DoneView({ caseData, onChange, onNewCase, onLogout }: Props) {
   const enc = new TextEncoder();
-  const letter = caseData.response?.letterDraft ?? "";
+  const navigate = useNavigate();
+  const [letter, setLetter] = useState(caseData.response?.letterDraft ?? "");
+  const documents: GeneratedDoc[] = (caseData as Record<string, unknown>).documents as GeneratedDoc[] ?? [];
+
+  function updateLetter(draft: string) {
+    setLetter(draft);
+    if (caseData.response) {
+      onChange({ ...caseData, response: { ...caseData.response, letterDraft: draft } });
+    }
+  }
+
+  function goToChecklist() {
+    onChange({ ...caseData, status: "checklist_review" });
+  }
 
   function handlePrint() {
     const w = window.open("", "_blank", "width=800,height=600");
     if (!w) return;
     w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8">
-      <title>Письмо-ответ на требование</title>
+      <title>Ответ на требование</title>
       <style>
         body { font-family: Arial, sans-serif; font-size: 14px; padding: 40px; }
-        h1 { font-size: 16px; }
         p { white-space: pre-wrap; margin-top: 20px; }
-        .refs { font-size: 12px; color: #555; margin-top: 30px; }
       </style></head><body>
-      <h1>Ответ на требование</h1>
       <p>${letter.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</p>
-      <div class="refs">Правовые основания: ${(caseData.response?.legalRefs ?? []).join(", ")}</div>
       </body></html>`);
     w.document.close();
     w.focus();
@@ -109,26 +125,19 @@ export function DoneView({ caseData }: Props) {
     const files: Array<{ name: string; data: Uint8Array }> = [];
 
     // 1. Сопроводительное письмо
-    files.push({ name: "письмо.txt", data: enc.encode(letter) });
+    files.push({ name: "01_pismo_otvet.txt", data: enc.encode(letter) });
 
-    // 2. Список документов
-    const docList = caseData.checklist
-      .map((e) => {
-        const tag = e.availability === "restorable" ? "[ДУБЛИКАТ]" : "[ОРИГИНАЛ]";
-        return `${tag} ${e.label}`;
-      })
-      .join("\n");
-    files.push({ name: "список_документов.txt", data: enc.encode(docList) });
-
-    // 3. Правовые ссылки
-    const refs = (caseData.response?.legalRefs ?? []).join("\n");
-    files.push({ name: "правовые_основания.txt", data: enc.encode(refs) });
+    // 2. Сформированные документы
+    for (let i = 0; i < documents.length; i++) {
+      const d = documents[i];
+      files.push({ name: `${String(i + 2).padStart(2, "0")}_${d.fileName}`, data: enc.encode(d.content) });
+    }
 
     const zip = buildZip(files);
     const url = URL.createObjectURL(zip);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "пакет_документов.zip";
+    a.download = "paket_dokumentov.zip";
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -138,16 +147,61 @@ export function DoneView({ caseData }: Props) {
       <span className="compliance-done-icon">✅</span>
       <h2 className="compliance-done-title">Пакет готов</h2>
       <p className="compliance-done-sub">
-        Документы сформированы. Проверьте письмо и передайте юристу перед отправкой.
+        Сформировано документов: <strong>{documents.length + 1}</strong> (письмо + {documents.length} приложений).
+        Отредактируйте при необходимости и передайте юристу.
       </p>
+
+      <p className="compliance-letter-label" style={{ alignSelf: "flex-start", marginBottom: 4 }}>Сопроводительное письмо</p>
+      <textarea
+        className="compliance-letter"
+        value={letter}
+        onChange={e => updateLetter(e.target.value)}
+        placeholder="Текст мотивированного ответа..."
+        style={{ width: "100%", minHeight: 180 }}
+      />
+
+      {documents.length > 0 && (
+        <div style={{ alignSelf: "stretch", margin: "12px 0" }}>
+          <p style={{ fontWeight: 600, fontSize: 14, margin: "0 0 8px", color: "#3A2800" }}>Документы пакета:</p>
+          {documents.map((d, i) => (
+            <details key={i} style={{ margin: "4px 0", fontSize: 13, color: "#3A2800" }}>
+              <summary style={{ cursor: "pointer" }}>📄 {d.title}</summary>
+              <pre style={{ whiteSpace: "pre-wrap", fontSize: 12, padding: "8px 12px", background: "rgba(200,160,60,0.06)", borderRadius: 8, margin: "4px 0", maxHeight: 200, overflow: "auto" }}>{d.content}</pre>
+            </details>
+          ))}
+        </div>
+      )}
+
+      <div className="compliance-disclaimer" style={{ alignSelf: "stretch" }}>
+        ⚠️ Проект. Перед отправкой проверьте с юристом.
+      </div>
 
       <div className="compliance-done-actions">
         <button type="button" className="compliance-done-btn" onClick={handleDownloadZip}>
-          📦 Скачать ZIP
+          Скачать ZIP ({documents.length + 1} файлов)
         </button>
         <button type="button" className="compliance-done-btn compliance-done-btn--secondary" onClick={handlePrint}>
-          🖨 Печать письма
+          Печать письма
         </button>
+      </div>
+
+      <div style={{ display: "flex", gap: 12, marginTop: 16, width: "100%", flexWrap: "wrap" }}>
+        <button type="button" className="paywall-back" onClick={goToChecklist}>
+          ← Назад к чек-листу
+        </button>
+        {onNewCase && (
+          <button type="button" className="paywall-back" onClick={onNewCase}>
+            + Новый кейс
+          </button>
+        )}
+        <button type="button" className="paywall-back" style={{ marginLeft: "auto" }} onClick={() => navigate("/dashboard")}>
+          Выйти
+        </button>
+        {onLogout && (
+          <button type="button" className="paywall-back" onClick={onLogout}>
+            Сменить пользователя
+          </button>
+        )}
       </div>
     </div>
   );

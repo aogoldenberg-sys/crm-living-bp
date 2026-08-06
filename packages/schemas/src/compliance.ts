@@ -152,11 +152,58 @@ export const MotivatedResponse = z.object({
 }).strict();
 export type MotivatedResponse = z.infer<typeof MotivatedResponse>;
 
+/**
+ * Реквизиты входящего требования — всё что Claude извлёк из документа.
+ * Используется в чек-листе (блок «О чём запрос») и в сборке пакета.
+ */
+export const RequestMeta = z.object({
+  /** Орган-отправитель: полное наименование из документа. */
+  authorityName: z.string().nullable(),
+  /** Адрес органа. */
+  authorityAddress: z.string().nullable(),
+  /** Подписант: ФИО и должность. */
+  officerName: z.string().nullable(),
+  /** Исполнитель: ФИО и телефон. */
+  executorName: z.string().nullable(),
+  executorPhone: z.string().nullable(),
+  /** Номер требования (null если поле пустое в документе). */
+  requestNumber: z.string().nullable(),
+  /** Дата требования. */
+  requestDate: IsoDate.nullable(),
+  /** Срок ответа: дата или описание («до 30.04.2025»). */
+  deadlineText: z.string().nullable(),
+  /** Способ подачи ответа. */
+  deliveryMethod: z.enum(["mail", "in_person", "electronic", "unknown"]),
+  /** Место/кабинет для нарочной подачи. */
+  deliveryAddress: z.string().nullable(),
+  /** Правовое основание из текста документа. */
+  legalBasisText: z.string().nullable(),
+  /** Повод проверки: краткое описание из документа. */
+  subjectText: z.string().nullable(),
+  /** Заявитель (если проверка по обращению): ФИО. */
+  complainantName: z.string().nullable(),
+  /** Номер и дата обращения заявителя. */
+  complainantRef: z.string().nullable(),
+  /** Организация-получатель: наименование из документа. */
+  recipientName: z.string().nullable(),
+  recipientInn: z.string().nullable(),
+  /** ФИО и должность руководителя получателя из документа. */
+  recipientDirector: z.string().nullable(),
+  recipientAddress: z.string().nullable(),
+  /** Тема проверки: что определил Claude по составу позиций. */
+  topic: z.string().nullable(),
+  /** Санкции: что грозит по ситуации (Claude выводит из контекста). */
+  sanctionsText: z.string().nullable(),
+}).partial();
+export type RequestMeta = z.infer<typeof RequestMeta>;
+
 /** Корневой документ кейса. Один входящий запрос = один кейс. */
 export const ComplianceCase = z.object({
   caseId: z.string().uuid(),
   businessId: z.string(),               // назначается сервером, как везде
   authority: RequestingAuthority,
+  /** Реквизиты требования — извлекает Claude при загрузке документа. */
+  requestMeta: RequestMeta.optional(),
   createdAt: IsoDateTime,
   sourceFileRef: z.string(),            // скан/PDF входящего требования
   items: z.array(RequestItem),

@@ -67,6 +67,16 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // _config — публичные конфиги (тарифы и т.д.). Чтение для всех авторизованных, запись — только воркер.
+    match /_config/{docId} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+    match /_config/{docId}/{sub=**} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
     // Всё остальное — закрыто.
     match /{document=**} {
       allow read, write: if false;
