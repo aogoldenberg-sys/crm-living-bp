@@ -210,6 +210,17 @@ export const RequestMeta = z.object({
 export type RequestMeta = z.infer<typeof RequestMeta>;
 
 /** Корневой документ кейса. Один входящий запрос = один кейс. */
+/** Файл, приложенный пользователем к позиции чек-листа. */
+export const CaseAttachment = z.object({
+  fileName: z.string(),
+  mimeType: z.string(),
+  /** Base64-encoded содержимое файла. */
+  base64: z.string(),
+  size: z.number().int(),
+  uploadedAt: IsoDateTime,
+});
+export type CaseAttachment = z.infer<typeof CaseAttachment>;
+
 export const ComplianceCase = z.object({
   caseId: z.string().uuid(),
   businessId: z.string(),               // назначается сервером, как везде
@@ -231,5 +242,7 @@ export const ComplianceCase = z.object({
     "response_draft",   // письмо готово, ждёт утверждения
     "done",
   ]),
+  /** Файлы пользователя: entryId → вложение. */
+  attachments: z.record(z.string(), CaseAttachment).optional(),
 }).strict();
 export type ComplianceCase = z.infer<typeof ComplianceCase>;

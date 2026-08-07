@@ -133,6 +133,19 @@ export function DoneView({ caseData, onChange, onNewCase, onLogout }: Props) {
       files.push({ name: `${String(i + 2).padStart(2, "0")}_${d.fileName}`, data: enc.encode(d.content) });
     }
 
+    // 3. Приложенные пользователем файлы
+    const attachments = (caseData as Record<string, unknown>).attachments as Record<string, { fileName: string; base64: string }> | undefined;
+    if (attachments) {
+      let attachIdx = documents.length + 2;
+      for (const att of Object.values(attachments)) {
+        const raw = atob(att.base64);
+        const bytes = new Uint8Array(raw.length);
+        for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+        files.push({ name: `${String(attachIdx).padStart(2, "0")}_prilozhenie_${att.fileName}`, data: bytes });
+        attachIdx++;
+      }
+    }
+
     const zip = buildZip(files);
     const url = URL.createObjectURL(zip);
     const a = document.createElement("a");
@@ -160,7 +173,7 @@ export function DoneView({ caseData, onChange, onNewCase, onLogout }: Props) {
         style={{ width: "100%", minHeight: 180 }}
       />
 
-      {documents.length > 0 && (
+      {(documents.length > 0 || Object.keys((caseData as Record<string, unknown>).attachments as object ?? {}).length > 0) && (
         <div style={{ alignSelf: "stretch", margin: "12px 0" }}>
           <p style={{ fontWeight: 600, fontSize: 14, margin: "0 0 8px", color: "#3A2800" }}>Документы пакета:</p>
           {documents.map((d, i) => (
@@ -168,6 +181,11 @@ export function DoneView({ caseData, onChange, onNewCase, onLogout }: Props) {
               <summary style={{ cursor: "pointer" }}>📄 {d.title}</summary>
               <pre style={{ whiteSpace: "pre-wrap", fontSize: 12, padding: "8px 12px", background: "rgba(200,160,60,0.06)", borderRadius: 8, margin: "4px 0", maxHeight: 200, overflow: "auto" }}>{d.content}</pre>
             </details>
+          ))}
+          {Object.values((caseData as Record<string, unknown>).attachments as Record<string, { fileName: string }> ?? {}).map((att, i) => (
+            <div key={i} style={{ margin: "4px 0", fontSize: 13, color: "#1a6b2a" }}>
+              📎 {att.fileName} <span style={{ color: "#AAA098", fontSize: 11 }}>(файл клиента)</span>
+            </div>
           ))}
         </div>
       )}

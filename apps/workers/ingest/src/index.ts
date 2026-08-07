@@ -1539,6 +1539,59 @@ async function handleComplianceCaseGet(request: Request, env: Env, caseId: strin
   return jsonCors(caseData);
 }
 
+// ── POST /compliance/case/:caseId/attach ─────────────────────────────────────
+// Сохраняет файл пользователя к позиции чек-листа.
+// Body: { entryId, fileName, mimeType, base64 }
+// Обновляет: caseData.attachments[entryId] + checklist entry → have_file
+
+async function handleComplianceAttach(request: Request, env: Env, caseId: string): Promise<Response> {
+  const authHeader = request.headers.get("Authorization") ?? "";
+  const idToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  if (!idToken) return jsonCors({ error: "Unauthorized" }, 401);
+
+  const claims = await verifyFirebaseIdToken(idToken, env.FIREBASE_PROJECT_ID || "crm-living-bp");
+  if (!claims) return jsonCors({ error: "Unauthorized" }, 401);
+
+  const db = createFirestoreRestClient(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+  const userDoc = await db.collection("users").doc(claims.uid).get();
+  if (!userDoc.exists) return jsonCors({ error: "User not registered" }, 400);
+  const { businessId } = userDoc.data() as { businessId: string };
+
+  let body: { entryId?: string; fileName?: string; mimeType?: string; base64?: string };
+  try { body = await request.json() as typeof body; } catch { return jsonCors({ error: "Invalid JSON" }, 400); }
+
+  const { entryId, fileName, mimeType, base64 } = body;
+  if (!entryId || !fileName || !base64) return jsonCors({ error: "Missing entryId, fileName or base64" }, 400);
+
+  const caseDoc = await db.collection(`tenants/${businessId}/compliance_cases`).doc(caseId).get();
+  if (!caseDoc.exists) return jsonCors({ error: "Case not found" }, 404);
+
+  const caseData = caseDoc.data() as Record<string, unknown>;
+  if (caseData.businessId !== businessId) return jsonCors({ error: "Forbidden" }, 403);
+
+  const attachment = {
+    fileName,
+    mimeType: mimeType ?? "application/octet-stream",
+    base64,
+    size: Math.round(base64.length * 0.75), // приблизительно
+    uploadedAt: new Date().toISOString(),
+  };
+
+  const attachments = { ...((caseData.attachments ?? {}) as Record<string, unknown>), [entryId]: attachment };
+
+  // Обновляем позицию чек-листа → have_file + confirmedByOwner
+  const checklist = (caseData.checklist as Array<Record<string, unknown>>).map(e =>
+    e.entryId === entryId ? { ...e, availability: "have_file", confirmedByOwner: true } : e,
+  );
+
+  const updated = { ...caseData, attachments, checklist };
+  await db.collection(`tenants/${businessId}/compliance_cases`).doc(caseId).set(
+    updated as Record<string, unknown>,
+  );
+
+  return jsonCors({ entryId, fileName, size: attachment.size, checklist });
+}
+
 // ── GET /compliance/case/:caseId/required-fields ──────────────────────────────
 // Собирает requiredFields всех генераторов задействованных в кейсе.
 // Дедуплицирует по key. Поля уже известные из requestMeta исключаются.
@@ -2831,6 +2884,12 @@ async function dispatchRequest(request: Request, env: Env, ctx: ExecutionContext
     // ── /compliance/package — запуск сборки пакета (async) ──────────────────
     if (request.method === "POST" && url.pathname === "/compliance/package") {
       return handleCompliancePackage(request, env, ctx);
+    }
+
+    // ── POST /compliance/case/:caseId/attach ─────────────────────────────────
+    if (request.method === "POST" && url.pathname.match(/^\/compliance\/case\/[^/]+\/attach$/)) {
+      const caseId = url.pathname.split("/")[3]!;
+      return handleComplianceAttach(request, env, caseId);
     }
 
     // ── GET /compliance/case/:caseId/required-fields ─────────────────────────

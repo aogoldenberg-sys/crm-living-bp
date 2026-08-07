@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { caseCompleteness, LEGAL_BASIS } from "@crm/core";
-import type { ChecklistEntry, ComplianceCase, DocAvailability, PrimaryDocKind, RequestingAuthority, RequestMeta } from "@crm/schemas";
+import type { CaseAttachment, ChecklistEntry, ComplianceCase, DocAvailability, PrimaryDocKind, RequestingAuthority, RequestMeta } from "@crm/schemas";
+import { auth } from "../../firebase";
 import "./ComplianceFlow.css";
 
 const RU_STATUS: Record<string, string> = {
@@ -232,7 +233,45 @@ interface Props {
 
 export function ChecklistStep({ caseData, onChange, onNewCase, onLogout, onRequestAssemble, assembling = false, assembleError = null }: Props) {
   const [showBreakdown, setShowBreakdown] = useState(false);
+  const [uploadingEntry, setUploadingEntry] = useState<string | null>(null);
+  const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const completeness = caseCompleteness(caseData.checklist);
+
+  async function handleAttachFile(entryId: string, file: File) {
+    setUploadingEntry(entryId);
+    try {
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve((reader.result as string).split(",")[1] ?? "");
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const user = auth.currentUser;
+      if (!user) throw new Error("Не авторизован");
+      const idToken = await user.getIdToken();
+      const workerUrl = import.meta.env.VITE_INGEST_WORKER_URL as string;
+      const res = await fetch(`${workerUrl}/compliance/case/${caseData.caseId}/attach`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${idToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ entryId, fileName: file.name, mimeType: file.type, base64 }),
+      });
+      const data = await res.json() as { checklist?: ChecklistEntry[]; error?: string };
+      if (!res.ok) throw new Error(data.error ?? `Ошибка ${res.status}`);
+      const attachment: CaseAttachment = {
+        fileName: file.name, mimeType: file.type, base64,
+        size: file.size, uploadedAt: new Date().toISOString(),
+      };
+      onChange({
+        ...caseData,
+        checklist: data.checklist ?? caseData.checklist,
+        attachments: { ...(caseData.attachments ?? {}), [entryId]: attachment },
+      });
+    } catch (e) {
+      console.error("Attach error:", e);
+    } finally {
+      setUploadingEntry(null);
+    }
+  }
   const pct = Math.round(completeness * 100);
 
   const grouped = new Map<string, ChecklistEntry[]>();
@@ -319,6 +358,34 @@ export function ChecklistStep({ caseData, onChange, onNewCase, onLogout, onReque
                         />
                         {isMissing && !entry.confirmedByOwner ? "Есть у меня" : ""}
                       </label>
+                    )}
+                    {/* Кнопка прикрепления файла */}
+                    {caseData.attachments?.[entry.entryId] ? (
+                      <span style={{ fontSize: 11, color: "#1a6b2a", marginLeft: 4 }}>
+                        📎 {caseData.attachments[entry.entryId].fileName}
+                      </span>
+                    ) : (
+                      <>
+                        <input
+                          type="file"
+                          style={{ display: "none" }}
+                          ref={el => { fileInputRefs.current[entry.entryId] = el; }}
+                          onChange={e => {
+                            const file = e.target.files?.[0];
+                            if (file) void handleAttachFile(entry.entryId, file);
+                            e.target.value = "";
+                          }}
+                          aria-label={`Приложить файл к: ${entry.label}`}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => fileInputRefs.current[entry.entryId]?.click()}
+                          disabled={uploadingEntry === entry.entryId}
+                          style={{ fontSize: 11, background: "none", border: "1px solid rgba(200,160,60,0.4)", borderRadius: 6, padding: "2px 7px", cursor: "pointer", color: "#5A3D00", marginLeft: 4 }}
+                        >
+                          {uploadingEntry === entry.entryId ? "…" : "📎"}
+                        </button>
+                      </>
                     )}
                   </div>
                 </div>
