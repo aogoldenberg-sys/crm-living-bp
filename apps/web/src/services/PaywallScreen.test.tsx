@@ -18,8 +18,8 @@ describe("priceForPaywall", () => {
   });
 
   it("prefers product price over tier when both given", () => {
-    const product = ONE_OFF.find(p => p.id === "scenario")!;
-    expect(priceForPaywall("operator", "scenario")).toBe(product.price);
+    const product = ONE_OFF.find(p => p.id === "compliance")!;
+    expect(priceForPaywall("operator", "compliance")).toBe(product.price);
   });
 
   it("falls back to pulse price when nothing specified", () => {
@@ -38,8 +38,8 @@ describe("priceForPaywall", () => {
 
 describe("tierLabel", () => {
   it("returns ONE_OFF name for requiredProduct", () => {
-    const item = ONE_OFF.find(p => p.id === "diag")!;
-    expect(tierLabel(undefined, "diag")).toBe(item.name);
+    const item = ONE_OFF.find(p => p.id === "start")!;
+    expect(tierLabel(undefined, "start")).toBe(item.name);
   });
 
   it("returns SUBSCRIPTIONS name for requiredTier", () => {
