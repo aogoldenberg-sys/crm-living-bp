@@ -107,7 +107,10 @@ const PACKAGE_SYSTEM = `Ты — юрист, защищающий интерес
 - fileName: транслит, snake_case, .txt (например: spravka_zadolzhennost.txt)
 - title: понятное название
 - content: полный текст, деловой стиль, данные из requestMeta и answers
-- Не используй [ЗАПОЛНИТЬ] внутри документов — если данных нет, пиши «по данным, имеющимся у Общества» или «уточнить у [ответственного лица]» прямым текстом
+- Если данных для поля нет — ставь [ЗАПОЛНИТЬ] (ровно так, без пояснений в скобках)
+- Если нет правового основания — ставь [УТОЧНИТЬ: правовое основание] (ровно эта форма)
+- НЕ пиши инструкции внутри скобок: «уточнить у [ответственного лица]» — ЗАПРЕЩЕНО
+- НЕ придумывай текст внутри скобок. Любой другой вид [...] в документах запрещён
 - Каждый документ — ПРОЕКТ, первая строка content: «[ПРОЕКТ — требует проверки и подписи]»
 
 ## АДВОКАТСКАЯ ПОЗИЦИЯ при отсутствии документов
@@ -123,8 +126,31 @@ const PACKAGE_SYSTEM = `Ты — юрист, защищающий интерес
 - Не фабриковать суммы, даты, номера которых нет в answers или requestMeta
 - Не использовать нормы права, не переданные в legalBasis
 - Не пропускать ни один пункт требования
-- Не ставить [ЗАПОЛНИТЬ] кроме исх. номера и даты письма`;
+- Допустимые плейсхолдеры: только [ЗАПОЛНИТЬ] и [УТОЧНИТЬ: правовое основание]
+- В письме: исх. номер и дата письма — пиши «_____» (пробелы для ручного заполнения), не [ЗАПОЛНИТЬ]
+- Любой другой вид [...] кроме [ПРОЕКТ...] в начале документа — запрещён`;
 
+
+// Разрешённые плейсхолдеры — закрытый список.
+// [ПРОЕКТ...] — маркер заголовка документа, разрешён.
+const ALLOWED_PLACEHOLDER = /^\[ЗАПОЛНИТЬ\]$|^\[УТОЧНИТЬ: правовое основание\]$|^\[ПРОЕКТ[^\]]*\]$/;
+
+/** Находит любой [...] вне закрытого списка. Возвращает сообщение об ошибке или null. */
+function validatePackage(letter: string, documents: GeneratedDoc[]): string | null {
+  const bracketRe = /\[[^\]]{1,120}\]/g;
+  const texts: Array<{ label: string; text: string }> = [
+    { label: "письмо", text: letter },
+    ...documents.map(d => ({ label: d.fileName, text: d.content })),
+  ];
+  for (const { label, text } of texts) {
+    for (const m of text.matchAll(bracketRe)) {
+      if (!ALLOWED_PLACEHOLDER.test(m[0])) {
+        return `Недопустимый плейсхолдер в «${label}»: ${m[0]}`;
+      }
+    }
+  }
+  return null;
+}
 
 export async function runPipeline(
   client: AnthropicClient,
@@ -172,7 +198,7 @@ export async function runPipeline(
   try {
     const msg = await client.messages.create({
       model: "claude-sonnet-4-6",
-      max_tokens: 8192,
+      max_tokens: 16384,
       system: PACKAGE_SYSTEM,
       messages: [{ role: "user", content: JSON.stringify(input, null, 2) }],
     });
@@ -197,6 +223,11 @@ export async function runPipeline(
     const documents: GeneratedDoc[] = (parsed.documents ?? [])
       .filter(d => d.fileName && d.title && d.content)
       .map(d => ({ fileName: d.fileName!, title: d.title!, content: d.content! }));
+
+    const validationError = validatePackage(parsed.letter, documents);
+    if (validationError) {
+      return err({ code: "STORAGE_ERROR", message: validationError });
+    }
 
     return ok({ draftLetter: parsed.letter, documents });
   } catch (e) {
