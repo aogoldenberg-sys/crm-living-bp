@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { IsoDateTime, Inn } from "../money.js";
+import { IsoDateTime } from "../money.js";
 
 export const SourceDocKind = z.enum([
   "bank_statement",

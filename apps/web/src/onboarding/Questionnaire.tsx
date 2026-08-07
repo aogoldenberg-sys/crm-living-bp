@@ -156,25 +156,6 @@ export function Questionnaire({ onSubmit, onHome }: Props) {
       );
     }
 
-    if (q.type === "number") {
-      // type="text" + inputMode — no browser spinner arrows
-      return (
-        <input
-          type="text"
-          inputMode="numeric"
-          pattern="[0-9]*"
-          className="qs-input"
-          value={currentValue}
-          onChange={(e) => {
-            const v = e.target.value.replace(/[^0-9]/g, "");
-            setValue(v);
-          }}
-          placeholder={qPlaceholder ?? "0"}
-          autoFocus
-        />
-      );
-    }
-
     // default: text
     return (
       <input

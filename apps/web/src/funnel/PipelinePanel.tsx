@@ -194,10 +194,11 @@ export function PipelinePanel({ filterMine = false }: PipelinePanelProps) {
   const ownerId = user?.uid ?? "";
 
   async function handleMove(deal: Deal, toStage: string) {
-    if (!businessId) return;
+    if (!businessId || !user) return;
     setMovingId(deal.dealId);
     setMoveError(null);
     try {
+      const idToken = await user.getIdToken();
       await postEvents([
         {
           type: "deal_stage_changed",
@@ -220,7 +221,7 @@ export function PipelinePanel({ filterMine = false }: PipelinePanelProps) {
           source: "manual",
           businessId,
         },
-      ]);
+      ], idToken);
       // Проекция обновится через compute cron; onSnapshot поймает когда придёт.
     } catch (e) {
       setMoveError(e instanceof Error ? e.message : String(e));

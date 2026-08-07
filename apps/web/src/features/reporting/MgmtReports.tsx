@@ -10,19 +10,6 @@ interface Props {
 
 const YEAR = new Date().getFullYear();
 
-// ── Minimal CSV builder → opens in Excel ──────────────────────────────────────
-
-function downloadCsv(rows: string[][], filename: string) {
-  const csv = rows.map((r) => r.map((c) => `"${c.replace(/"/g, '""')}"`).join(";")).join("\n");
-  const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" }); // BOM for Excel
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
 function downloadXlsx(sheetData: unknown[][], filename: string) {
   const ws = XLSX.utils.aoa_to_sheet(sheetData);
   const wb = XLSX.utils.book_new();

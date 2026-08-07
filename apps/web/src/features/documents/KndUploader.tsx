@@ -38,7 +38,7 @@ export function KndUploader({ onParsed, onError }: KndUploaderProps) {
       const xml = reader.result as string;
       const result = parseKndXml(xml);
       if (!result.ok) {
-        reportError(result.error);
+        reportError(result.error.message);
         return;
       }
       setState({ status: "parsed", doc: result.value, rawXml: xml, error: null });

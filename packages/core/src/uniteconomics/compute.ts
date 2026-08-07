@@ -1,4 +1,3 @@
-import type { BusinessEvent } from "@crm/schemas";
 import type { UnitEconomicsInput, UnitEconomicsResult, UnitHealthThresholds } from "./types.js";
 import { DEFAULT_THRESHOLDS } from "./types.js";
 
