@@ -10,4 +10,4 @@ export type { MissingItem } from "./position.js";
 export { runPipeline } from "./pipeline.js";
 export type { PipelineMeta, PipelineResult } from "./pipeline.js";
 export { GENERATORS } from "./generators/index.js";
-export type { DocGenerator, FieldSpec, FieldType } from "./generators/index.js";
+export type { DocGenerator } from "./generators/index.js";

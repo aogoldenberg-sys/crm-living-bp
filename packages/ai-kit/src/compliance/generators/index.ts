@@ -161,4 +161,4 @@ export const GENERATORS: Record<PrimaryDocKind, DocGenerator | null> = {
   other: null,
 };
 
-export type { DocGenerator, FieldSpec, FieldType } from "./types.js";
+export type { DocGenerator } from "./types.js";

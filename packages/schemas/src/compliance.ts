@@ -1,6 +1,18 @@
 import { z } from "zod";
 import { IsoDate, IsoDateTime, Kopecks, Inn } from "./money.js";
 
+// ── FieldSpec — спецификация поля для ввода пользователем ────────────────────
+// Живёт в schemas (не в ai-kit), чтобы фронт мог импортировать без ai-зависимостей.
+
+export type FieldType = "text" | "date" | "money" | "number";
+
+export type FieldSpec = {
+  key: string;
+  label: string;
+  type: FieldType;
+  required: boolean;
+};
+
 /**
  * Модуль ответов на запросы контролирующих органов и комплаенс банка.
  *

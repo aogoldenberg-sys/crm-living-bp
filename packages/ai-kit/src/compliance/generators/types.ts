@@ -1,14 +1,7 @@
-import type { PrimaryDocKind } from "@crm/schemas";
+import type { PrimaryDocKind, FieldSpec, FieldType } from "@crm/schemas";
 import type { Result } from "@crm/core";
 
-export type FieldType = "text" | "date" | "money" | "number";
-
-export type FieldSpec = {
-  key: string;
-  label: string;
-  type: FieldType;
-  required: boolean;
-};
+export type { FieldSpec, FieldType };
 
 export type DocGenerator = {
   docKind: PrimaryDocKind;

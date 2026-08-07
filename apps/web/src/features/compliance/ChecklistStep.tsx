@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { caseCompleteness, LEGAL_BASIS } from "@crm/core";
 import type { ChecklistEntry, ComplianceCase, DocAvailability, PrimaryDocKind, RequestingAuthority, RequestMeta } from "@crm/schemas";
-import { auth } from "../../firebase";
 import "./ComplianceFlow.css";
 
 const RU_STATUS: Record<string, string> = {
@@ -225,12 +224,14 @@ interface Props {
   onChange: (updated: ComplianceCase) => void;
   onNewCase?: () => void;
   onLogout?: () => void;
+  /** Вызывается вместо прямого запуска сборки — оркестратор решает нужны ли поля */
+  onRequestAssemble: () => void;
+  assembling?: boolean;
+  assembleError?: string | null;
 }
 
-export function ChecklistStep({ caseData, onChange, onNewCase, onLogout }: Props) {
-  const [assembling, setAssembling] = useState(false);
+export function ChecklistStep({ caseData, onChange, onNewCase, onLogout, onRequestAssemble, assembling = false, assembleError = null }: Props) {
   const [showBreakdown, setShowBreakdown] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const completeness = caseCompleteness(caseData.checklist);
   const pct = Math.round(completeness * 100);
 
@@ -241,34 +242,9 @@ export function ChecklistStep({ caseData, onChange, onNewCase, onLogout }: Props
     grouped.set(entry.requestItemId, list);
   }
 
-  async function handleAssemble() {
-    // Показываем разбивку сразу — пользователь видит что будет сделано
+  function handleAssemble() {
     setShowBreakdown(true);
-    setAssembling(true);
-    setError(null);
-    try {
-      const user = auth.currentUser;
-      if (!user) throw new Error("Не авторизован");
-      const idToken = await user.getIdToken();
-      const workerUrl = import.meta.env.VITE_INGEST_WORKER_URL as string;
-      const res = await fetch(`${workerUrl}/compliance/package`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${idToken}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ caseId: caseData.caseId, checklist: caseData.checklist }),
-      });
-      const data = await res.json().catch(() => ({})) as {
-        error?: string; status?: string;
-        response?: Record<string, unknown>;
-        documents?: Array<{ fileName: string; title: string; content: string }>;
-      };
-      if (!res.ok) throw new Error(data.error ?? `Ошибка ${res.status}`);
-      if (data.status === "done" && data.response) {
-        onChange({ ...caseData, status: "done", response: data.response as ComplianceCase["response"], documents: data.documents } as ComplianceCase);
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Ошибка сборки пакета");
-      setAssembling(false);
-    }
+    onRequestAssemble();
   }
 
   return (
@@ -352,7 +328,7 @@ export function ChecklistStep({ caseData, onChange, onNewCase, onLogout }: Props
         );
       })}
 
-      {error && <p style={{ color: "#c62828", fontSize: 13, margin: "8px 0 0" }}>{error}</p>}
+      {assembleError && <p style={{ color: "#c62828", fontSize: 13, margin: "8px 0 0" }}>{assembleError}</p>}
 
       <button
         className="compliance-assemble-btn"

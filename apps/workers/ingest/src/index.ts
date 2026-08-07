@@ -14,8 +14,8 @@ import type { Db } from "@crm/firestore-adapter";
 import { BusinessEvent, ExternalPushSignal, RequestItem, INTAKE_TO_BOOK_ID, BOOK_SECTION_IDS, type SourceDocKind, Entitlements, BusinessPlanV1 } from "@crm/schemas";
 import { handleDocuments } from "./documents.js";
 import { createFirestoreRestClient, saveEvents, registerTenant, loadEvents, loadForecast, loadBusinessPlan, saveBusinessPlan } from "@crm/firestore-adapter";
-import { generatePlan, ExtractedPlanSchema, AssessmentOutputSchema, transcribeAudio, extractVoiceIntent, createAnthropicClient, runPipeline, parseClarifyAnswers, selectOpenItems } from "@crm/ai-kit";
-import type { ClarifyAnswer } from "@crm/ai-kit";
+import { generatePlan, ExtractedPlanSchema, AssessmentOutputSchema, transcribeAudio, extractVoiceIntent, createAnthropicClient, runPipeline, parseClarifyAnswers, selectOpenItems, GENERATORS } from "@crm/ai-kit";
+import type { ClarifyAnswer, FieldSpec } from "@crm/ai-kit";
 import { REQUIRED_SECTIONS, mapToSections, gateIntake, classifyDocument, checkAccess, startTrial, simulateScenario, rankScenarios, buildPlanDiff, computeUnitEconomics, DEFAULT_THRESHOLDS, buildChecklist } from "@crm/core";
 import { mulberry32 } from "@crm/core";
 import { EXTRACT_SYSTEM, ASSESS_SYSTEM } from "./prompts.generated.js";
@@ -1539,6 +1539,54 @@ async function handleComplianceCaseGet(request: Request, env: Env, caseId: strin
   return jsonCors(caseData);
 }
 
+// ── GET /compliance/case/:caseId/required-fields ──────────────────────────────
+// Собирает requiredFields всех генераторов задействованных в кейсе.
+// Дедуплицирует по key. Поля уже известные из requestMeta исключаются.
+
+async function handleComplianceRequiredFields(request: Request, env: Env, caseId: string): Promise<Response> {
+  const authHeader = request.headers.get("Authorization") ?? "";
+  const idToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  if (!idToken) return jsonCors({ error: "Unauthorized" }, 401);
+
+  const claims = await verifyFirebaseIdToken(idToken, env.FIREBASE_PROJECT_ID || "crm-living-bp");
+  if (!claims) return jsonCors({ error: "Unauthorized" }, 401);
+
+  const db = createFirestoreRestClient(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+  const userDoc = await db.collection("users").doc(claims.uid).get();
+  if (!userDoc.exists) return jsonCors({ error: "User not registered" }, 400);
+  const { businessId } = userDoc.data() as { businessId: string };
+
+  const caseDoc = await db.collection(`tenants/${businessId}/compliance_cases`).doc(caseId).get();
+  if (!caseDoc.exists) return jsonCors({ error: "Case not found" }, 404);
+
+  const caseData = caseDoc.data() as Record<string, unknown>;
+  if (caseData.businessId !== businessId) return jsonCors({ error: "Forbidden" }, 403);
+
+  const checklist = (caseData.checklist ?? []) as Array<{ docKind: string; availability: string }>;
+  const meta = (caseData.requestMeta ?? {}) as Record<string, unknown>;
+
+  // Ключи, уже известные из requestMeta — не запрашиваем у пользователя
+  const knownKeys = new Set<string>();
+  if (meta.recipientName) knownKeys.add("companyName");
+  if (meta.recipientInn) knownKeys.add("companyInn");
+
+  const seen = new Set<string>();
+  const fields: FieldSpec[] = [];
+
+  for (const entry of checklist) {
+    if (entry.availability === "not_applicable") continue;
+    const generator = GENERATORS[entry.docKind as keyof typeof GENERATORS];
+    if (!generator) continue;
+    for (const field of generator.requiredFields) {
+      if (knownKeys.has(field.key) || seen.has(field.key)) continue;
+      seen.add(field.key);
+      fields.push(field);
+    }
+  }
+
+  return jsonCors({ fields });
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // /revision-doc handler — загрузка исходного документа, dedup SHA-256
 // Auth: Firebase ID Token (Bearer)
@@ -2783,6 +2831,12 @@ async function dispatchRequest(request: Request, env: Env, ctx: ExecutionContext
     // ── /compliance/package — запуск сборки пакета (async) ──────────────────
     if (request.method === "POST" && url.pathname === "/compliance/package") {
       return handleCompliancePackage(request, env, ctx);
+    }
+
+    // ── GET /compliance/case/:caseId/required-fields ─────────────────────────
+    if (request.method === "GET" && url.pathname.match(/^\/compliance\/case\/[^/]+\/required-fields$/)) {
+      const caseId = url.pathname.split("/")[3]!;
+      return handleComplianceRequiredFields(request, env, caseId);
     }
 
     // ── GET /compliance/case/:caseId — polling статуса ───────────────────────
