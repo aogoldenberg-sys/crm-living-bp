@@ -44,6 +44,7 @@ const RU_AUTHORITY: Record<RequestingAuthority, string> = {
   prosecutor: "Прокуратура",
   bank_compliance: "Банк (115-ФЗ)",
   court: "Суд",
+  bailiffs: "ФССП / Судебные приставы",
   labor_inspection: "ГИТ",
   audit_internal: "Внутренний аудит",
   counterparty: "Контрагент",
