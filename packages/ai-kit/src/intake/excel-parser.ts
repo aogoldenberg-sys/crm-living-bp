@@ -8,12 +8,18 @@
 
 // РЕШЕНИЕ: используем globalThis.XLSX — CF Workers не поддерживают top-level await import,
 // а xlsx пакет бандлится воркером отдельно и доступен глобально.
+
+// Минимальный тип поверхности XLSX, которую мы реально вызываем.
+interface XLSXStatic {
+  read(data: ArrayBuffer, opts: { type: string }): { SheetNames: string[]; Sheets: Record<string, unknown> };
+  utils: { sheet_to_csv(sheet: unknown): string };
+}
+
 export function parseExcelToPages(
   buffer: ArrayBuffer,
 ): Array<{ pageNum: number; text: string }> {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const XLSX = (globalThis as any).XLSX;
+    const XLSX = (globalThis as typeof globalThis & { XLSX?: XLSXStatic }).XLSX;
     if (!XLSX) return [{ pageNum: 1, text: "Excel файл (парсер недоступен)" }];
 
     const workbook = XLSX.read(buffer, { type: "array" });

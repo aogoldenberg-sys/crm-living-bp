@@ -3150,9 +3150,9 @@ async function handleBillingPay(request: Request, env: Env): Promise<Response> {
   };
 
   const token = await tbankToken(terminalKey, password, {
-    Amount: initParams.Amount,
-    OrderId: initParams.OrderId,
-    Description: initParams.Description,
+    Amount: String(product.amountKop),
+    OrderId: orderId,
+    Description: `Kairos — ${product.name}: ${product.description}`,
   });
 
   const body = {

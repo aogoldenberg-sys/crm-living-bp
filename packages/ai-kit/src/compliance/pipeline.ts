@@ -185,7 +185,7 @@ async function runAdvisory(
     // thinking включён: правовая квалификация — аналитическая задача.
     // После включения thinking msg.content[0] может быть thinking-блоком —
     // используем .find() вместо прямого обращения к [0].
-    const msg = await (client.messages.create as Function)({
+    const msg = await client.messages.create({
       model: "claude-sonnet-4-6",
       max_tokens: 16384,
       thinking: { type: "enabled", budget_tokens: 4000 },
@@ -193,8 +193,9 @@ async function runAdvisory(
       messages: [{ role: "user", content: JSON.stringify(input, null, 2) }],
     });
 
-    const textBlock = (msg.content as Array<{ type: string; text?: string }>)
-      .find(b => b.type === "text");
+    const textBlock = msg.content.find(
+      (b): b is { type: "text"; text: string } => b.type === "text",
+    );
     if (!textBlock?.text) {
       return err({ code: "STORAGE_ERROR", message: "Claude вернул пустой ответ (advisory)" });
     }

@@ -11,18 +11,16 @@ import type { ExtractedPlan } from "@crm/core";
 function makeMockClient(responseText: string): AnthropicClient {
   return {
     messages: {
-      create: async (_params: unknown) => ({
-        id: "msg_mock",
-        type: "message",
-        role: "assistant",
-        content: [{ type: "text", text: responseText }],
-        model: "claude-haiku-4-5-20251001",
-        stop_reason: "end_turn",
-        stop_sequence: null,
-        usage: { input_tokens: 10, output_tokens: 10 },
+      create: async (_params) => ({
+        content: [{ type: "text" as const, text: responseText }],
       }),
     },
-  } as unknown as AnthropicClient;
+    beta: {
+      promptCaching: {
+        messages: { create: async (_params) => ({ content: [] }) },
+      },
+    },
+  };
 }
 
 const validExtractedJson = JSON.stringify({

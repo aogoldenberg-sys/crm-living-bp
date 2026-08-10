@@ -18,18 +18,24 @@ function makeClient(response: string): AnthropicClient {
         content: [{ type: "text", text: response }],
       }),
     },
-  } as unknown as AnthropicClient;
+    beta: { promptCaching: { messages: { create: vi.fn() } } },
+  };
 }
 
 /** Клиент с поддержкой beta.promptCaching.messages.create */
 function makeCachingClient(response: string): AnthropicClient {
-  const mock = vi.fn().mockResolvedValue({
-    content: [{ type: "text", text: response }],
-  });
   return {
     messages: { create: vi.fn() },
-    beta: { promptCaching: { messages: { create: mock } } },
-  } as unknown as AnthropicClient;
+    beta: {
+      promptCaching: {
+        messages: {
+          create: vi.fn().mockResolvedValue({
+            content: [{ type: "text", text: response }],
+          }),
+        },
+      },
+    },
+  };
 }
 
 // ─── FIXTURES ────────────────────────────────────────────────────────────────
@@ -74,14 +80,15 @@ describe("extractRequest", () => {
   });
 
   it("2. битый JSON → ретрай → успех (create вызван дважды)", async () => {
-    const client = {
+    const client: AnthropicClient = {
       messages: {
         create: vi
           .fn()
           .mockResolvedValueOnce({ content: [{ type: "text", text: "invalid json {{" }] })
           .mockResolvedValueOnce({ content: [{ type: "text", text: validItemsJson }] }),
       },
-    } as unknown as AnthropicClient;
+      beta: { promptCaching: { messages: { create: vi.fn() } } },
+    };
 
     const result = await extractRequest(client, "Текст требования", false);
 
@@ -93,14 +100,15 @@ describe("extractRequest", () => {
   });
 
   it("3. два раза битый JSON → err(STORAGE_ERROR)", async () => {
-    const client = {
+    const client: AnthropicClient = {
       messages: {
         create: vi
           .fn()
           .mockResolvedValueOnce({ content: [{ type: "text", text: "not json" }] })
           .mockResolvedValueOnce({ content: [{ type: "text", text: "also not json" }] }),
       },
-    } as unknown as AnthropicClient;
+      beta: { promptCaching: { messages: { create: vi.fn() } } },
+    };
 
     const result = await extractRequest(client, "Текст требования", false);
 
@@ -237,7 +245,7 @@ describe("parseClarifyAnswers", () => {
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.value).toHaveLength(0);
     // beta не вызывался
-    const mock = ((client.beta as unknown) as { promptCaching: { messages: { create: ReturnType<typeof vi.fn> } } }).promptCaching.messages.create;
+    const mock = vi.mocked(client.beta.promptCaching.messages.create);
     expect(mock).not.toHaveBeenCalled();
   });
 
@@ -325,14 +333,14 @@ describe("buildClientPosition", () => {
 describe("runPipeline", () => {
   it("15. если нет open-items — draftResponse вызван с корректным DraftInput", async () => {
     const letterText = "[ПРОЕКТ — требует проверки юристом]\nПисьмо.";
-    const client = {
+    const client: AnthropicClient = {
       ...makeCachingClient(letterText),
       messages: {
         create: vi.fn().mockResolvedValue({
           content: [{ type: "text", text: letterText }],
         }),
       },
-    } as unknown as AnthropicClient;
+    };
 
     const result = await runPipeline(
       client,

@@ -10,7 +10,8 @@ function makeClient(response: string): AnthropicClient {
         content: [{ type: "text", text: response }],
       }),
     },
-  } as unknown as AnthropicClient;
+    beta: { promptCaching: { messages: { create: vi.fn() } } },
+  };
 }
 
 const prosecutorInput: DraftInput = {
