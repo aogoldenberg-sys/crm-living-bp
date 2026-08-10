@@ -89,7 +89,7 @@ function b64urlStr(s: string): string {
   return b64url(new TextEncoder().encode(s).buffer as ArrayBuffer);
 }
 
-async function getFirestoreToken(sa: ServiceAccount): Promise<string> {
+async function getGoogleOAuthToken(sa: ServiceAccount, scope: string): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
   const header = b64urlStr(JSON.stringify({ alg: "RS256", typ: "JWT" }));
   const payload = b64urlStr(
@@ -99,7 +99,7 @@ async function getFirestoreToken(sa: ServiceAccount): Promise<string> {
       aud: "https://oauth2.googleapis.com/token",
       iat: now,
       exp: now + 3600,
-      scope: "https://www.googleapis.com/auth/datastore",
+      scope,
     }),
   );
   const input = `${header}.${payload}`;
@@ -123,6 +123,27 @@ async function getFirestoreToken(sa: ServiceAccount): Promise<string> {
   if (!res.ok) throw new Error(`OAuth2 failed (${res.status})`);
   const { access_token } = (await res.json()) as { access_token: string };
   return access_token;
+}
+
+function getFirestoreToken(sa: ServiceAccount) {
+  return getGoogleOAuthToken(sa, "https://www.googleapis.com/auth/datastore");
+}
+
+/** Обновляет email и displayName пользователя Firebase Auth через Admin REST API. */
+async function updateFirebaseProfile(
+  sa: ServiceAccount, uid: string, email: string, displayName: string,
+): Promise<void> {
+  try {
+    const token = await getGoogleOAuthToken(sa, "https://www.googleapis.com/auth/firebase");
+    await fetch(
+      `https://identitytoolkit.googleapis.com/v1/projects/${sa.project_id}/accounts:update`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ localId: uid, email, displayName }),
+      },
+    );
+  } catch { /* best-effort */ }
 }
 
 /** Возвращает secretHash из tenants/{businessId} или null если тенант не найден. */
@@ -239,7 +260,7 @@ async function handleYandexCallback(request: Request, env: Env): Promise<Respons
   const uid = `yandex:${profile.id}`;
   const businessId = uid; // первый вход — businessId = uid, может быть заменён позже
 
-  // 4. Создать Firebase Custom Token
+  // 4. Создать Firebase Custom Token + обновить профиль в Firebase Auth
   const sa = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT_JSON) as ServiceAccount;
   let customToken: string;
   try {
@@ -249,11 +270,23 @@ async function handleYandexCallback(request: Request, env: Env): Promise<Respons
     return new Response("Ошибка создания токена Firebase", { status: 500 });
   }
 
+  // Обновляем email и имя в Firebase Auth через Admin API (best-effort)
+  const email = profile.default_email ?? "";
+  const name = profile.real_name ?? profile.login ?? "";
+  if (email) {
+    await updateFirebaseProfile(sa, uid, email, name);
+  }
+
   // 5. Редирект во фронтенд с customToken в URL-фрагменте (#)
   // Фронт читает fragment, вызывает signInWithCustomToken и очищает URL.
   // РЕШЕНИЕ: fragment не попадает в сервер-логи — безопаснее query param.
   const appUrl = new URL("https://opentgp.ru/kairos/app/");
-  appUrl.hash = `yandex_token=${encodeURIComponent(customToken)}&businessId=${encodeURIComponent(businessId)}`;
+  appUrl.hash = [
+    `yandex_token=${encodeURIComponent(customToken)}`,
+    `businessId=${encodeURIComponent(businessId)}`,
+    `yandex_email=${encodeURIComponent(email)}`,
+    `yandex_name=${encodeURIComponent(name)}`,
+  ].join("&");
   return Response.redirect(appUrl.toString(), 302);
 }
 

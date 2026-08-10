@@ -6,28 +6,14 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: var(--color-deep-black);
+  background: #FAF8F4;
   padding: var(--space-6);
-  position: relative;
-}
-
-.empty-state::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  background-image: url("/hero-placeholder.svg");
-  background-size: cover;
-  background-position: center;
-  opacity: 0.18;
-  pointer-events: none;
-  z-index: 0;
+  zoom: 0.85;
 }
 
 /* ── Лого ─────────────────────────────────────────────────────────────────── */
 
 .empty-state__logo {
-  position: relative;
-  z-index: 10;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -53,12 +39,10 @@
 /* ── Заголовок ────────────────────────────────────────────────────────────── */
 
 .empty-state__title {
-  position: relative;
-  z-index: 10;
   font-family: var(--font-serif);
   font-size: var(--text-3xl);
   font-weight: 400;
-  color: var(--color-ivory);
+  color: #1A1814;
   margin-bottom: var(--space-3);
   letter-spacing: -0.01em;
   text-align: center;
@@ -69,8 +53,6 @@
 /* ── Кнопки ───────────────────────────────────────────────────────────────── */
 
 .empty-state__actions {
-  position: relative;
-  z-index: 10;
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
@@ -110,14 +92,14 @@
 }
 
 .es-btn--secondary {
-  background: transparent;
-  color: var(--color-sand);
-  border: 1px solid var(--border-default);
+  background: #fff;
+  color: #5A3D00;
+  border: 1px solid rgba(200,160,60,0.3);
 }
 
 .es-btn--secondary:hover {
-  background: rgba(201, 185, 154, 0.08);
-  border-color: var(--color-sand);
+  background: rgba(200,160,60,0.06);
+  border-color: #C89A34;
   transform: translateY(-1px);
 }
 
@@ -137,21 +119,22 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: var(--color-deep-black);
+  background: #FAF8F4;
   padding: var(--space-6);
   gap: var(--space-3);
+  zoom: 0.85;
 }
 
 .generating-text {
   font-family: var(--font-serif);
   font-size: var(--text-2xl);
-  color: var(--color-ivory);
+  color: #1A1814;
   text-align: center;
 }
 
 .generating-hint {
   font-family: var(--font-sans);
   font-size: var(--text-sm);
-  color: var(--text-muted);
+  color: #8B7355;
   text-align: center;
 }

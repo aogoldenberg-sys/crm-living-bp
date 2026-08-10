@@ -2,6 +2,7 @@ import { useState, useRef } from "react";
 import { caseCompleteness, LEGAL_BASIS } from "@crm/core";
 import type { CaseAttachment, ChecklistEntry, ComplianceCase, DocAvailability, PrimaryDocKind, RequestingAuthority, RequestMeta } from "@crm/schemas";
 import { auth } from "../../firebase";
+import { useAuth } from "../../auth/useAuth";
 import "./ComplianceFlow.css";
 
 const RU_STATUS: Record<string, string> = {
@@ -20,6 +21,7 @@ const RU_AUTHORITY: Record<RequestingAuthority, string> = {
   prosecutor: "Прокуратура",
   bank_compliance: "Банк (115-ФЗ)",
   court: "Суд",
+  bailiffs: "ФССП / Судебные приставы",
   labor_inspection: "ГИТ",
   audit_internal: "Внутренний аудит",
   counterparty: "Контрагент",
@@ -236,6 +238,7 @@ export function ChecklistStep({ caseData, onChange, onNewCase, onLogout, onReque
   const [uploadingEntry, setUploadingEntry] = useState<string | null>(null);
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const completeness = caseCompleteness(caseData.checklist);
+  const authUser = useAuth((s) => s.user);
 
   async function handleAttachFile(entryId: string, file: File) {
     setUploadingEntry(entryId);
@@ -286,11 +289,20 @@ export function ChecklistStep({ caseData, onChange, onNewCase, onLogout, onReque
     onRequestAssemble();
   }
 
+  const userLabel = authUser?.displayName || authUser?.email || null;
+
   return (
     <div className="compliance-checklist">
       <div className="compliance-checklist-header">
         <h2 className="compliance-checklist-title">Чек-лист документов</h2>
-        <span className="compliance-badge compliance-badge--yellow">{RU_STATUS[caseData.status] ?? caseData.status}</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          {userLabel && (
+            <span style={{ fontSize: 12, color: "#8B7355", background: "rgba(200,160,60,0.1)", borderRadius: 20, padding: "3px 10px", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              👤 {userLabel}
+            </span>
+          )}
+          <span className="compliance-badge compliance-badge--yellow">{RU_STATUS[caseData.status] ?? caseData.status}</span>
+        </div>
       </div>
 
       {/* О чём запрос */}

@@ -123,14 +123,18 @@ export function LoginPage() {
   const handleResend = async () => {
     const user = auth.currentUser;
     if (!user || countdown > 0) return;
-    await sendEmailVerification(user).catch(() => {});
+    const actionCodeSettings = {
+      url: `${window.location.origin}${import.meta.env.BASE_URL}`,
+      handleCodeInApp: false,
+    };
+    await sendEmailVerification(user, actionCodeSettings).catch(() => {});
     setCountdown(60);
   };
 
   const brand = (
     <Link to="/" className="login-brand" aria-label="На главную">
-      <img src={import.meta.env.BASE_URL + "logo-badge.png"} className="brand-logo-img" alt="" aria-hidden="true" style={{ width: 88, height: 88, objectFit: "contain" }} />
-      <span>Kairos</span>
+      <img src={import.meta.env.BASE_URL + "logo.png"} className="brand-logo-img" alt="" aria-hidden="true" style={{ width: 88, height: 88, objectFit: "contain" }} />
+      <span>KAIROS</span>
     </Link>
   );
 
@@ -142,7 +146,7 @@ export function LoginPage() {
           <div className="verify-icon" aria-hidden="true">✉️</div>
           <h1 className="login-heading">Проверьте почту</h1>
           <p className="login-hint">Письмо отправлено на<br /><strong className="verify-email">{email}</strong></p>
-          <p className="verify-spam">Письмо может попасть в папку «Спам».</p>
+          <p className="verify-spam">Не пришло? Проверьте папку «Спам» / «Нежелательная почта». Письмо отправлено с адреса <strong>noreply@firebaseapp.com</strong> — добавьте его в адресную книгу, чтобы следующие письма приходили в inbox.</p>
           <button type="button" className="lf-submit lf-submit--outline" onClick={handleResend} disabled={countdown > 0}>
             {countdown > 0 ? `Отправить ещё раз (${countdown}с)` : "Отправить ещё раз"}
           </button>

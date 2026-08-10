@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react"; // eslint-disable-line
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { sendEmailVerification } from "firebase/auth";
 import { useAuth } from "../auth/useAuth";
@@ -9,10 +9,6 @@ import { PaywallScreen } from "./PaywallScreen";
 import "./ServicesPage.css";
 
 type ServiceTab = "tax" | "compliance";
-
-function hasSavedCase(businessId: string): boolean {
-  return !!localStorage.getItem(`kairos_compliance_case_${businessId}`);
-}
 
 function GatedTax({
   businessId, onUsed,
@@ -55,11 +51,23 @@ export function ServicesPage() {
   const [searchParams] = useSearchParams();
   const initialTab = (searchParams.get("tab") ?? "compliance") as ServiceTab;
   const [tab, setTab] = useState<ServiceTab>(initialTab);
-  const [refreshKey, setRefreshKey] = useState(0);
-  const { businessId } = useAuth();
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const profileRef = useRef<HTMLDivElement>(null);
+  const { businessId, user, logout } = useAuth();
   const navigate = useNavigate();
   const { loading, canCompliance, canReport, markComplianceUsed, markReportUsed } =
     useEntitlements(businessId);
+
+  // Закрывать меню при клике вне
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (profileRef.current && !profileRef.current.contains(e.target as Node)) {
+        setShowProfileMenu(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
 
   if (loading) return <div className="loading-screen">Загрузка\u2026</div>;
 
@@ -82,9 +90,9 @@ export function ServicesPage() {
       <div className="svc-ball svc-ball--5"><img src={import.meta.env.BASE_URL + "ball-gold.png"} alt="" /></div>
       <header className="svc-header">
         <a href="/" className="svc-brand" target="_blank" rel="noopener noreferrer">
-          <img src={import.meta.env.BASE_URL + "logo-badge.png"} alt="Kairos"
-            className="svc-logo svc-logo--transparent" />
-          <span className="svc-wordmark">Kairos</span>
+          <img src={import.meta.env.BASE_URL + "logo.png"} alt="Kairos"
+            className="svc-logo" />
+          <span className="svc-wordmark">KAIROS</span>
         </a>
         <nav className="svc-tabs">
           {tabBtn("compliance", "Требование / Запрос")}
@@ -107,16 +115,45 @@ export function ServicesPage() {
         >
           ТАРИФЫ
         </a>
+
+        {/* Иконка профиля */}
+        <div className="svc-profile" ref={profileRef}>
+          <button
+            type="button"
+            className="svc-profile-btn"
+            onClick={() => setShowProfileMenu(v => !v)}
+            aria-label="Профиль"
+            title={user?.displayName || user?.email || "Профиль"}
+          >
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+              <circle cx="10" cy="7" r="3.5" stroke="#5A3D00" strokeWidth="1.5"/>
+              <path d="M3 17c0-3.314 3.134-6 7-6s7 2.686 7 6" stroke="#5A3D00" strokeWidth="1.5" strokeLinecap="round"/>
+            </svg>
+          </button>
+          {showProfileMenu && (
+            <div className="svc-profile-menu">
+              {(user?.displayName || user?.email) && (
+                <div className="svc-profile-email">
+                  {user?.displayName && <div style={{ fontWeight: 600, color: "#3A2800", marginBottom: 2 }}>{user.displayName}</div>}
+                  {user?.email && <div>{user.email}</div>}
+                  {!user?.email && user?.uid?.startsWith("yandex:") && <div style={{ color: "#AAA098" }}>Яндекс ID</div>}
+                </div>
+              )}
+              <button type="button" className="svc-profile-item" onClick={() => { setShowProfileMenu(false); void logout(); navigate("/login"); }}>
+                Сменить пользователя
+              </button>
+              <button type="button" className="svc-profile-item svc-profile-item--danger" onClick={() => { setShowProfileMenu(false); void logout(); }}>
+                Выйти
+              </button>
+            </div>
+          )}
+        </div>
       </header>
 
       <main className="svc-content">
         {tab === "compliance" && (
-          (canCompliance || hasSavedCase(businessId ?? ""))
-            ? <ComplianceFlow key={refreshKey} businessId={businessId ?? ""} onCaseCreated={markComplianceUsed} onRequestNewCase={() => {
-                localStorage.removeItem(`kairos_compliance_case_${businessId ?? ""}`);
-                void markComplianceUsed();
-                setRefreshKey(k => k + 1);
-              }} />
+          canCompliance
+            ? <ComplianceFlow businessId={businessId ?? ""} onCaseCreated={markComplianceUsed} />
             : <PaywallScreen feature="compliance" onBack={() => setTab("tax")} />
         )}
 

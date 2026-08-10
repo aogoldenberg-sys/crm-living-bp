@@ -11,11 +11,11 @@
 import mammoth from "mammoth";
 import { timingSafeEqual } from "node:crypto";
 import type { Db } from "@crm/firestore-adapter";
-import { BusinessEvent, ExternalPushSignal, RequestItem, INTAKE_TO_BOOK_ID, BOOK_SECTION_IDS, type SourceDocKind, Entitlements, BusinessPlanV1 } from "@crm/schemas";
+import { BusinessEvent, ExternalPushSignal, RequestItem, INTAKE_TO_BOOK_ID, BOOK_SECTION_IDS, type SourceDocKind, Entitlements, BusinessPlanV1, type FieldSpec } from "@crm/schemas";
 import { handleDocuments } from "./documents.js";
 import { createFirestoreRestClient, saveEvents, registerTenant, loadEvents, loadForecast, loadBusinessPlan, saveBusinessPlan } from "@crm/firestore-adapter";
 import { generatePlan, ExtractedPlanSchema, AssessmentOutputSchema, transcribeAudio, extractVoiceIntent, createAnthropicClient, runPipeline, parseClarifyAnswers, selectOpenItems, GENERATORS } from "@crm/ai-kit";
-import type { ClarifyAnswer, FieldSpec } from "@crm/ai-kit";
+import type { ClarifyAnswer } from "@crm/ai-kit";
 import { REQUIRED_SECTIONS, mapToSections, gateIntake, classifyDocument, checkAccess, startTrial, simulateScenario, rankScenarios, buildPlanDiff, computeUnitEconomics, DEFAULT_THRESHOLDS, buildChecklist } from "@crm/core";
 import { mulberry32 } from "@crm/core";
 import { EXTRACT_SYSTEM, ASSESS_SYSTEM } from "./prompts.generated.js";
@@ -1180,12 +1180,13 @@ async function handleIntake(request: Request, env: Env): Promise<Response> {
 // GET /compliance/case/:caseId — polling статуса кейса
 // ══════════════════════════════════════════════════════════════════════════════
 
-const COMPLIANCE_EXTRACT_SYSTEM = `Роль: юридический аналитик. Читаешь требование контролирующего органа и извлекаешь всё что в нём написано.
+const COMPLIANCE_EXTRACT_SYSTEM = `Роль: юридический аналитик. Читаешь официальный документ от государственного органа или контрагента и извлекаешь из него всё что требуется от получателя.
 
 ПРАВИЛО ПРОТИВ ФАБРИКАЦИИ:
 - Только то, что буквально написано в документе. Ничего не выдумывать.
 - Поле пустое в документе → null. НЕ писать "не указан", "не проставлен" — только null.
-- Документ нечитаем или не является требованием → {"authority":"other","requestMeta":{},"items":[]}
+- Документ полностью нечитаем (технический мусор, нет текста вообще) → {"authority":"other","requestMeta":{},"items":[]}
+- ЛЮБОЙ официальный документ с печатью органа или подписью должностного лица — обрабатывать, даже если не похож на классическое "требование". Предупреждения, постановления, уведомления, запросы, предписания — всё это официальные документы, требующие ответа.
 
 ## ШАГ 1. ОПРЕДЕЛИ authority
 
@@ -1196,10 +1197,11 @@ const COMPLIANCE_EXTRACT_SYSTEM = `Роль: юридический аналит
 - "prosecutor" — прокуратура
 - "bank_compliance" — банк, 115-ФЗ
 - "court" — суд
+- "bailiffs" — ФССП, судебные приставы, исполнительное производство (229-ФЗ): постановления, предупреждения, требования пристава-исполнителя
 - "labor_inspection" — ГИТ, трудовая инспекция
 - "audit_internal" — внутренний аудит
 - "counterparty" — контрагент
-- "other" — иной орган
+- "other" — любой иной орган или документ
 
 ## ШАГ 2. ИЗВЛЕКИ requestMeta
 
@@ -1232,6 +1234,12 @@ const COMPLIANCE_EXTRACT_SYSTEM = `Роль: юридический аналит
 
 Каждый пункт требования — отдельный элемент.
 СЧИТАЙ позиции по фактическим строкам списка, НЕ по номерам. Пропуски в нумерации (4, 5, 6 нет, следующий 7) — норма для госорганов, это не значит что позиций больше.
+
+ВАЖНО: Если документ не содержит пронумерованного списка (предупреждение пристава, постановление, уведомление) — создай items из самого текста требования:
+- Для ФССП: один item = "Исполнить требование в рамках исполнительного производства: [суть из документа]", docKinds: ["written_clarification","other"]
+- Для предписания/предупреждения: один item = дословный текст основного требования, docKinds: ["written_clarification"]
+- Для уведомления о задолженности: один item = текст о задолженности, docKinds: ["debt_calculation","written_clarification"]
+Никогда не возвращай пустой массив items если документ читаем и содержит любое требование к организации.
 
 Схема элемента:
 {
@@ -1334,7 +1342,56 @@ async function handleComplianceExtract(request: Request, env: Env): Promise<Resp
     rawItems = raw;
   }
 
-  const validated = RequestItem.array().safeParse(rawItems);
+  // Нормализуем ответ Claude перед валидацией: убираем лишние поля (.strict),
+  // чиним itemId (не UUID → генерируем), фильтруем невалидные docKinds.
+  const VALID_DOC_KINDS = new Set([
+    "payment_order","bank_statement","account_card","contract","act","waybill","invoice",
+    "invoice_facture","order_internal","explanatory","order_hire","personal_card",
+    "staffing_table","timesheet","workbook_extract","debt_calculation","art236_calculation",
+    "payroll_regulation","written_clarification","other",
+  ]);
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+  const INN_RE = /^\d{10}$|^\d{12}$/;
+  const toIsoDate = (v: unknown): string | null => {
+    if (typeof v !== "string" || !v) return null;
+    if (ISO_DATE_RE.test(v)) return v;
+    // Попытка конвертации DD.MM.YYYY → YYYY-MM-DD
+    const m = v.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+    if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+    return null;
+  };
+  const toInn = (v: unknown): string | null => {
+    if (typeof v !== "string") return null;
+    const digits = v.replace(/\D/g, "");
+    return INN_RE.test(digits) ? digits : null;
+  };
+  const normalizeItems = (arr: unknown): unknown => {
+    if (!Array.isArray(arr)) return arr;
+    return arr.map((it: unknown) => {
+      if (!it || typeof it !== "object") return it;
+      const { itemId, rawText, docKinds, periodFrom, periodTo,
+              counterpartyInn, counterpartyName, extractConfidence } =
+        it as Record<string, unknown>;
+      const kinds = Array.isArray(docKinds)
+        ? (docKinds as unknown[]).filter(k => typeof k === "string" && VALID_DOC_KINDS.has(k as string))
+        : [];
+      return {
+        itemId: typeof itemId === "string" && UUID_RE.test(itemId) ? itemId : crypto.randomUUID(),
+        rawText: typeof rawText === "string" ? rawText : String(rawText ?? ""),
+        docKinds: kinds.length > 0 ? kinds : ["other"],
+        periodFrom: toIsoDate(periodFrom),
+        periodTo: toIsoDate(periodTo),
+        counterpartyInn: toInn(counterpartyInn),
+        counterpartyName: typeof counterpartyName === "string" ? counterpartyName : null,
+        extractConfidence: typeof extractConfidence === "number"
+          ? Math.min(1, Math.max(0, extractConfidence)) : 0.8,
+      };
+    });
+  };
+  const normalizedItems = normalizeItems(rawItems);
+
+  const validated = RequestItem.array().safeParse(normalizedItems);
   if (!validated.success) {
     console.error("[compliance/extract] schema error:", validated.error.issues);
     return jsonCors({ error: "Ответ AI не прошёл валидацию", details: validated.error.issues }, 502);
@@ -1495,6 +1552,7 @@ async function handleCompliancePackage(request: Request, env: Env, _ctx: Executi
       authority: pipelineMeta.authority,
       incomingRef: { ...pipelineMeta.incomingRef, fileRef: "uploaded" },
       letterDraft: result.value.draftLetter,
+      mode: result.value.mode,
       legalRefs: [],
       providedEntryIds: [],
       missingExplained: [],

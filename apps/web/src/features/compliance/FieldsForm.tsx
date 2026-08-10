@@ -20,7 +20,11 @@ export function FieldsForm({ fields, onSubmit, onBack, assembling }: Props) {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    onSubmit(values);
+    // Send label→value so Claude gets human-readable keys ("ФИО работника": "Иванов")
+    const labeled = Object.fromEntries(
+      fields.map(f => [f.label, values[f.key] ?? ""]),
+    );
+    onSubmit(labeled);
   }
 
   const missing = fields.filter(f => f.required && !values[f.key]?.trim());

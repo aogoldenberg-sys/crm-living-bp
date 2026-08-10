@@ -7,14 +7,16 @@ import "./ComplianceFlow.css";
 
 interface Props {
   onComplete: (c: ComplianceCase) => void;
+  onBack?: () => void;
 }
 
-export function UploadStep({ onComplete }: Props) {
+export function UploadStep({ onComplete, onBack }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [processing, setProcessing] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [scanError, setScanError] = useState(false);
   const businessId = useAuth((s) => s.businessId) ?? "";
+  const authUser = useAuth((s) => s.user);
 
   async function handleFile(file: File) {
     setScanError(false);
@@ -123,8 +125,15 @@ export function UploadStep({ onComplete }: Props) {
     );
   }
 
+  const userLabel = authUser?.displayName || authUser?.email || null;
+
   return (
     <div className="compliance-upload">
+      {userLabel && (
+        <div style={{ alignSelf: "flex-end", fontSize: 12, color: "#8B7355", background: "rgba(200,160,60,0.1)", borderRadius: 20, padding: "3px 10px", marginBottom: 8 }}>
+          👤 {userLabel}
+        </div>
+      )}
       <div
         className={"compliance-dropzone" + (dragOver ? " compliance-dropzone--active" : "")}
         onDragOver={e => { e.preventDefault(); setDragOver(true); }}
@@ -145,6 +154,12 @@ export function UploadStep({ onComplete }: Props) {
       >
         Выбрать файл
       </button>
+
+      {onBack && (
+        <button type="button" className="paywall-back" onClick={onBack} style={{ marginTop: 4 }}>
+          ← Назад к списку
+        </button>
+      )}
 
       <input
         ref={inputRef}

@@ -13,17 +13,17 @@ export function EmptyState({ onNoplan, onUpload, onBusiness, onReporting, onComp
     <div className="empty-state">
       <div className="empty-state__logo">
         <img
-          src={import.meta.env.BASE_URL + "logo-badge.png"}
+          src={import.meta.env.BASE_URL + "logo.png"}
           alt="Kairos"
           className="empty-state__logo-img"
         />
-        <span className="empty-state__logo-text">Kairos</span>
+        <span className="empty-state__logo-text">KAIROS</span>
       </div>
 
       <h1 className="empty-state__title">С чего начнём?</h1>
 
       <div className="empty-state__actions">
-        <button className="es-btn es-btn--primary" onClick={onNoplan}>
+        <button className="es-btn es-btn--secondary" onClick={onNoplan}>
           У меня нет плана — создать с нуля
         </button>
         <button className="es-btn es-btn--secondary" onClick={onUpload}>

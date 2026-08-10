@@ -115,22 +115,16 @@ const payrollRegulation: DocGenerator = {
 const explanatory: DocGenerator = {
   docKind: "explanatory",
   title: "Пояснительная записка",
-  requiredFields: [
-    { key: "subject", label: "Тема", type: "text", required: true },
-    { key: "facts", label: "Факты", type: "text", required: true },
-  ],
-  render: (f) => ok(`[LLM] Пояснительная записка: ${f.subject}`),
+  requiredFields: [],
+  render: () => ok(`[LLM] Пояснительная записка`),
   needsLLM: true,
 };
 
 const writtenClarification: DocGenerator = {
   docKind: "written_clarification",
   title: "Письменные пояснения",
-  requiredFields: [
-    { key: "requestRef", label: "Реф. запроса", type: "text", required: true },
-    { key: "facts", label: "Факты", type: "text", required: true },
-  ],
-  render: (f) => ok(`[LLM] Письменные пояснения по ${f.requestRef}`),
+  requiredFields: [],
+  render: () => ok(`[LLM] Письменные пояснения`),
   needsLLM: true,
 };
 

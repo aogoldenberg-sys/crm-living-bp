@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
-import { onAuthStateChanged, sendEmailVerification, signInWithCustomToken } from "firebase/auth";
+import { onAuthStateChanged, sendEmailVerification, signInWithCustomToken, updateProfile } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "./firebase";
 import { useAuth } from "./auth/useAuth";
@@ -24,6 +24,8 @@ function YandexAuthHandler() {
 
     const params = new URLSearchParams(hash.slice(1));
     const token = params.get("yandex_token");
+    const yandexEmail = params.get("yandex_email") ?? "";
+    const yandexName = params.get("yandex_name") ?? "";
     if (!token) return;
 
     // Проверка exp до обращения к Firebase
@@ -39,7 +41,15 @@ function YandexAuthHandler() {
     window.history.replaceState(null, "", window.location.pathname);
 
     signInWithCustomToken(auth, token)
-      .then(() => navigate("/dashboard", { replace: true }))
+      .then(async (cred) => {
+        // Сохраняем email и имя из Яндекса в Firebase Auth
+        if (yandexName || yandexEmail) {
+          await updateProfile(cred.user, {
+            displayName: yandexName || yandexEmail,
+          }).catch(() => {});
+        }
+        navigate("/dashboard", { replace: true });
+      })
       .catch(() => navigate("/login", { state: { error: "Ошибка входа через Яндекс. Попробуйте ещё раз." }, replace: true }));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -65,7 +75,11 @@ function EmailVerifyBanner() {
 
   const handleResend = async () => {
     if (countdown > 0) return;
-    await sendEmailVerification(user).catch(() => {});
+    const actionCodeSettings = {
+      url: `${window.location.origin}${import.meta.env.BASE_URL}`,
+      handleCodeInApp: false,
+    };
+    await sendEmailVerification(user, actionCodeSettings).catch(() => {});
     setCountdown(60);
   };
 
@@ -92,17 +106,38 @@ function DashboardOrOnboarding() {
 export default function App() {
   const { user, authReady, _setUser } = useAuth();
 
-  // При возврате в окно — проверить emailVerified и перезагрузить страницу
+  // При возврате в окно — проверить emailVerified и перезагрузить страницу.
+  // Используем три механизма для надёжности в Yandex Browser и мобильных.
   useEffect(() => {
-    const handleFocus = async () => {
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+
+    const checkVerified = async () => {
       const u = auth.currentUser;
-      if (!u || u.emailVerified) return;
+      if (!u || u.emailVerified) {
+        if (intervalId) { clearInterval(intervalId); intervalId = null; }
+        return;
+      }
       await u.reload();
-      if (u.emailVerified) window.location.reload();
+      if (auth.currentUser?.emailVerified) window.location.reload();
     };
+
+    const handleFocus = () => void checkVerified();
+    const handleVisibility = () => { if (document.visibilityState === "visible") void checkVerified(); };
+
     window.addEventListener("focus", handleFocus);
-    return () => window.removeEventListener("focus", handleFocus);
-  }, []);
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    // Polling fallback: если вкладка активна но события не стреляют (Yandex Browser)
+    if (user && !user.emailVerified) {
+      intervalId = setInterval(() => void checkVerified(), 5000);
+    }
+
+    return () => {
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibility);
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [user]);
 
   useEffect(() => {
     const workerUrl = import.meta.env.VITE_INGEST_WORKER_URL as string;
@@ -139,13 +174,7 @@ export default function App() {
           }
         } catch { /* ignore */ }
 
-        // 4. Preserve existing good businessId on token refresh — don't regress to uid
-        const currentStored = useAuth.getState().businessId;
-        const resolved = businessId
-          ?? (currentStored && currentStored !== firebaseUser.uid ? currentStored : undefined)
-          ?? firebaseUser.uid;
-
-        _setUser(firebaseUser, resolved, role);
+        _setUser(firebaseUser, businessId ?? firebaseUser.uid, role);
       } else {
         _setUser(null, null, null);
       }

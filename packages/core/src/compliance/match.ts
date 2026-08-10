@@ -204,9 +204,9 @@ export function caseCompleteness(entries: ReadonlyArray<ChecklistEntry>): number
   const closed = entries.filter(
     (e) =>
       e.availability === "have_file" ||
+      e.availability === "have_paper" ||
       e.availability === "not_applicable" ||
-      (e.availability === "restorable" && e.confirmedByOwner) ||
-      (e.availability === "missing_no_event" && e.confirmedByOwner),
+      e.confirmedByOwner,
   ).length;
   return closed / entries.length;
 }

@@ -115,7 +115,12 @@ export const useAuth = create<AuthState>((set) => ({
 
   register: async (email: string, password: string) => {
     const cred = await createUserWithEmailAndPassword(auth, email, password);
-    await sendEmailVerification(cred.user).catch(() => { /* не критично */ });
+    // url: после клика по ссылке Firebase редиректит сюда (снижает spam-score)
+    const actionCodeSettings = {
+      url: `${window.location.origin}${import.meta.env.BASE_URL}`,
+      handleCodeInApp: false,
+    };
+    await sendEmailVerification(cred.user, actionCodeSettings).catch(() => { /* не критично */ });
     const businessId = await assignBusinessId(cred.user);
     set({ authReady: true, user: cred.user, businessId, role: null });
   },

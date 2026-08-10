@@ -15,19 +15,6 @@ const DEFAULT: Omit<Entitlements, "businessId" | "updatedAt"> = {
   internal: false,
 };
 
-function localKey(businessId: string) { return `kairos_entitlements_${businessId}`; }
-
-function readLocal(businessId: string): { compliance?: boolean; report?: boolean } {
-  try {
-    return JSON.parse(localStorage.getItem(localKey(businessId)) ?? "{}");
-  } catch { return {}; }
-}
-
-function writeLocal(businessId: string, patch: { compliance?: boolean; report?: boolean }) {
-  const prev = readLocal(businessId);
-  localStorage.setItem(localKey(businessId), JSON.stringify({ ...prev, ...patch }));
-}
-
 export function useEntitlements(businessId: string | null) {
   const [data, setData] = useState<Entitlements | null>(null);
   const [loading, setLoading] = useState(true);
@@ -35,53 +22,38 @@ export function useEntitlements(businessId: string | null) {
   useEffect(() => {
     if (!businessId) { setLoading(false); return; }
 
-    // Старый баг помечал compliance: true при монтировании, даже без реальной работы.
-    // Если флаг есть, но кейс не сохранён — сбрасываем ложный флаг.
-    const local = readLocal(businessId);
-    const caseKey = `kairos_compliance_case_${businessId}`;
-    if (local.compliance && !localStorage.getItem(caseKey)) {
-      local.compliance = false;
-      writeLocal(businessId, { compliance: false });
-    }
+    // Очищаем старый localStorage-мусор (предыдущая архитектура)
+    localStorage.removeItem(`kairos_entitlements_${businessId}`);
+    localStorage.removeItem(`kairos_compliance_case_${businessId}`);
 
     const ref = doc(db, `tenants/${businessId}/_meta/entitlements`);
     getDoc(ref)
       .then((snap) => {
-        if (snap.exists()) {
-          const ent = snap.data() as Entitlements;
-          if (local.compliance) ent.freeComplianceUsed = true;
-          if (local.report) ent.freeReportUsed = true;
-          setData(ent);
-        } else {
-          setData({
-            ...DEFAULT,
-            freeComplianceUsed: !!local.compliance,
-            freeReportUsed: !!local.report,
-            businessId,
-            updatedAt: new Date().toISOString() as `${string}T${string}Z`,
-          });
-        }
+        setData(snap.exists()
+          ? snap.data() as Entitlements
+          : { ...DEFAULT, businessId, updatedAt: new Date().toISOString() as `${string}T${string}Z` });
       })
       .finally(() => setLoading(false));
   }, [businessId]);
 
-  async function markComplianceUsed() {
-    if (!businessId || !data) return;
-    writeLocal(businessId, { compliance: true });
-    setData({ ...data, freeComplianceUsed: true });
+  // Единственный источник правды — usage.complianceCases из Firestore.
+  // Инкрементируем локально после успешного создания кейса (воркер уже записал в Firestore).
+  function markComplianceUsed() {
+    if (!data) return Promise.resolve();
+    setData({ ...data, usage: { ...data.usage, complianceCases: data.usage.complianceCases + 1 } });
+    return Promise.resolve();
   }
 
-  async function markReportUsed() {
-    if (!businessId || !data) return;
-    writeLocal(businessId, { report: true });
-    setData({ ...data, freeReportUsed: true });
+  function markReportUsed() {
+    if (!data) return Promise.resolve();
+    setData({ ...data, usage: { ...data.usage, taxReports: data.usage.taxReports + 1 } });
+    return Promise.resolve();
   }
 
-  const canCompliance =
-    !data || data.plan === "paid" || !data.freeComplianceUsed;
+  const paid = !data || data.plan === "paid" || data.tier !== "free" || !!data.trialEndsAt || data.internal === true;
 
-  const canReport =
-    !data || data.plan === "paid" || !data.freeReportUsed;
+  const canCompliance = paid || data.usage.complianceCases === 0;
+  const canReport     = paid || data.usage.taxReports === 0;
 
   return { data, loading, canCompliance, canReport, markComplianceUsed, markReportUsed };
 }

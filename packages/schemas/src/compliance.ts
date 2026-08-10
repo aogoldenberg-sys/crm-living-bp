@@ -34,6 +34,7 @@ export const RequestingAuthority = z.enum([
   "prosecutor",         // прокуратура
   "bank_compliance",    // 115-ФЗ, комплаенс банка
   "court",              // судебный запрос
+  "bailiffs",           // ФССП, судебные приставы (229-ФЗ)
   "labor_inspection",   // ГИТ (ст. 357 ТК РФ)
   "audit_internal",     // подготовка к аудиту (внутренний режим)
   "counterparty",       // запрос контрагента (сверка)
