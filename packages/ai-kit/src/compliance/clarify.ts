@@ -76,11 +76,12 @@ export async function parseClarifyAnswers(
 
   let raw: string;
   try {
-    const msg = await client.messages.create({
+    const msg = await client.beta.promptCaching.messages.create({
       model: "claude-haiku-4-5-20251001",
       max_tokens: 2048,
-      system: CLARIFY_SYSTEM,
+      system: [{ type: "text", text: CLARIFY_SYSTEM, cache_control: { type: "ephemeral" } }],
       messages: [{ role: "user", content: userMsg }],
+      betas: ["prompt-caching-2024-07-31"],
     });
     const first = msg.content[0];
     if (!first || first.type !== "text") {

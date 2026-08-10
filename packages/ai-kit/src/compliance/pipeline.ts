@@ -1,13 +1,18 @@
 /**
  * Конвейер анализа требований/уведомлений.
  *
- * Всегда возвращает чёткий advisory-разбор: суть, условия, исключения,
- * конкретные шаги. Никаких шаблонных ответных писем.
+ * Ветвление по классу документа:
+ *   entries.length > 0  → requirement-путь: buildRegistry + draftResponse + buildClientPosition
+ *   entries.length === 0 → advisory-путь: ADVISORY_SYSTEM (thinking включён)
  */
 
 import type { AnthropicClient } from "../client.js";
 import type { RequestItem, ChecklistEntry, RequestingAuthority } from "@crm/schemas";
 import { type Result, ok, err, LEGAL_BASIS } from "@crm/core";
+import { buildRegistry, type RegistryRow } from "./registry.js";
+import { buildClientPosition } from "./position.js";
+import { buildDraftInput, selectOpenItems } from "./clarify.js";
+import { draftResponse } from "./draft.js";
 
 export type PipelineMeta = {
   authority: RequestingAuthority;
@@ -25,8 +30,11 @@ export type GeneratedDoc = {
 
 export type PipelineResult = {
   draftLetter: string;
+  registry: RegistryRow[];
+  clientPosition: string;
   documents: GeneratedDoc[];
-  mode: "advisory";
+  openItemCount: number;
+  mode: "advisory" | "requirement";
 };
 
 const ADVISORY_SYSTEM = `Ты — юридический советник. Тебе прислали документ от государственного органа:
@@ -96,10 +104,52 @@ const ADVISORY_SYSTEM = `Ты — юридический советник. Те�
 - В documents всегда возвращать пустой массив []
 - НЕ использовать скобки [...] нигде в тексте letter`;
 
-export async function runPipeline(
+// ── Requirement path ──────────────────────────────────────────────────────────
+
+async function runRequirement(
   client: AnthropicClient,
   items: ReadonlyArray<RequestItem>,
   entries: ReadonlyArray<ChecklistEntry>,
+  answers: unknown[],
+  meta: PipelineMeta,
+): Promise<Result<PipelineResult>> {
+  const openItems = selectOpenItems(items, entries);
+  const registry = buildRegistry(entries, answers as Parameters<typeof buildRegistry>[1]);
+
+  const draftMeta = {
+    authority: meta.authority,
+    incomingRef: meta.incomingRef,
+    companyName: meta.companyName ?? "",
+    companyInn: meta.companyInn ?? "",
+  };
+  const draftInput = buildDraftInput(items, entries, answers as Parameters<typeof buildDraftInput>[2], draftMeta);
+
+  const letterResult = await draftResponse(client, draftInput);
+  if (!letterResult.ok) return letterResult;
+
+  const missingItems = draftInput.missing.map(m => ({
+    docKind: m.docKind,
+    label: m.label,
+    userNote: m.reason,
+  }));
+  const positionResult = await buildClientPosition(client, missingItems);
+  if (!positionResult.ok) return positionResult;
+
+  return ok({
+    draftLetter: letterResult.value,
+    registry,
+    clientPosition: positionResult.value,
+    documents: [],
+    openItemCount: openItems.length,
+    mode: "requirement" as const,
+  });
+}
+
+// ── Advisory path ─────────────────────────────────────────────────────────────
+
+async function runAdvisory(
+  client: AnthropicClient,
+  items: ReadonlyArray<RequestItem>,
   answers: unknown[],
   meta: PipelineMeta,
 ): Promise<Result<PipelineResult>> {
@@ -128,31 +178,28 @@ export async function runPipeline(
       periodTo: it.periodTo,
       counterpartyName: it.counterpartyName,
     })),
-    checklist: entries.map(e => ({
-      entryId: e.entryId,
-      requestItemId: e.requestItemId,
-      docKind: e.docKind,
-      label: e.label,
-      availability: e.availability,
-      confirmedByOwner: e.confirmedByOwner,
-    })),
     answers,
   };
 
   try {
-    const msg = await client.messages.create({
+    // thinking включён: правовая квалификация — аналитическая задача.
+    // После включения thinking msg.content[0] может быть thinking-блоком —
+    // используем .find() вместо прямого обращения к [0].
+    const msg = await (client.messages.create as Function)({
       model: "claude-sonnet-4-6",
       max_tokens: 16384,
-      system: ADVISORY_SYSTEM,
+      thinking: { type: "enabled", budget_tokens: 4000 },
+      system: [{ type: "text", text: ADVISORY_SYSTEM, cache_control: { type: "ephemeral" } }],
       messages: [{ role: "user", content: JSON.stringify(input, null, 2) }],
     });
 
-    const first = msg.content[0];
-    if (!first || first.type !== "text") {
-      return err({ code: "STORAGE_ERROR", message: "Claude вернул пустой ответ" });
+    const textBlock = (msg.content as Array<{ type: string; text?: string }>)
+      .find(b => b.type === "text");
+    if (!textBlock?.text) {
+      return err({ code: "STORAGE_ERROR", message: "Claude вернул пустой ответ (advisory)" });
     }
 
-    const raw = first.text.replace(/^```(?:json)?\n?/i, "").replace(/\n?```$/i, "").trim();
+    const raw = textBlock.text.replace(/^```(?:json)?\n?/i, "").replace(/\n?```$/i, "").trim();
     let parsed: { letter?: string; documents?: unknown[] };
     try {
       parsed = JSON.parse(raw);
@@ -164,9 +211,32 @@ export async function runPipeline(
       return err({ code: "STORAGE_ERROR", message: "Ответ не содержит поле letter" });
     }
 
-    return ok({ draftLetter: parsed.letter, documents: [], mode: "advisory" });
+    return ok({
+      draftLetter: parsed.letter,
+      registry: [],
+      clientPosition: "",
+      documents: [],
+      openItemCount: 0,
+      mode: "advisory" as const,
+    });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     return err({ code: "STORAGE_ERROR", message: msg });
   }
+}
+
+// ── Точка входа ───────────────────────────────────────────────────────────────
+
+export async function runPipeline(
+  client: AnthropicClient,
+  items: ReadonlyArray<RequestItem>,
+  entries: ReadonlyArray<ChecklistEntry>,
+  answers: unknown[],
+  meta: PipelineMeta,
+): Promise<Result<PipelineResult>> {
+  // Классификация: есть чек-лист с документами → requirement; только уведомление → advisory
+  if (entries.length > 0) {
+    return runRequirement(client, items, entries, answers, meta);
+  }
+  return runAdvisory(client, items, answers, meta);
 }

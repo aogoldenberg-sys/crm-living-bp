@@ -18,6 +18,7 @@ const prosecutorInput: DraftInput = {
   incomingRef: { number: "7-12-2026", date: "2026-06-01" },
   companyName: 'ООО "Тест"',
   companyInn: "7701234567",
+  rawRequestTexts: [],
   provided: [{ docKind: "contract", label: "Договор №1", attachmentNo: 1 }],
   missing: [],
   restoredDuplicates: [],
