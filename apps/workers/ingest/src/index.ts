@@ -14,8 +14,8 @@ import type { Db } from "@crm/firestore-adapter";
 import { BusinessEvent, ExternalPushSignal, RequestItem, INTAKE_TO_BOOK_ID, BOOK_SECTION_IDS, type SourceDocKind, Entitlements, BusinessPlanV1, type FieldSpec } from "@crm/schemas";
 import { handleDocuments } from "./documents.js";
 import { createFirestoreRestClient, saveEvents, registerTenant, loadEvents, loadForecast, loadBusinessPlan, saveBusinessPlan } from "@crm/firestore-adapter";
-import { generatePlan, ExtractedPlanSchema, AssessmentOutputSchema, transcribeAudio, extractVoiceIntent, createAnthropicClient, runPipeline, parseClarifyAnswers, selectOpenItems, GENERATORS } from "@crm/ai-kit";
-import type { ClarifyAnswer } from "@crm/ai-kit";
+import { generatePlan, ExtractedPlanSchema, AssessmentOutputSchema, transcribeAudio, extractVoiceIntent, createAnthropicClient, runPipeline, parseClarifyAnswers, selectOpenItems, GENERATORS, classifyRequestDocument, adviseOnDocument } from "@crm/ai-kit";
+import type { ClarifyAnswer, DocumentClass } from "@crm/ai-kit";
 import { REQUIRED_SECTIONS, mapToSections, gateIntake, classifyDocument, checkAccess, startTrial, simulateScenario, rankScenarios, buildPlanDiff, computeUnitEconomics, DEFAULT_THRESHOLDS, buildChecklist } from "@crm/core";
 import { mulberry32 } from "@crm/core";
 import { EXTRACT_SYSTEM, ASSESS_SYSTEM } from "./prompts.generated.js";
@@ -1295,145 +1295,190 @@ async function handleComplianceExtract(request: Request, env: Env): Promise<Resp
   const file = fileEntry as File;
   const mimeType = ((form.get("mimeType") as string | null) ?? file.type ?? "").toLowerCase();
 
+  // ── Extract text + build content blocks ────────────────────────────────────
+  let documentText = "";
+  let documentImageB64: string | null = null;
+  let isImageDoc = false;
   let content: ClaudeContentBlock[];
+
   if (mimeType === "application/pdf") {
     const buf = await file.arrayBuffer();
+    const b64 = toBase64(buf);
     content = [
-      { type: "document", source: { type: "base64", media_type: "application/pdf", data: toBase64(buf) } },
+      { type: "document", source: { type: "base64", media_type: "application/pdf", data: b64 } },
       { type: "text", text: "Разберите требование на позиции RequestItem и верните JSON массив." },
     ];
+    // PDF text не извлекаем здесь — classify получает summary через vision
+    documentText = "[PDF-документ]";
   } else if (mimeType.startsWith("image/")) {
     const buf = await file.arrayBuffer();
     const mediaType = mimeType === "image/png" ? "image/png" : "image/jpeg";
+    const b64 = toBase64(buf);
+    documentImageB64 = b64;
+    isImageDoc = true;
     content = [
-      { type: "image", source: { type: "base64", media_type: mediaType, data: toBase64(buf) } },
+      { type: "image", source: { type: "base64", media_type: mediaType, data: b64 } },
       { type: "text", text: "Разберите требование на позиции RequestItem и верните JSON массив." },
     ];
+    documentText = "[Изображение-документ]";
   } else if (mimeType.startsWith("text/")) {
     const text = await file.text();
     if (!text.trim()) return jsonCors({ code: "INSUFFICIENT_DATA", message: "Файл пустой" }, 422);
+    documentText = text;
     content = [{ type: "text", text }];
   } else {
     return jsonCors({ error: `Неподдерживаемый тип: ${mimeType}. Используйте PDF, JPEG, PNG.` }, 400);
   }
 
-  // ── Claude extract ──────────────────────────────────────────────────────────
-  let raw: unknown;
-  try {
-    raw = await callClaude(env.ANTHROPIC_API_KEY, COMPLIANCE_EXTRACT_SYSTEM, content);
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    console.error("[compliance/extract] Claude error:", msg);
-    return jsonCors({ error: `Ошибка извлечения: ${msg}` }, 500);
+  // Обрезаем documentText до 60 000 символов (лимит Firestore-документа 1 МБ)
+  let documentTruncated = false;
+  if (documentText.length > 60000) {
+    documentText = documentText.slice(0, 60000);
+    documentTruncated = true;
   }
 
-  // Claude возвращает { authority, requestMeta, items } или просто массив (обратная совместимость)
+  // ── БЛОК 2. Классификация документа ПЕРВОЙ ─────────────────────────────────
+  // classify.ts использует claude-haiku для быстрой классификации.
+  // Для PDF/изображений передаём documentText как описание.
+  const client = createAnthropicClient(env.ANTHROPIC_API_KEY);
+  const classifyResult = await classifyRequestDocument(client, documentText, isImageDoc);
+  const documentClass: DocumentClass = classifyResult.ok
+    ? classifyResult.value.documentClass
+    : "unknown";
+  const hasItemList: boolean = classifyResult.ok ? classifyResult.value.hasItemList : true;
+  const classEssence: string = classifyResult.ok ? classifyResult.value.essence : "";
+
+  // Если это не требование со списком — не вызываем extractRequest
+  const isRequirement = documentClass === "requirement" && hasItemList;
+
   let extractedAuthority = "other";
   let extractedMeta: Record<string, unknown> = {};
-  let rawItems: unknown;
-  if (raw && typeof raw === "object" && !Array.isArray(raw) && "items" in (raw as Record<string, unknown>)) {
-    const obj = raw as Record<string, unknown>;
-    extractedAuthority = typeof obj.authority === "string" ? obj.authority : "other";
-    extractedMeta = (obj.requestMeta && typeof obj.requestMeta === "object" && !Array.isArray(obj.requestMeta))
-      ? obj.requestMeta as Record<string, unknown>
-      : {};
-    rawItems = obj.items;
-  } else {
-    rawItems = raw;
-  }
+  let validatedItems: typeof RequestItem._type[] = [];
+  let checklistEntries: import("@crm/schemas").ChecklistEntry[] = [];
 
-  // Нормализуем ответ Claude перед валидацией: убираем лишние поля (.strict),
-  // чиним itemId (не UUID → генерируем), фильтруем невалидные docKinds.
-  const VALID_DOC_KINDS = new Set([
-    "payment_order","bank_statement","account_card","contract","act","waybill","invoice",
-    "invoice_facture","order_internal","explanatory","order_hire","personal_card",
-    "staffing_table","timesheet","workbook_extract","debt_calculation","art236_calculation",
-    "payroll_regulation","written_clarification","other",
-  ]);
-  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-  const INN_RE = /^\d{10}$|^\d{12}$/;
-  const toIsoDate = (v: unknown): string | null => {
-    if (typeof v !== "string" || !v) return null;
-    if (ISO_DATE_RE.test(v)) return v;
-    // Попытка конвертации DD.MM.YYYY → YYYY-MM-DD
-    const m = v.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
-    if (m) return `${m[3]}-${m[2]}-${m[1]}`;
-    return null;
-  };
-  const toInn = (v: unknown): string | null => {
-    if (typeof v !== "string") return null;
-    const digits = v.replace(/\D/g, "");
-    return INN_RE.test(digits) ? digits : null;
-  };
-  const normalizeItems = (arr: unknown): unknown => {
-    if (!Array.isArray(arr)) return arr;
-    return arr.map((it: unknown) => {
-      if (!it || typeof it !== "object") return it;
-      const { itemId, rawText, docKinds, periodFrom, periodTo,
-              counterpartyInn, counterpartyName, extractConfidence } =
-        it as Record<string, unknown>;
-      const kinds = Array.isArray(docKinds)
-        ? (docKinds as unknown[]).filter(k => typeof k === "string" && VALID_DOC_KINDS.has(k as string))
-        : [];
-      return {
-        itemId: typeof itemId === "string" && UUID_RE.test(itemId) ? itemId : crypto.randomUUID(),
-        rawText: typeof rawText === "string" ? rawText : String(rawText ?? ""),
-        docKinds: kinds.length > 0 ? kinds : ["other"],
-        periodFrom: toIsoDate(periodFrom),
-        periodTo: toIsoDate(periodTo),
-        counterpartyInn: toInn(counterpartyInn),
-        counterpartyName: typeof counterpartyName === "string" ? counterpartyName : null,
-        extractConfidence: typeof extractConfidence === "number"
-          ? Math.min(1, Math.max(0, extractConfidence)) : 0.8,
-      };
-    });
-  };
-  const normalizedItems = normalizeItems(rawItems);
+  if (isRequirement) {
+    // ── Claude extract ────────────────────────────────────────────────────────
+    let raw: unknown;
+    try {
+      raw = await callClaude(env.ANTHROPIC_API_KEY, COMPLIANCE_EXTRACT_SYSTEM, content);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[compliance/extract] Claude error:", msg);
+      return jsonCors({ error: `Ошибка извлечения: ${msg}` }, 500);
+    }
 
-  const validated = RequestItem.array().safeParse(normalizedItems);
-  if (!validated.success) {
-    console.error("[compliance/extract] schema error:", validated.error.issues);
-    return jsonCors({ error: "Ответ AI не прошёл валидацию", details: validated.error.issues }, 502);
-  }
+    // Claude возвращает { authority, requestMeta, items } или просто массив (обратная совместимость)
+    let rawItems: unknown;
+    if (raw && typeof raw === "object" && !Array.isArray(raw) && "items" in (raw as Record<string, unknown>)) {
+      const obj = raw as Record<string, unknown>;
+      extractedAuthority = typeof obj.authority === "string" ? obj.authority : "other";
+      extractedMeta = (obj.requestMeta && typeof obj.requestMeta === "object" && !Array.isArray(obj.requestMeta))
+        ? obj.requestMeta as Record<string, unknown>
+        : {};
+      rawItems = obj.items;
+    } else {
+      rawItems = raw;
+    }
 
-  if (validated.data.length === 0) {
-    return jsonCors({ code: "INSUFFICIENT_DATA", message: "Требование не распознано" }, 422);
-  }
+    const VALID_DOC_KINDS = new Set([
+      "payment_order","bank_statement","account_card","contract","act","waybill","invoice",
+      "invoice_facture","order_internal","explanatory","order_hire","personal_card",
+      "staffing_table","timesheet","workbook_extract","debt_calculation","art236_calculation",
+      "payroll_regulation","written_clarification","other",
+    ]);
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+    const INN_RE = /^\d{10}$|^\d{12}$/;
+    const toIsoDate = (v: unknown): string | null => {
+      if (typeof v !== "string" || !v) return null;
+      if (ISO_DATE_RE.test(v)) return v;
+      const m = v.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+      if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+      return null;
+    };
+    const toInn = (v: unknown): string | null => {
+      if (typeof v !== "string") return null;
+      const digits = v.replace(/\D/g, "");
+      return INN_RE.test(digits) ? digits : null;
+    };
+    const normalizeItems = (arr: unknown): unknown => {
+      if (!Array.isArray(arr)) return arr;
+      return arr.map((it: unknown) => {
+        if (!it || typeof it !== "object") return it;
+        const { itemId, rawText, docKinds, periodFrom, periodTo,
+                counterpartyInn, counterpartyName, extractConfidence } =
+          it as Record<string, unknown>;
+        const kinds = Array.isArray(docKinds)
+          ? (docKinds as unknown[]).filter(k => typeof k === "string" && VALID_DOC_KINDS.has(k as string))
+          : [];
+        return {
+          itemId: typeof itemId === "string" && UUID_RE.test(itemId) ? itemId : crypto.randomUUID(),
+          rawText: typeof rawText === "string" ? rawText : String(rawText ?? ""),
+          docKinds: kinds.length > 0 ? kinds : ["other"],
+          periodFrom: toIsoDate(periodFrom),
+          periodTo: toIsoDate(periodTo),
+          counterpartyInn: toInn(counterpartyInn),
+          counterpartyName: typeof counterpartyName === "string" ? counterpartyName : null,
+          extractConfidence: typeof extractConfidence === "number"
+            ? Math.min(1, Math.max(0, extractConfidence)) : 0.8,
+        };
+      });
+    };
 
-  // ── Build checklist from event log ──────────────────────────────────────────
-  const eventsRes = await loadEvents(db, businessId);
-  const events = eventsRes.ok ? eventsRes.value.events : [];
-  const checklistResult = buildChecklist(
-    validated.data,
-    events,
-    new Map(),                   // нет загруженных файлов на этом шаге
-    () => crypto.randomUUID(),
-  );
-  if (!checklistResult.ok) {
-    return jsonCors({ error: checklistResult.error.detail }, 422);
+    const normalized = normalizeItems(rawItems);
+    const validated = RequestItem.array().safeParse(normalized);
+    if (!validated.success) {
+      console.error("[compliance/extract] schema error:", validated.error.issues);
+      return jsonCors({ error: "Ответ AI не прошёл валидацию", details: validated.error.issues }, 502);
+    }
+
+    if (validated.data.length === 0) {
+      return jsonCors({ code: "INSUFFICIENT_DATA", message: "Требование не распознано" }, 422);
+    }
+
+    validatedItems = validated.data;
+
+    // ── Build checklist from event log ────────────────────────────────────────
+    const eventsRes = await loadEvents(db, businessId);
+    const events = eventsRes.ok ? eventsRes.value.events : [];
+    const checklistResult = buildChecklist(
+      validatedItems,
+      events,
+      new Map(),
+      () => crypto.randomUUID(),
+    );
+    if (!checklistResult.ok) {
+      return jsonCors({ error: checklistResult.error.detail }, 422);
+    }
+    checklistEntries = checklistResult.value;
   }
 
   // ── Save case to Firestore ──────────────────────────────────────────────────
   const caseId = crypto.randomUUID();
   const now = new Date().toISOString();
-  const caseData = {
+  const caseData: Record<string, unknown> = {
     caseId,
     businessId,
     authority: extractedAuthority,
     requestMeta: extractedMeta,
+    documentClass,
+    hasItemList,
+    documentEssence: classEssence,
+    documentText,
+    documentTruncated,
     createdAt: now,
     sourceFileRef: "uploaded",
-    items: validated.data,
-    checklist: checklistResult.value,
+    items: validatedItems,
+    checklist: checklistEntries,
     drafts: [],
     response: null,
     completeness: 0,
-    status: "checklist_review",
+    status: isRequirement ? "checklist_review" : "advisory_pending",
   };
-  await db.collection(`tenants/${businessId}/compliance_cases`).doc(caseId).set(
-    caseData as unknown as Record<string, unknown>,
-  );
+  if (documentImageB64) {
+    caseData.documentImageB64 = documentImageB64;
+  }
+  await db.collection(`tenants/${businessId}/compliance_cases`).doc(caseId).set(caseData);
 
   // ── Increment usage ─────────────────────────────────────────────────────────
   const updatedEnt: typeof ent = {
@@ -1442,7 +1487,16 @@ async function handleComplianceExtract(request: Request, env: Env): Promise<Resp
   };
   await saveEntitlements(db, businessId, updatedEnt);
 
-  return jsonCors({ caseId, items: validated.data, entries: checklistResult.value, authority: caseData.authority, requestMeta: extractedMeta });
+  return jsonCors({
+    caseId,
+    documentClass,
+    hasItemList,
+    items: validatedItems,
+    entries: checklistEntries,
+    authority: extractedAuthority,
+    requestMeta: extractedMeta,
+    essence: classEssence,
+  });
 }
 
 // ── /compliance/clarify ────────────────────────────────────────────────────────
@@ -1519,7 +1573,17 @@ async function handleCompliancePackage(request: Request, env: Env, _ctx: Executi
   // requestMeta из Firestore (извлечённые Claude при загрузке документа)
   const storedMeta = (caseData.requestMeta ?? {}) as Record<string, unknown>;
 
-  const pipelineMeta: Parameters<typeof runPipeline>[4] = {
+  const storedDocClass = typeof caseData.documentClass === "string"
+    ? (caseData.documentClass as DocumentClass)
+    : undefined;
+  const storedHasItemList = typeof caseData.hasItemList === "boolean"
+    ? caseData.hasItemList
+    : undefined;
+  const storedDocText = typeof caseData.documentText === "string"
+    ? caseData.documentText
+    : undefined;
+
+  const pipelineMetaBase = {
     authority: (meta?.authority ?? (caseData.authority as string) ?? "other") as Parameters<typeof runPipeline>[4]["authority"],
     incomingRef: meta?.incomingRef ?? {
       number: (storedMeta.requestNumber as string | null) ?? null,
@@ -1528,6 +1592,12 @@ async function handleCompliancePackage(request: Request, env: Env, _ctx: Executi
     companyName: meta?.companyName ?? (storedMeta.recipientName as string | null) ?? null,
     companyInn: meta?.companyInn ?? (storedMeta.recipientInn as string | null) ?? null,
     requestMeta: storedMeta,
+  };
+  const pipelineMeta: Parameters<typeof runPipeline>[4] = {
+    ...pipelineMetaBase,
+    ...(storedDocClass !== undefined ? { documentClass: storedDocClass } : {}),
+    ...(storedHasItemList !== undefined ? { hasItemList: storedHasItemList } : {}),
+    ...(storedDocText !== undefined ? { documentText: storedDocText } : {}),
   };
 
   if (!env.ANTHROPIC_API_KEY) {
@@ -1595,6 +1665,78 @@ async function handleComplianceCaseGet(request: Request, env: Env, caseId: strin
   if (caseData.businessId !== businessId) return jsonCors({ error: "Forbidden" }, 403);
 
   return jsonCors(caseData);
+}
+
+// ── POST /compliance/advise ───────────────────────────────────────────────────
+// Запускает adviseOnDocument для non-requirement кейса.
+// Body: { caseId }
+// Долгая операция → ctx.waitUntil + статус меняется в Firestore.
+
+async function handleComplianceAdvise(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const authHeader = request.headers.get("Authorization") ?? "";
+  const idToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  if (!idToken) return jsonCors({ error: "Unauthorized" }, 401);
+
+  const claims = await verifyFirebaseIdToken(idToken, env.FIREBASE_PROJECT_ID || "crm-living-bp");
+  if (!claims) return jsonCors({ error: "Unauthorized" }, 401);
+
+  const db = createFirestoreRestClient(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+  const userDoc = await db.collection("users").doc(claims.uid).get();
+  if (!userDoc.exists) return jsonCors({ error: "User not registered" }, 400);
+  const { businessId } = userDoc.data() as { businessId: string };
+
+  let body: { caseId?: string };
+  try { body = await request.json() as typeof body; } catch { return jsonCors({ error: "Invalid JSON" }, 400); }
+
+  const { caseId } = body;
+  if (!caseId) return jsonCors({ error: "Missing caseId" }, 400);
+
+  const caseDoc = await db.collection(`tenants/${businessId}/compliance_cases`).doc(caseId).get();
+  if (!caseDoc.exists) return jsonCors({ error: "Case not found" }, 404);
+
+  const caseData = caseDoc.data() as Record<string, unknown>;
+  if (caseData.businessId !== businessId) return jsonCors({ error: "Forbidden" }, 403);
+
+  if (!env.ANTHROPIC_API_KEY) {
+    return jsonCors({ error: "Сервис генерации временно недоступен" }, 503);
+  }
+
+  const documentText = typeof caseData.documentText === "string" ? caseData.documentText : "";
+  const documentClass = (typeof caseData.documentClass === "string" ? caseData.documentClass : "unknown") as DocumentClass;
+  const authority = (typeof caseData.authority === "string" ? caseData.authority : "other") as import("@crm/schemas").RequestingAuthority;
+
+  const client = createAnthropicClient(env.ANTHROPIC_API_KEY);
+
+  ctx.waitUntil((async () => {
+    const result = await adviseOnDocument(client, documentText, {
+      authority,
+      documentClass,
+      companyName: typeof (caseData.requestMeta as Record<string, unknown>)?.recipientName === "string"
+        ? ((caseData.requestMeta as Record<string, unknown>).recipientName as string)
+        : null,
+      companyInn: typeof (caseData.requestMeta as Record<string, unknown>)?.recipientInn === "string"
+        ? ((caseData.requestMeta as Record<string, unknown>).recipientInn as string)
+        : null,
+    });
+
+    if (!result.ok) {
+      console.error("[compliance/advise] error:", result.error.message);
+      await db.collection(`tenants/${businessId}/compliance_cases`).doc(caseId).set({
+        ...caseData,
+        status: "advisory_error",
+        advisoryError: result.error.message,
+      });
+      return;
+    }
+
+    await db.collection(`tenants/${businessId}/compliance_cases`).doc(caseId).set({
+      ...caseData,
+      status: "done",
+      advisory: result.value,
+    });
+  })());
+
+  return jsonCors({ caseId, status: "advisory_pending" });
 }
 
 // ── POST /compliance/case/:caseId/attach ─────────────────────────────────────
@@ -2942,6 +3084,11 @@ async function dispatchRequest(request: Request, env: Env, ctx: ExecutionContext
     // ── /compliance/package — запуск сборки пакета (async) ──────────────────
     if (request.method === "POST" && url.pathname === "/compliance/package") {
       return handleCompliancePackage(request, env, ctx);
+    }
+
+    // ── /compliance/advise — анализ non-requirement документа (async) ────────
+    if (request.method === "POST" && url.pathname === "/compliance/advise") {
+      return handleComplianceAdvise(request, env, ctx);
     }
 
     // ── POST /compliance/case/:caseId/attach ─────────────────────────────────

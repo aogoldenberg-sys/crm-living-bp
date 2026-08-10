@@ -1,14 +1,17 @@
 /**
  * Конвейер анализа требований/уведомлений.
  *
- * Ветвление по классу документа:
- *   entries.length > 0  → requirement-путь: buildRegistry + draftResponse + buildClientPosition
- *   entries.length === 0 → advisory-путь: ADVISORY_SYSTEM (thinking включён)
+ * Ветвление по классу документа (из classify.ts):
+ *   documentClass === "requirement" && hasItemList
+ *     → requirement-путь: buildRegistry + draftResponse + buildClientPosition
+ *   иначе
+ *     → advisory-путь: advise.ts (thinking включён, документ целиком)
  */
 
 import type { AnthropicClient } from "../client.js";
 import type { RequestItem, ChecklistEntry, RequestingAuthority } from "@crm/schemas";
 import { type Result, ok, err, LEGAL_BASIS } from "@crm/core";
+import type { DocumentClass } from "./classify.js";
 import { buildRegistry, type RegistryRow } from "./registry.js";
 import { buildClientPosition } from "./position.js";
 import { buildDraftInput, selectOpenItems } from "./clarify.js";
@@ -20,6 +23,11 @@ export type PipelineMeta = {
   companyName: string | null;
   companyInn: string | null;
   requestMeta?: Record<string, unknown>;
+  /** Из classifyRequestDocument — управляет выбором ветки */
+  documentClass?: DocumentClass;
+  hasItemList?: boolean;
+  /** Полный текст документа для advisory-ветки */
+  documentText?: string;
 };
 
 export type GeneratedDoc = {
@@ -235,8 +243,18 @@ export async function runPipeline(
   answers: unknown[],
   meta: PipelineMeta,
 ): Promise<Result<PipelineResult>> {
-  // Классификация: есть чек-лист с документами → requirement; только уведомление → advisory
-  if (entries.length > 0) {
+  // Ветка определяется по классу документа (из classifyRequestDocument).
+  // Если documentClass присутствует: requirement + hasItemList → чек-лист; иначе → advisory.
+  // Если documentClass отсутствует (legacy путь, тесты): используем старую эвристику entries.length.
+  let isRequirement: boolean;
+  if (meta.documentClass !== undefined) {
+    isRequirement = meta.documentClass === "requirement" && meta.hasItemList === true;
+  } else {
+    // Обратная совместимость с кодом, который не передаёт documentClass
+    isRequirement = entries.length > 0;
+  }
+
+  if (isRequirement) {
     return runRequirement(client, items, entries, answers, meta);
   }
   return runAdvisory(client, items, answers, meta);

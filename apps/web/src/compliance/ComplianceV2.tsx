@@ -14,13 +14,15 @@ import { RequestSummary } from "./RequestSummary";
 import { RequisitesForm, type OrgRequisites } from "./RequisitesForm";
 import { ClarifyDialog } from "./ClarifyDialog";
 import { PackageResult } from "./PackageResult";
+import { AdvisoryView, type Advisory } from "./AdvisoryView";
 
 interface Props { businessId: string }
 
 type Step =
   | "upload" | "review" | "requisites"
   | "clarify" | "clarify_confirm"
-  | "assembling" | "done";
+  | "assembling" | "done"
+  | "advisory_pending" | "advisory_done";
 
 type GeneratedDoc = {
   docKind: string;
@@ -32,6 +34,8 @@ type State = {
   step: Step;
   caseId: string | null;
   authority: RequestingAuthority | null;
+  documentClass: string | null;
+  documentEssence: string;
   items: RequestItem[];
   entries: ChecklistEntry[];
   checkedMap: Record<string, boolean>;
@@ -42,16 +46,18 @@ type State = {
   registry: RegistryRow[];
   clientPosition: string;
   generatedDocs: GeneratedDoc[];
+  advisory: Advisory | null;
   error: string | null;
   paywall: { reason: string; requiredTier?: string } | null;
 };
 
 const INITIAL: State = {
   step: "upload", caseId: null, authority: null,
+  documentClass: null, documentEssence: "",
   items: [], entries: [], checkedMap: {}, openItems: [],
   requisites: null, parsedAnswers: [],
   letter: "", registry: [], clientPosition: "", generatedDocs: [],
-  error: null, paywall: null,
+  advisory: null, error: null, paywall: null,
 };
 
 const WORKER = import.meta.env.VITE_INGEST_WORKER_URL as string;
@@ -63,6 +69,19 @@ export function ComplianceV2({ businessId: _businessId }: Props) {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   async function getToken(): Promise<string> { return user!.getIdToken(); }
+
+  // ── Advisory trigger ───────────────────────────────────────────────
+  async function triggerAdvisory(caseId: string) {
+    try {
+      const token = await getToken();
+      await fetch(`${WORKER}/compliance/advise`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ caseId }),
+      });
+    } catch { /* polling picks up result */ }
+    startPolling();
+  }
 
   // ── Upload & extract ───────────────────────────────────────────────
   async function handleFile(file: File) {
@@ -80,7 +99,8 @@ export function ComplianceV2({ businessId: _businessId }: Props) {
       });
       const data = await res.json().catch(() => ({})) as {
         caseId?: string; items?: RequestItem[]; entries?: ChecklistEntry[];
-        authority?: RequestingAuthority;
+        authority?: RequestingAuthority; documentClass?: string;
+        hasItemList?: boolean; essence?: string;
         error?: string; code?: string; requiredTier?: string;
       };
       if (res.status === 402) {
@@ -88,17 +108,36 @@ export function ComplianceV2({ businessId: _businessId }: Props) {
         return;
       }
       if (res.status === 422 || data.code === "INSUFFICIENT_DATA") {
-        setState(s => ({ ...s, error: "Документ не распознан как требование. Загрузите чёткий скан." }));
+        setState(s => ({ ...s, error: "Документ не распознан. Загрузите чёткий скан." }));
         return;
       }
-      if (!res.ok || !data.caseId || !data.items || !data.entries) {
+      if (!res.ok || !data.caseId) {
+        setState(s => ({ ...s, error: data.error ?? `Ошибка ${res.status}` }));
+        return;
+      }
+
+      const isRequirement = data.documentClass === "requirement" && data.hasItemList === true;
+
+      if (!isRequirement) {
+        // Не-требование: запустить advisory и перейти на экран ожидания
+        setState(s => ({
+          ...s, step: "advisory_pending",
+          caseId: data.caseId!, documentClass: data.documentClass ?? null,
+          documentEssence: data.essence ?? "", authority: data.authority ?? null,
+          items: [], entries: [], error: null,
+        }));
+        void triggerAdvisory(data.caseId!);
+        return;
+      }
+
+      if (!data.items || !data.entries) {
         setState(s => ({ ...s, error: data.error ?? `Ошибка ${res.status}` }));
         return;
       }
       setState(s => ({
         ...s, step: "review",
         caseId: data.caseId!, items: data.items!, entries: data.entries!,
-        authority: data.authority ?? null,
+        authority: data.authority ?? null, documentClass: data.documentClass ?? null,
         openItems: [], checkedMap: {}, error: null,
       }));
     } catch (e) {
@@ -200,8 +239,20 @@ export function ComplianceV2({ businessId: _businessId }: Props) {
         clientPosition?: string;
         generatedDocs?: GeneratedDoc[];
         packageError?: string;
+        advisory?: Advisory;
+        advisoryError?: string;
+        documentEssence?: string;
       };
-      if (data.status === "done" && data.response?.letterDraft) {
+      if (data.status === "done" && data.advisory) {
+        // Advisory path done
+        if (pollRef.current) clearInterval(pollRef.current);
+        setState(s => ({
+          ...s, step: "advisory_done",
+          advisory: data.advisory!,
+          documentEssence: data.documentEssence ?? s.documentEssence,
+        }));
+      } else if (data.status === "done" && data.response?.letterDraft) {
+        // Requirement path done
         if (pollRef.current) clearInterval(pollRef.current);
         setState(s => ({
           ...s, step: "done",
@@ -210,9 +261,13 @@ export function ComplianceV2({ businessId: _businessId }: Props) {
           clientPosition: data.clientPosition ?? "",
           generatedDocs: data.generatedDocs ?? [],
         }));
-      } else if (data.packageError) {
+      } else if (data.packageError ?? data.advisoryError) {
         if (pollRef.current) clearInterval(pollRef.current);
-        setState(s => ({ ...s, step: "review", error: `Ошибка сборки: ${data.packageError}` }));
+        setState(s => ({
+          ...s,
+          step: s.step === "advisory_pending" ? "upload" : "review",
+          error: `Ошибка: ${data.packageError ?? data.advisoryError}`,
+        }));
       }
     } catch { /* keep polling */ }
   }
@@ -230,6 +285,26 @@ export function ComplianceV2({ businessId: _businessId }: Props) {
   }
 
   // ── Screens ────────────────────────────────────────────────────────
+  if (state.step === "advisory_pending") {
+    return (
+      <div className="crm-v2-panel">
+        {state.documentEssence && <p className="crm-v2-muted">{state.documentEssence}</p>}
+        <p className="crm-v2-sub">Kairos анализирует документ\u2026</p>
+      </div>
+    );
+  }
+
+  if (state.step === "advisory_done" && state.advisory) {
+    return (
+      <AdvisoryView
+        advisory={state.advisory}
+        essence={state.documentEssence}
+        caseId={state.caseId!}
+        onReset={() => setState(INITIAL)}
+      />
+    );
+  }
+
   if (state.step === "review") {
     return (
       <>

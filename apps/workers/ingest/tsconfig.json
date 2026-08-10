@@ -12,7 +12,13 @@
     "noFallthroughCasesInSwitch": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
-    "noEmit": true
+    "noEmit": true,
+    "paths": {
+      "@crm/ai-kit": ["../../../packages/ai-kit/src/index.ts"],
+      "@crm/core": ["../../../packages/core/src/index.ts"],
+      "@crm/schemas": ["../../../packages/schemas/src/index.ts"],
+      "@crm/firestore-adapter": ["../../../packages/firestore-adapter/src/index.ts"]
+    }
   },
   "include": ["src"]
 }
