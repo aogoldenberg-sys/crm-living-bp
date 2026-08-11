@@ -18,7 +18,7 @@ export type ContentBlock =
 type MessageResponse = { content: ContentBlock[] };
 
 // content may be a string or an array of typed blocks (e.g. image + text for vision calls)
-type UserContentBlock = { type: string; [key: string]: unknown };
+export type UserContentBlock = { type: string; [key: string]: unknown };
 type MessageParam = { role: "user" | "assistant"; content: string | UserContentBlock[] };
 
 type BaseParams = {

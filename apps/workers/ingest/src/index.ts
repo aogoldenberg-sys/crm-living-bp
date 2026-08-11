@@ -1302,25 +1302,18 @@ async function handleComplianceExtract(request: Request, env: Env): Promise<Resp
   let content: ClaudeContentBlock[];
 
   if (mimeType === "application/pdf") {
-    const buf = await file.arrayBuffer();
-    const b64 = toBase64(buf);
+    const b64 = toBase64(await file.arrayBuffer());
     content = [
       { type: "document", source: { type: "base64", media_type: "application/pdf", data: b64 } },
-      { type: "text", text: "Разберите требование на позиции RequestItem и верните JSON массив." },
     ];
-    // PDF text не извлекаем здесь — classify получает summary через vision
-    documentText = "[PDF-документ]";
   } else if (mimeType.startsWith("image/")) {
-    const buf = await file.arrayBuffer();
     const mediaType = mimeType === "image/png" ? "image/png" : "image/jpeg";
-    const b64 = toBase64(buf);
+    const b64 = toBase64(await file.arrayBuffer());
     documentImageB64 = b64;
     isImageDoc = true;
     content = [
       { type: "image", source: { type: "base64", media_type: mediaType, data: b64 } },
-      { type: "text", text: "Разберите требование на позиции RequestItem и верните JSON массив." },
     ];
-    documentText = "[Изображение-документ]";
   } else if (mimeType.startsWith("text/")) {
     const text = await file.text();
     if (!text.trim()) return jsonCors({ code: "INSUFFICIENT_DATA", message: "Файл пустой" }, 422);
@@ -1330,6 +1323,22 @@ async function handleComplianceExtract(request: Request, env: Env): Promise<Resp
     return jsonCors({ error: `Неподдерживаемый тип: ${mimeType}. Используйте PDF, JPEG, PNG.` }, 400);
   }
 
+  // ── БЛОК 2. Классификация документа ПЕРВОЙ ─────────────────────────────────
+  // classify.ts: haiku читает PDF/изображение напрямую, извлекает текст и класс за один вызов.
+  const client = createAnthropicClient(env.ANTHROPIC_API_KEY);
+  const classifyResult = await classifyRequestDocument(client, content);
+  if (!classifyResult.ok) {
+    return jsonCors({ error: "Не удалось разобрать документ" }, 502);
+  }
+
+  // Для PDF/изображений текст извлекает vision-модель. Для text/* он уже в documentText.
+  if (!documentText && classifyResult.value.extractedText) {
+    documentText = classifyResult.value.extractedText;
+  }
+  if (!documentText.trim()) {
+    return jsonCors({ code: "INSUFFICIENT_DATA", message: "Не удалось извлечь текст документа" }, 422);
+  }
+
   // Обрезаем documentText до 60 000 символов (лимит Firestore-документа 1 МБ)
   let documentTruncated = false;
   if (documentText.length > 60000) {
@@ -1337,16 +1346,9 @@ async function handleComplianceExtract(request: Request, env: Env): Promise<Resp
     documentTruncated = true;
   }
 
-  // ── БЛОК 2. Классификация документа ПЕРВОЙ ─────────────────────────────────
-  // classify.ts использует claude-haiku для быстрой классификации.
-  // Для PDF/изображений передаём documentText как описание.
-  const client = createAnthropicClient(env.ANTHROPIC_API_KEY);
-  const classifyResult = await classifyRequestDocument(client, documentText, isImageDoc);
-  const documentClass: DocumentClass = classifyResult.ok
-    ? classifyResult.value.documentClass
-    : "unknown";
-  const hasItemList: boolean = classifyResult.ok ? classifyResult.value.hasItemList : true;
-  const classEssence: string = classifyResult.ok ? classifyResult.value.essence : "";
+  const documentClass: DocumentClass = classifyResult.value.documentClass;
+  const hasItemList: boolean = classifyResult.value.hasItemList;
+  const classEssence: string = classifyResult.value.essence;
 
   // Если это не требование со списком — не вызываем extractRequest
   const isRequirement = documentClass === "requirement" && hasItemList;
@@ -1358,9 +1360,14 @@ async function handleComplianceExtract(request: Request, env: Env): Promise<Resp
 
   if (isRequirement) {
     // ── Claude extract ────────────────────────────────────────────────────────
+    // Добавляем инструкцию в отдельный массив — classify-content без неё, чтобы не смещать классификатор.
+    const extractContent: ClaudeContentBlock[] = [
+      ...content,
+      { type: "text", text: "Разберите требование на позиции RequestItem и верните JSON массив." },
+    ];
     let raw: unknown;
     try {
-      raw = await callClaude(env.ANTHROPIC_API_KEY, COMPLIANCE_EXTRACT_SYSTEM, content);
+      raw = await callClaude(env.ANTHROPIC_API_KEY, COMPLIANCE_EXTRACT_SYSTEM, extractContent);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       console.error("[compliance/extract] Claude error:", msg);
