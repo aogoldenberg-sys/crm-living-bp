@@ -67,6 +67,8 @@ export function ComplianceV2({ businessId: _businessId }: Props) {
   const [state, setState] = useState<State>(INITIAL);
   const inputRef = useRef<HTMLInputElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Ref для caseId — poll() читает отсюда, не из стейл-замыкания state
+  const caseIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
@@ -124,6 +126,7 @@ export function ComplianceV2({ businessId: _businessId }: Props) {
 
       if (!isRequirement) {
         // Не-требование: запустить advisory и перейти на экран ожидания
+        caseIdRef.current = data.caseId!;
         setState(s => ({
           ...s, step: "advisory_pending",
           caseId: data.caseId!, documentClass: data.documentClass ?? null,
@@ -138,6 +141,7 @@ export function ComplianceV2({ businessId: _businessId }: Props) {
         setState(s => ({ ...s, error: data.error ?? `Ошибка ${res.status}` }));
         return;
       }
+      caseIdRef.current = data.caseId!;
       setState(s => ({
         ...s, step: "review",
         caseId: data.caseId!, items: data.items!, entries: data.entries!,
@@ -228,7 +232,7 @@ export function ComplianceV2({ businessId: _businessId }: Props) {
   }
 
   async function poll() {
-    const { caseId } = state;
+    const caseId = caseIdRef.current;
     if (!caseId) return;
     try {
       const token = await getToken();
@@ -293,7 +297,7 @@ export function ComplianceV2({ businessId: _businessId }: Props) {
     return (
       <div className="crm-v2-panel">
         {state.documentEssence && <p className="crm-v2-muted">{state.documentEssence}</p>}
-        <p className="crm-v2-sub">Kairos анализирует документ\u2026</p>
+        <p className="crm-v2-sub">{"Kairos анализирует документ\u2026"}</p>
       </div>
     );
   }
@@ -344,7 +348,7 @@ export function ComplianceV2({ businessId: _businessId }: Props) {
   if (state.step === "assembling") {
     return (
       <div className="crm-v2-panel">
-        <p className="crm-v2-sub">Kairos собирает пакет\u2026</p>
+        <p className="crm-v2-sub">{"Kairos собирает пакет\u2026"}</p>
       </div>
     );
   }

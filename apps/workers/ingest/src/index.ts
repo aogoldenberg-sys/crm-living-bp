@@ -1294,6 +1294,12 @@ async function handleComplianceExtract(request: Request, env: Env): Promise<Resp
   }
   const file = fileEntry as File;
   const mimeType = ((form.get("mimeType") as string | null) ?? file.type ?? "").toLowerCase();
+  const fname = (file.name ?? "").toLowerCase();
+  const isImage = mimeType.startsWith("image/") || fname.endsWith(".jpg") || fname.endsWith(".jpeg") || fname.endsWith(".png");
+  const isPdf   = mimeType === "application/pdf" || fname.endsWith(".pdf");
+  const isText  = mimeType.startsWith("text/") || fname.endsWith(".txt") || fname.endsWith(".md");
+
+  console.log("[compliance/extract]", { mimeType, fname, size: file.size, isImage, isPdf, isText });
 
   // ── Extract text + build content blocks ────────────────────────────────────
   let documentText = "";
@@ -1301,26 +1307,27 @@ async function handleComplianceExtract(request: Request, env: Env): Promise<Resp
   let isImageDoc = false;
   let content: ClaudeContentBlock[];
 
-  if (mimeType === "application/pdf") {
+  if (isPdf) {
     const b64 = toBase64(await file.arrayBuffer());
     content = [
       { type: "document", source: { type: "base64", media_type: "application/pdf", data: b64 } },
     ];
-  } else if (mimeType.startsWith("image/")) {
-    const mediaType = mimeType === "image/png" ? "image/png" : "image/jpeg";
+  } else if (isImage) {
+    const mediaType = (mimeType === "image/png" || fname.endsWith(".png")) ? "image/png" : "image/jpeg";
     const b64 = toBase64(await file.arrayBuffer());
     documentImageB64 = b64;
     isImageDoc = true;
     content = [
       { type: "image", source: { type: "base64", media_type: mediaType, data: b64 } },
     ];
-  } else if (mimeType.startsWith("text/")) {
+  } else if (isText) {
     const text = await file.text();
     if (!text.trim()) return jsonCors({ code: "INSUFFICIENT_DATA", message: "Файл пустой" }, 422);
     documentText = text;
     content = [{ type: "text", text }];
   } else {
-    return jsonCors({ error: `Неподдерживаемый тип: ${mimeType}. Используйте PDF, JPEG, PNG.` }, 400);
+    console.warn("[compliance/extract] unsupported type", { mimeType, fname });
+    return jsonCors({ error: `Неподдерживаемый тип: "${mimeType}" (${fname}). Используйте PDF, JPEG, PNG.` }, 400);
   }
 
   // ── БЛОК 2. Классификация документа ПЕРВОЙ ─────────────────────────────────
@@ -1344,7 +1351,7 @@ async function handleComplianceExtract(request: Request, env: Env): Promise<Resp
   } else if (isImageDoc || !documentText) {
     // Изображение или PDF: classify не смог прочитать — передаём как advisory с неизвестным классом.
     // Анализ получит documentImageB64 и сможет работать через vision.
-    console.warn("[compliance/classify] fallback to unknown:", classifyResult.error.message);
+    console.warn("[compliance/classify] fallback to unknown:", JSON.stringify(classifyResult.error));
     documentClass = "unknown";
     hasItemList = false;
     classEssence = "";
@@ -1496,9 +1503,6 @@ async function handleComplianceExtract(request: Request, env: Env): Promise<Resp
     completeness: 0,
     status: isRequirement ? "checklist_review" : "advisory_pending",
   };
-  if (documentImageB64) {
-    caseData.documentImageB64 = documentImageB64;
-  }
   await db.collection(`tenants/${businessId}/compliance_cases`).doc(caseId).set(caseData);
 
   // ── Increment usage ─────────────────────────────────────────────────────────
@@ -1728,36 +1732,36 @@ async function handleComplianceAdvise(request: Request, env: Env, ctx: Execution
 
   const client = createAnthropicClient(env.ANTHROPIC_API_KEY);
 
-  ctx.waitUntil((async () => {
-    const result = await adviseOnDocument(client, documentText, {
-      authority,
-      documentClass,
-      companyName: typeof (caseData.requestMeta as Record<string, unknown>)?.recipientName === "string"
-        ? ((caseData.requestMeta as Record<string, unknown>).recipientName as string)
-        : null,
-      companyInn: typeof (caseData.requestMeta as Record<string, unknown>)?.recipientInn === "string"
-        ? ((caseData.requestMeta as Record<string, unknown>).recipientInn as string)
-        : null,
-    });
+  // РЕШЕНИЕ: не используем ctx.waitUntil — Cloudflare убивает его раньше чем Anthropic отвечает.
+  // Фронт вызывает advise fire-and-forget и сразу начинает polling, так что долгий ответ не мешает.
+  const result = await adviseOnDocument(client, documentText, {
+    authority,
+    documentClass,
+    companyName: typeof (caseData.requestMeta as Record<string, unknown>)?.recipientName === "string"
+      ? ((caseData.requestMeta as Record<string, unknown>).recipientName as string)
+      : null,
+    companyInn: typeof (caseData.requestMeta as Record<string, unknown>)?.recipientInn === "string"
+      ? ((caseData.requestMeta as Record<string, unknown>).recipientInn as string)
+      : null,
+  });
 
-    if (!result.ok) {
-      console.error("[compliance/advise] error:", result.error.message);
-      await db.collection(`tenants/${businessId}/compliance_cases`).doc(caseId).set({
-        ...caseData,
-        status: "advisory_error",
-        advisoryError: result.error.message,
-      });
-      return;
-    }
-
+  if (!result.ok) {
+    console.error("[compliance/advise] error:", result.error.message);
     await db.collection(`tenants/${businessId}/compliance_cases`).doc(caseId).set({
       ...caseData,
-      status: "done",
-      advisory: result.value,
+      status: "advisory_error",
+      advisoryError: result.error.message,
     });
-  })());
+    return jsonCors({ caseId, status: "advisory_error" });
+  }
 
-  return jsonCors({ caseId, status: "advisory_pending" });
+  await db.collection(`tenants/${businessId}/compliance_cases`).doc(caseId).set({
+    ...caseData,
+    status: "done",
+    advisory: result.value,
+  });
+
+  return jsonCors({ caseId, status: "done" });
 }
 
 // ── POST /compliance/case/:caseId/attach ─────────────────────────────────────

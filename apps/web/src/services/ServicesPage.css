@@ -472,3 +472,216 @@
 .crm-v2-gen-doc {
   margin-bottom: 8px;
 }
+
+/* ── ComplianceV2 base layout ──────────────────────────────────────────────── */
+
+.crm-v2-panel {
+  max-width: 600px;
+  margin: 0 auto;
+  padding: 32px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.crm-v2-title {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-size: 20px;
+  font-weight: 700;
+  color: #1A1814;
+  margin: 0;
+}
+
+.crm-v2-sub {
+  font-size: 14px;
+  color: #8B7355;
+  margin: 0;
+}
+
+.crm-v2-muted {
+  font-size: 13px;
+  color: #AAA098;
+  margin: 0;
+}
+
+.crm-v2-error {
+  font-size: 13px;
+  color: #C0392B;
+  background: #FFF0EE;
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin: 0;
+}
+
+.crm-v2-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #8B7355;
+  margin: 0;
+}
+
+/* ── Dropzone ──────────────────────────────────────────────────────────────── */
+
+.crm-v2-dropzone {
+  width: 100%;
+  border: 2px dashed #C4B89A;
+  border-radius: 12px;
+  background: #FDFAF5;
+  padding: 40px 24px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+  box-sizing: border-box;
+}
+
+.crm-v2-dropzone:hover {
+  border-color: #8B7355;
+  background: #FAF5EC;
+}
+
+.crm-v2-dropzone-icon {
+  font-size: 36px;
+  margin-bottom: 12px;
+}
+
+.crm-v2-dropzone-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1A1814;
+  margin: 0 0 6px;
+}
+
+.crm-v2-dropzone-hint {
+  font-size: 13px;
+  color: #8B7355;
+  margin: 4px 0 0;
+}
+
+/* ── Group / entry ─────────────────────────────────────────────────────────── */
+
+.crm-v2-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.crm-v2-group-text {
+  font-size: 14px;
+  color: #1A1814;
+  margin: 0;
+  line-height: 1.4;
+}
+
+.crm-v2-entry {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #FDFAF5;
+  font-size: 14px;
+}
+
+.crm-v2-entry-label {
+  flex: 1;
+  color: #1A1814;
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────────── */
+
+.crm-v2-btn {
+  align-self: flex-start;
+  padding: 11px 28px;
+  background: linear-gradient(135deg, #C89A34, #E4C260);
+  border: none;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #3A2800;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.crm-v2-btn:hover { opacity: 0.88; }
+
+.crm-v2-btn-sm {
+  padding: 6px 14px;
+  background: #F5F0E8;
+  border: 1px solid #C4B89A;
+  border-radius: 8px;
+  font-size: 12px;
+  color: #5A3D00;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.crm-v2-btn-sm:hover { background: #EDE8DE; }
+
+/* ── Select / inputs ───────────────────────────────────────────────────────── */
+
+.crm-v2-select {
+  padding: 8px 12px;
+  border: 1px solid rgba(200,160,60,0.35);
+  border-radius: 8px;
+  font-size: 14px;
+  color: #1A1814;
+  background: #FDFAF5;
+  cursor: pointer;
+  outline: none;
+}
+
+/* ── Letter textarea ───────────────────────────────────────────────────────── */
+
+.crm-v2-letter {
+  width: 100%;
+  min-height: 160px;
+  border: 1px solid #E8E3DA;
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 14px;
+  font-family: inherit;
+  color: #1A1814;
+  background: #FDFAF5;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.crm-v2-letter:focus {
+  outline: none;
+  border-color: #C4B89A;
+}
+
+.crm-v2-position {
+  font-size: 13px;
+  white-space: pre-wrap;
+  color: #3A2800;
+  background: #FFF8E6;
+  border-radius: 8px;
+  padding: 12px;
+  margin: 0;
+}
+
+.crm-v2-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.crm-v2-disclaimer {
+  font-size: 12px;
+  color: #8B7355;
+  background: #FFF8E6;
+  border: 1px solid #E8C84A;
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+
+.crm-v2-badge-sm {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: #F0F0F0;
+  color: #666;
+  white-space: nowrap;
+}
