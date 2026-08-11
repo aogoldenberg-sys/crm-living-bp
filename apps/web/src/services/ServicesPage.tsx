@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react"; // eslint-disable-line
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { sendEmailVerification } from "firebase/auth";
 import { useAuth } from "../auth/useAuth";
-import { ComplianceFlow } from "../features/compliance/ComplianceFlow";
+import { ComplianceV2 } from "../compliance/ComplianceV2.js";
 import { TaxReportingScreen } from "../features/reporting/TaxReportingScreen";
 import { useEntitlements } from "./useEntitlements";
 import { PaywallScreen } from "./PaywallScreen";
@@ -55,7 +55,7 @@ export function ServicesPage() {
   const profileRef = useRef<HTMLDivElement>(null);
   const { businessId, user, logout } = useAuth();
   const navigate = useNavigate();
-  const { loading, canCompliance, canReport, markComplianceUsed, markReportUsed } =
+  const { loading, canCompliance, canReport, markReportUsed } =
     useEntitlements(businessId);
 
   // Закрывать меню при клике вне
@@ -153,7 +153,7 @@ export function ServicesPage() {
       <main className="svc-content">
         {tab === "compliance" && (
           canCompliance
-            ? <ComplianceFlow businessId={businessId ?? ""} onCaseCreated={markComplianceUsed} />
+            ? <ComplianceV2 businessId={businessId ?? ""} />
             : <PaywallScreen feature="compliance" onBack={() => setTab("tax")} />
         )}
 
