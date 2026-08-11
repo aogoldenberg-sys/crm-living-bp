@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import type { RequestItem, ChecklistEntry, RequestingAuthority } from "@crm/schemas";
 import type { RegistryRow } from "./PackageResult.js";
 
@@ -67,6 +67,10 @@ export function ComplianceV2({ businessId: _businessId }: Props) {
   const [state, setState] = useState<State>(INITIAL);
   const inputRef = useRef<HTMLInputElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, []);
 
   async function getToken(): Promise<string> { return user!.getIdToken(); }
 

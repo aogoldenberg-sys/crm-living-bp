@@ -1327,15 +1327,33 @@ async function handleComplianceExtract(request: Request, env: Env): Promise<Resp
   // classify.ts: haiku читает PDF/изображение напрямую, извлекает текст и класс за один вызов.
   const client = createAnthropicClient(env.ANTHROPIC_API_KEY);
   const classifyResult = await classifyRequestDocument(client, content);
-  if (!classifyResult.ok) {
-    return jsonCors({ error: "Не удалось разобрать документ" }, 502);
+
+  // При сбое classify для изображений/PDF — откат в advisory, а не hard fail.
+  // Текстовые файлы при сбое возвращают ошибку (текст уже есть в documentText).
+  let documentClass: DocumentClass;
+  let hasItemList: boolean;
+  let classEssence: string;
+
+  if (classifyResult.ok) {
+    documentClass = classifyResult.value.documentClass;
+    hasItemList = classifyResult.value.hasItemList;
+    classEssence = classifyResult.value.essence;
+    if (!documentText && classifyResult.value.extractedText) {
+      documentText = classifyResult.value.extractedText;
+    }
+  } else if (isImageDoc || !documentText) {
+    // Изображение или PDF: classify не смог прочитать — передаём как advisory с неизвестным классом.
+    // Анализ получит documentImageB64 и сможет работать через vision.
+    console.warn("[compliance/classify] fallback to unknown:", classifyResult.error.message);
+    documentClass = "unknown";
+    hasItemList = false;
+    classEssence = "";
+  } else {
+    // Текстовый файл: classify упал, но текст есть — всё равно отдаём ошибку.
+    return jsonCors({ error: "Не удалось разобрать документ", detail: classifyResult.error.message }, 502);
   }
 
-  // Для PDF/изображений текст извлекает vision-модель. Для text/* он уже в documentText.
-  if (!documentText && classifyResult.value.extractedText) {
-    documentText = classifyResult.value.extractedText;
-  }
-  if (!documentText.trim()) {
+  if (!documentText.trim() && !documentImageB64) {
     return jsonCors({ code: "INSUFFICIENT_DATA", message: "Не удалось извлечь текст документа" }, 422);
   }
 
@@ -1345,10 +1363,6 @@ async function handleComplianceExtract(request: Request, env: Env): Promise<Resp
     documentText = documentText.slice(0, 60000);
     documentTruncated = true;
   }
-
-  const documentClass: DocumentClass = classifyResult.value.documentClass;
-  const hasItemList: boolean = classifyResult.value.hasItemList;
-  const classEssence: string = classifyResult.value.essence;
 
   // Если это не требование со списком — не вызываем extractRequest
   const isRequirement = documentClass === "requirement" && hasItemList;
