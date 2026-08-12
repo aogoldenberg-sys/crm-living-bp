@@ -85,13 +85,16 @@ export function ComplianceV2({ businessId }: Props) {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) { setState(s => ({ ...s, step: "cases", error: "Не удалось открыть кейс" })); return; }
+      // GET returns raw Firestore document — field names match caseData saved in extract handler.
+      // Checklist entries are stored as "checklist" (not "entries"), items as "items".
       const data = await res.json() as {
         status?: string;
         documentClass?: string;
+        hasItemList?: boolean;
         documentEssence?: string;
         authority?: RequestingAuthority;
         items?: RequestItem[];
-        entries?: ChecklistEntry[];
+        checklist?: ChecklistEntry[];
         advisory?: Advisory;
         response?: { letterDraft?: string };
         registry?: RegistryRow[];
@@ -101,8 +104,11 @@ export function ComplianceV2({ businessId }: Props) {
 
       caseIdRef.current = caseId;
 
-      if (data.advisory || data.documentClass === "warning" || data.documentClass === "unknown") {
-        // Advisory path — open advisory result if done, else show pending
+      // РЕШЕНИЕ: детектируем advisory так же, как handleFile — по hasItemList,
+      // а не по значению documentClass, чтобы не промахнуться при новых классах.
+      const isRequirement = data.documentClass === "requirement" && data.hasItemList === true;
+
+      if (!isRequirement) {
         if (data.advisory) {
           setState(s => ({
             ...s, caseId, documentClass: data.documentClass ?? null,
@@ -112,6 +118,7 @@ export function ComplianceV2({ businessId }: Props) {
             step: "advisory_done", error: null,
           }));
         } else {
+          // Advisory ещё не готов — polling
           setState(s => ({
             ...s, caseId, documentClass: data.documentClass ?? null,
             documentEssence: data.documentEssence ?? "",
@@ -141,7 +148,7 @@ export function ComplianceV2({ businessId }: Props) {
         documentEssence: data.documentEssence ?? "",
         authority: data.authority ?? null,
         items: data.items ?? [],
-        entries: data.entries ?? [],
+        entries: data.checklist ?? [],   // Firestore field: "checklist"
         checkedMap: {}, openItems: [],
         step: "review", error: null,
       }));
