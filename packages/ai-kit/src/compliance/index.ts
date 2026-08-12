@@ -14,4 +14,6 @@ export type { DocGenerator } from "./generators/index.js";
 export { classifyRequestDocument } from "./classify.js";
 export type { DocumentClass, Classification } from "./classify.js";
 export { adviseOnDocument } from "./advise.js";
-export type { Advisory } from "./advise.js";
+export type { Advisory, AdvisoryQA } from "./advise.js";
+export { produceDocuments } from "./produce.js";
+export type { ProducedDoc } from "./produce.js";

@@ -12,6 +12,7 @@ export type Advisory = {
   questions: string[];       // 3-5 вопросов, ответы меняют вывод
   offeredDocuments: string[]; // что система готова составить
   disclaimer: string;
+  verdict?: string;          // итоговая позиция (только в уточнённом ответе)
 };
 
 const ADVISE_SYSTEM = `Ты — юридический советник по российскому праву.
@@ -112,7 +113,7 @@ export async function adviseOnDocument(
 
   // Если клиент прислал ответы на вопросы — дописываем к системному промпту инструкцию.
   const system = hasAnswers
-    ? ADVISE_SYSTEM + `\n\n## Уточнение по ответам клиента\n\nЕсли clientAnswers не пуст — клиент ответил на твои вопросы.\nДай УТОЧНЁННУЮ позицию с учётом этих фактов: применима ли мера, есть ли основания оспорить.\nВ поле questions верни ПУСТОЙ массив [].\nВ поле offeredDocuments перечисли конкретные документы, которые нужно составить (не пустой массив).`
+    ? ADVISE_SYSTEM + `\n\n## Уточнение по ответам клиента\n\nЕсли clientAnswers не пуст — клиент ответил на твои вопросы.\nДай УТОЧНЁННУЮ позицию с учётом этих фактов: применима ли мера, есть ли основания оспорить.\nВ поле questions верни ПУСТОЙ массив [].\nВ поле offeredDocuments перечисли конкретные документы, которые нужно составить (не пустой массив).\nВ поле verdict — одно-два предложения: итоговая правовая позиция клиента (можно ли оспорить, каков шанс, что делать в первую очередь).`
     : ADVISE_SYSTEM;
 
   try {
@@ -168,6 +169,7 @@ export async function adviseOnDocument(
         ? (p.offeredDocuments as unknown[]).filter((x): x is string => typeof x === "string")
         : [],
       disclaimer: typeof p.disclaimer === "string" ? p.disclaimer : "Это информационный анализ, а не юридическая консультация.",
+      ...(typeof p.verdict === "string" && p.verdict ? { verdict: p.verdict } : {}),
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);

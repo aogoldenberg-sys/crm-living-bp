@@ -14,7 +14,7 @@ import type { Db } from "@crm/firestore-adapter";
 import { BusinessEvent, ExternalPushSignal, RequestItem, INTAKE_TO_BOOK_ID, BOOK_SECTION_IDS, type SourceDocKind, Entitlements, BusinessPlanV1, type FieldSpec } from "@crm/schemas";
 import { handleDocuments } from "./documents.js";
 import { createFirestoreRestClient, saveEvents, registerTenant, loadEvents, loadForecast, loadBusinessPlan, saveBusinessPlan } from "@crm/firestore-adapter";
-import { generatePlan, ExtractedPlanSchema, AssessmentOutputSchema, transcribeAudio, extractVoiceIntent, createAnthropicClient, runPipeline, parseClarifyAnswers, selectOpenItems, GENERATORS, classifyRequestDocument, adviseOnDocument } from "@crm/ai-kit";
+import { generatePlan, ExtractedPlanSchema, AssessmentOutputSchema, transcribeAudio, extractVoiceIntent, createAnthropicClient, runPipeline, parseClarifyAnswers, selectOpenItems, GENERATORS, classifyRequestDocument, adviseOnDocument, produceDocuments } from "@crm/ai-kit";
 import type { ClarifyAnswer, DocumentClass } from "@crm/ai-kit";
 import { REQUIRED_SECTIONS, mapToSections, gateIntake, classifyDocument, checkAccess, startTrial, simulateScenario, rankScenarios, buildPlanDiff, computeUnitEconomics, DEFAULT_THRESHOLDS, buildChecklist } from "@crm/core";
 import { mulberry32 } from "@crm/core";
@@ -1818,6 +1818,138 @@ async function handleComplianceAttach(request: Request, env: Env, caseId: string
   return jsonCors({ entryId, fileName, size: attachment.size, checklist });
 }
 
+// ── POST /compliance/advise/extract-text ──────────────────────────────────────
+// Извлекает текст из PDF/изображения для advisory-ветки.
+// Body: FormData { file, mimeType }
+// Сохраняет extractedText в caseData.freeAttachments[].
+// Возвращает { extractedText } синхронно.
+
+async function handleAdvisoryExtractText(request: Request, env: Env): Promise<Response> {
+  const authHeader = request.headers.get("Authorization") ?? "";
+  const idToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  if (!idToken) return jsonCors({ error: "Unauthorized" }, 401);
+
+  const claims = await verifyFirebaseIdToken(idToken, env.FIREBASE_PROJECT_ID || "crm-living-bp");
+  if (!claims) return jsonCors({ error: "Unauthorized" }, 401);
+
+  const db = createFirestoreRestClient(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+  const userDoc = await db.collection("users").doc(claims.uid).get();
+  if (!userDoc.exists) return jsonCors({ error: "User not registered" }, 400);
+  const { businessId } = userDoc.data() as { businessId: string };
+
+  let form: FormData;
+  try { form = await request.formData(); } catch { return jsonCors({ error: "Expected FormData" }, 400); }
+
+  const caseId = form.get("caseId") as string | null;
+  const fileEntry = form.get("file");
+  if (!caseId || !fileEntry || typeof fileEntry === "string") {
+    return jsonCors({ error: "Missing caseId or file" }, 400);
+  }
+
+  const caseDoc = await db.collection(`tenants/${businessId}/compliance_cases`).doc(caseId).get();
+  if (!caseDoc.exists) return jsonCors({ error: "Case not found" }, 404);
+  const caseData = caseDoc.data() as Record<string, unknown>;
+  if (caseData.businessId !== businessId) return jsonCors({ error: "Forbidden" }, 403);
+
+  const file = fileEntry as File;
+  const mimeType = ((form.get("mimeType") as string | null) ?? file.type ?? "").toLowerCase();
+  const fname = (file.name ?? "").toLowerCase();
+  const isImage = mimeType.startsWith("image/") || fname.endsWith(".jpg") || fname.endsWith(".jpeg") || fname.endsWith(".png");
+  const isPdf = mimeType === "application/pdf" || fname.endsWith(".pdf");
+  const isText = mimeType.startsWith("text/") || fname.endsWith(".txt");
+
+  let extractedText = "";
+
+  if (isText) {
+    extractedText = await file.text();
+  } else if (isPdf || isImage) {
+    if (!env.ANTHROPIC_API_KEY) return jsonCors({ error: "AI недоступен" }, 503);
+    const b64 = toBase64(await file.arrayBuffer());
+    const mediaType = isPdf ? "application/pdf" : (fname.endsWith(".png") ? "image/png" : "image/jpeg");
+    const content: ClaudeContentBlock[] = isPdf
+      ? [{ type: "document", source: { type: "base64", media_type: "application/pdf", data: b64 } }]
+      : [{ type: "image", source: { type: "base64", media_type: mediaType, data: b64 } }];
+
+    const client = createAnthropicClient(env.ANTHROPIC_API_KEY);
+    const classifyResult = await classifyRequestDocument(client, content);
+    if (classifyResult.ok && classifyResult.value.extractedText) {
+      extractedText = classifyResult.value.extractedText;
+    }
+  } else {
+    return jsonCors({ error: "Неподдерживаемый тип файла" }, 400);
+  }
+
+  if (!extractedText.trim()) {
+    return jsonCors({ error: "Не удалось извлечь текст из файла" }, 422);
+  }
+
+  // Сохранить в freeAttachments[]
+  const freeAttachments = Array.isArray(caseData.freeAttachments) ? [...(caseData.freeAttachments as unknown[])] : [];
+  freeAttachments.push({ fileName: file.name, extractedText, uploadedAt: new Date().toISOString() });
+  await db.collection(`tenants/${businessId}/compliance_cases`).doc(caseId).set(
+    { ...caseData, freeAttachments },
+  );
+
+  return jsonCors({ extractedText });
+}
+
+// ── POST /compliance/produce ───────────────────────────────────────────────────
+// Генерирует документы из advisory-ветки.
+// Body: { caseId, selectedTitles: string[], clientAnswers?: QA[] }
+// Синхронно. Сохраняет producedDocs в кейсе.
+
+async function handleComplianceProduce(request: Request, env: Env): Promise<Response> {
+  const authHeader = request.headers.get("Authorization") ?? "";
+  const idToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  if (!idToken) return jsonCors({ error: "Unauthorized" }, 401);
+
+  const claims = await verifyFirebaseIdToken(idToken, env.FIREBASE_PROJECT_ID || "crm-living-bp");
+  if (!claims) return jsonCors({ error: "Unauthorized" }, 401);
+
+  const db = createFirestoreRestClient(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+  const userDoc = await db.collection("users").doc(claims.uid).get();
+  if (!userDoc.exists) return jsonCors({ error: "User not registered" }, 400);
+  const { businessId } = userDoc.data() as { businessId: string };
+
+  let body: { caseId?: string; selectedTitles?: string[]; clientAnswers?: { question: string; answer: string }[] };
+  try { body = await request.json() as typeof body; } catch { return jsonCors({ error: "Invalid JSON" }, 400); }
+
+  const { caseId, selectedTitles, clientAnswers } = body;
+  if (!caseId || !selectedTitles?.length) return jsonCors({ error: "Missing caseId or selectedTitles" }, 400);
+
+  const caseDoc = await db.collection(`tenants/${businessId}/compliance_cases`).doc(caseId).get();
+  if (!caseDoc.exists) return jsonCors({ error: "Case not found" }, 404);
+  const caseData = caseDoc.data() as Record<string, unknown>;
+  if (caseData.businessId !== businessId) return jsonCors({ error: "Forbidden" }, 403);
+
+  if (!env.ANTHROPIC_API_KEY) return jsonCors({ error: "AI недоступен" }, 503);
+
+  const documentText = typeof caseData.documentText === "string" ? caseData.documentText : "";
+  const advisory = caseData.advisory as Parameters<typeof produceDocuments>[2] | undefined;
+  if (!advisory) return jsonCors({ error: "Advisory not found in case" }, 400);
+
+  const client = createAnthropicClient(env.ANTHROPIC_API_KEY);
+  const result = await produceDocuments(
+    client,
+    documentText,
+    advisory,
+    clientAnswers ?? [],
+    selectedTitles,
+  );
+
+  if (!result.ok) {
+    console.error("[compliance/produce] error:", result.error.message);
+    return jsonCors({ error: result.error.message }, 500);
+  }
+
+  // Сохранить producedDocs в кейсе
+  await db.collection(`tenants/${businessId}/compliance_cases`).doc(caseId).set(
+    { ...caseData, producedDocs: result.value },
+  );
+
+  return jsonCors({ documents: result.value });
+}
+
 // ── GET /compliance/case/:caseId/required-fields ──────────────────────────────
 // Собирает requiredFields всех генераторов задействованных в кейсе.
 // Дедуплицирует по key. Поля уже известные из requestMeta исключаются.
@@ -3110,6 +3242,16 @@ async function dispatchRequest(request: Request, env: Env, ctx: ExecutionContext
     // ── /compliance/package — запуск сборки пакета (async) ──────────────────
     if (request.method === "POST" && url.pathname === "/compliance/package") {
       return handleCompliancePackage(request, env, ctx);
+    }
+
+    // ── /compliance/advise/extract-text — извлечение текста из вложения ────
+    if (request.method === "POST" && url.pathname === "/compliance/advise/extract-text") {
+      return handleAdvisoryExtractText(request, env);
+    }
+
+    // ── /compliance/produce — генерация документов из advisory ───────────────
+    if (request.method === "POST" && url.pathname === "/compliance/produce") {
+      return handleComplianceProduce(request, env);
     }
 
     // ── /compliance/advise — анализ non-requirement документа (async) ────────

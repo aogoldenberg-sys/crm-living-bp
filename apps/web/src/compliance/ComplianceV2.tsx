@@ -23,7 +23,10 @@ type Step =
   | "cases" | "upload" | "review" | "requisites"
   | "clarify" | "clarify_confirm"
   | "assembling" | "done"
-  | "advisory_pending" | "advisory_done";
+  | "advisory_pending" | "advisory_done"
+  | "advisory_producing" | "advisory_produced";
+
+type ProducedDoc = { title: string; content: string };
 
 type GeneratedDoc = {
   docKind: string;
@@ -48,6 +51,8 @@ type State = {
   clientPosition: string;
   generatedDocs: GeneratedDoc[];
   advisory: Advisory | null;
+  advisoryIsRefined: boolean;
+  producedDocs: ProducedDoc[];
   error: string | null;
   paywall: { reason: string; requiredTier?: string } | null;
 };
@@ -58,7 +63,8 @@ const INITIAL: State = {
   items: [], entries: [], checkedMap: {}, openItems: [],
   requisites: null, parsedAnswers: [],
   letter: "", registry: [], clientPosition: "", generatedDocs: [],
-  advisory: null, error: null, paywall: null,
+  advisory: null, advisoryIsRefined: false, producedDocs: [],
+  error: null, paywall: null,
 };
 
 const WORKER = import.meta.env.VITE_INGEST_WORKER_URL as string;
@@ -173,8 +179,44 @@ export function ComplianceV2({ businessId }: Props) {
   // ── Advisory answers (clarify round) ──────────────────────────────
   function handleAdvisoryAnswers(qa: QA[]) {
     if (!state.caseId) return;
-    setState(s => ({ ...s, step: "advisory_pending", advisory: null, error: null }));
+    setState(s => ({ ...s, step: "advisory_pending", advisory: null, error: null, advisoryIsRefined: true }));
     void triggerAdvisory(state.caseId, qa);
+  }
+
+  // ── Extract text from advisory-branch file upload ──────────────────
+  async function handleAdvisoryExtract(file: File): Promise<string> {
+    const token = await getToken();
+    const form = new FormData();
+    form.append("file", file, file.name);
+    form.append("mimeType", file.type || "application/octet-stream");
+    form.append("caseId", state.caseId!);
+    const res = await fetch(`${WORKER}/compliance/advise/extract-text`, {
+      method: "POST", headers: { Authorization: `Bearer ${token}` }, body: form,
+    });
+    const data = await res.json() as { extractedText?: string; error?: string };
+    if (!res.ok || !data.extractedText) throw new Error(data.error ?? "Не удалось извлечь текст");
+    return data.extractedText;
+  }
+
+  // ── Produce selected documents from advisory ───────────────────────
+  async function handleAdvisoryProduce(selectedTitles: string[]) {
+    setState(s => ({ ...s, step: "advisory_producing", error: null }));
+    const token = await getToken();
+    try {
+      const res = await fetch(`${WORKER}/compliance/produce`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ caseId: state.caseId, selectedTitles }),
+      });
+      const data = await res.json() as { documents?: ProducedDoc[]; error?: string };
+      if (!res.ok || !data.documents) {
+        setState(s => ({ ...s, step: "advisory_done", error: data.error ?? "Ошибка генерации" }));
+        return;
+      }
+      setState(s => ({ ...s, step: "advisory_produced", producedDocs: data.documents! }));
+    } catch (e) {
+      setState(s => ({ ...s, step: "advisory_done", error: e instanceof Error ? e.message : "Ошибка сети" }));
+    }
   }
 
   // ── Upload & extract ───────────────────────────────────────────────
@@ -407,7 +449,41 @@ export function ComplianceV2({ businessId }: Props) {
         onBack={() => setState(s => ({ ...s, step: "cases", error: null }))}
         onReset={() => setState(INITIAL)}
         onAnswers={handleAdvisoryAnswers}
+        onUploadFile={handleAdvisoryExtract}
+        onProduce={handleAdvisoryProduce}
+        isRefined={state.advisoryIsRefined}
       />
+    );
+  }
+
+  if (state.step === "advisory_producing") {
+    return (
+      <div className="crm-v2-panel">
+        <p className="crm-v2-sub">{"Kairos составляет документы\u2026"}</p>
+      </div>
+    );
+  }
+
+  if (state.step === "advisory_produced") {
+    return (
+      <div className="crm-v2-panel">
+        <div style={{ display: "flex", gap: 10, marginBottom: 12 }}>
+          <button type="button" className="crm-v2-btn-secondary" onClick={() => setState(s => ({ ...s, step: "advisory_done" }))}>
+            ← К анализу
+          </button>
+          <button type="button" className="crm-v2-btn-secondary" onClick={() => setState(INITIAL)}>
+            Новый кейс
+          </button>
+        </div>
+        <h2 className="crm-v2-title">Готовые документы</h2>
+        {state.error && <p className="crm-v2-error">{state.error}</p>}
+        {state.producedDocs.map((doc, i) => (
+          <section key={i} style={{ marginBottom: 16 }}>
+            <h3 className="crm-v2-subtitle">{doc.title}</h3>
+            <pre className="crm-v2-doc-content">{doc.content}</pre>
+          </section>
+        ))}
+      </div>
     );
   }
 

@@ -237,13 +237,22 @@ export const ComplianceCase = z.object({
   /** Готовность пакета: считается в core, не руками. */
   completeness: z.number().min(0).max(1),
   status: z.enum([
-    "extracting",       // Claude разбирает запрос
-    "checklist_review", // клиент ставит галочки
-    "assembling",       // сборка пакета + дубликаты
-    "response_draft",   // письмо готово, ждёт утверждения
+    "extracting",         // Claude разбирает запрос
+    "checklist_review",   // клиент ставит галочки
+    "assembling",         // сборка пакета + дубликаты
+    "response_draft",     // письмо готово, ждёт утверждения
     "done",
+    "advisory_pending",   // advisory-ветка: Claude анализирует документ
+    "advisory_done",      // advisory-ветка: анализ готов
+    "advisory_error",     // advisory-ветка: ошибка анализа
   ]),
-  /** Файлы пользователя: entryId → вложение. */
+  /** Файлы пользователя: entryId → вложение (requirement-ветка). */
   attachments: z.record(z.string(), CaseAttachment).optional(),
+  /** Свободные вложения без entryId (advisory-ветка). */
+  freeAttachments: z.array(z.object({
+    fileName: z.string(),
+    extractedText: z.string(),
+    uploadedAt: z.string(),
+  })).optional(),
 }).strict();
 export type ComplianceCase = z.infer<typeof ComplianceCase>;
