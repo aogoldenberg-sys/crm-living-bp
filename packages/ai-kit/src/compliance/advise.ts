@@ -99,7 +99,7 @@ export async function adviseOnDocument(
       }
     : { norms: [], deadlineDays: null, liability: null, sanctions: null, conditions: [], exceptions: [] };
 
-  const hasAnswers = (meta.clientAnswers ?? []).length > 0;
+  const hasAnswers = (meta.clientAnswers ?? []).some(qa => qa.answer.trim().length > 0);
 
   const input = {
     documentClass: meta.documentClass,
