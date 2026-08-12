@@ -52,6 +52,7 @@ type State = {
   generatedDocs: GeneratedDoc[];
   advisory: Advisory | null;
   advisoryIsRefined: boolean;
+  advisoryVersion: number;    // инкрементируется при каждом новом advisory — key для AdvisoryView
   producedDocs: ProducedDoc[];
   error: string | null;
   paywall: { reason: string; requiredTier?: string } | null;
@@ -63,7 +64,7 @@ const INITIAL: State = {
   items: [], entries: [], checkedMap: {}, openItems: [],
   requisites: null, parsedAnswers: [],
   letter: "", registry: [], clientPosition: "", generatedDocs: [],
-  advisory: null, advisoryIsRefined: false, producedDocs: [],
+  advisory: null, advisoryIsRefined: false, advisoryVersion: 0, producedDocs: [],
   error: null, paywall: null,
 };
 
@@ -121,6 +122,7 @@ export function ComplianceV2({ businessId }: Props) {
             documentEssence: data.documentEssence ?? "",
             authority: data.authority ?? null,
             advisory: data.advisory!,
+            advisoryIsRefined: false, advisoryVersion: s.advisoryVersion + 1, producedDocs: [],
             step: "advisory_done", error: null,
           }));
         } else {
@@ -128,6 +130,7 @@ export function ComplianceV2({ businessId }: Props) {
           setState(s => ({
             ...s, caseId, documentClass: data.documentClass ?? null,
             documentEssence: data.documentEssence ?? "",
+            advisoryIsRefined: false, producedDocs: [],
             step: "advisory_pending", error: null,
           }));
           startPolling();
@@ -260,7 +263,9 @@ export function ComplianceV2({ businessId }: Props) {
           ...s, step: "advisory_pending",
           caseId: data.caseId!, documentClass: data.documentClass ?? null,
           documentEssence: data.essence ?? "", authority: data.authority ?? null,
-          items: [], entries: [], error: null,
+          items: [], entries: [],
+          advisoryIsRefined: false, producedDocs: [],
+          error: null,
         }));
         void triggerAdvisory(data.caseId!);
         return;
@@ -383,6 +388,7 @@ export function ComplianceV2({ businessId }: Props) {
         setState(s => ({
           ...s, step: "advisory_done",
           advisory: data.advisory!,
+          advisoryVersion: s.advisoryVersion + 1,
           documentEssence: data.documentEssence ?? s.documentEssence,
         }));
       } else if (data.status === "done" && data.response?.letterDraft) {
@@ -443,6 +449,7 @@ export function ComplianceV2({ businessId }: Props) {
   if (state.step === "advisory_done" && state.advisory) {
     return (
       <AdvisoryView
+        key={`${state.caseId}-${state.advisoryVersion}`}
         advisory={state.advisory}
         essence={state.documentEssence}
         caseId={state.caseId!}
