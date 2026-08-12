@@ -16,6 +16,7 @@ import { ClarifyDialog } from "./ClarifyDialog";
 import { PackageResult } from "./PackageResult";
 import { AdvisoryView, type Advisory, type QA } from "./AdvisoryView";
 import { CasesListView } from "../features/compliance/CasesListView";
+import { ComplianceUploadLanding } from "./ComplianceUploadLanding";
 
 interface Props { businessId: string }
 
@@ -73,7 +74,6 @@ const WORKER = import.meta.env.VITE_INGEST_WORKER_URL as string;
 export function ComplianceV2({ businessId }: Props) {
   const { user } = useAuth();
   const [state, setState] = useState<State>(INITIAL);
-  const inputRef = useRef<HTMLInputElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Ref для caseId — poll() читает отсюда, не из стейл-замыкания state
   const caseIdRef = useRef<string | null>(null);
@@ -589,32 +589,13 @@ export function ComplianceV2({ businessId }: Props) {
     );
   }
 
-  // upload step
+  // upload step — full landing with instructions and privacy
   return (
-    <div className="crm-v2-panel crm-v2-upload-wrap">
-      <div style={{ marginBottom: 8 }}>
-        <button type="button" className="crm-v2-btn-secondary" onClick={() => setState(s => ({ ...s, step: "cases", error: null }))}>
-          ← К списку кейсов
-        </button>
-      </div>
-      <div
-        className="crm-v2-dropzone"
-        onClick={() => inputRef.current?.click()}
-        onDragOver={e => e.preventDefault()}
-        onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) void handleFile(f); }}
-      >
-        <div className="crm-v2-dropzone-icon">{"\uD83D\uDEE1"}</div>
-        <p className="crm-v2-dropzone-title">Загрузите требование</p>
-        <p className="crm-v2-dropzone-hint">PDF, JPEG, PNG или текстовый файл</p>
-        <p className="crm-v2-dropzone-hint crm-v2-muted">Kairos разбирает запрос</p>
-      </div>
-      {state.error && <p className="crm-v2-error">{state.error}</p>}
-      <input
-        ref={inputRef} type="file" accept=".pdf,.jpg,.jpeg,.png,.txt"
-        style={{ display: "none" }}
-        onChange={e => { const f = e.target.files?.[0]; if (f) void handleFile(f); }}
-      />
-    </div>
+    <ComplianceUploadLanding
+      onFile={file => { void handleFile(file); }}
+      onBack={() => setState(s => ({ ...s, step: "cases", error: null }))}
+      error={state.error}
+    />
   );
 }
 
