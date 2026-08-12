@@ -1710,10 +1710,10 @@ async function handleComplianceAdvise(request: Request, env: Env, ctx: Execution
   if (!userDoc.exists) return jsonCors({ error: "User not registered" }, 400);
   const { businessId } = userDoc.data() as { businessId: string };
 
-  let body: { caseId?: string };
+  let body: { caseId?: string; answers?: { question: string; answer: string }[] };
   try { body = await request.json() as typeof body; } catch { return jsonCors({ error: "Invalid JSON" }, 400); }
 
-  const { caseId } = body;
+  const { caseId, answers: clientAnswers } = body;
   if (!caseId) return jsonCors({ error: "Missing caseId" }, 400);
 
   const caseDoc = await db.collection(`tenants/${businessId}/compliance_cases`).doc(caseId).get();
@@ -1743,6 +1743,7 @@ async function handleComplianceAdvise(request: Request, env: Env, ctx: Execution
     companyInn: typeof (caseData.requestMeta as Record<string, unknown>)?.recipientInn === "string"
       ? ((caseData.requestMeta as Record<string, unknown>).recipientInn as string)
       : null,
+    clientAnswers: clientAnswers ?? [],
   });
 
   if (!result.ok) {

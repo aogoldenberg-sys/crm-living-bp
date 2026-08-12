@@ -70,6 +70,8 @@ questions — строго конкретные, проверяют примен
 
 options — реальные действия с конкретными сроками, не «проконсультируйтесь с юристом».`;
 
+export type AdvisoryQA = { question: string; answer: string };
+
 export async function adviseOnDocument(
   client: AnthropicClient,
   documentText: string,
@@ -78,6 +80,7 @@ export async function adviseOnDocument(
     documentClass: DocumentClass;
     companyName: string | null;
     companyInn: string | null;
+    clientAnswers?: AdvisoryQA[];
   },
 ): Promise<Result<Advisory>> {
   // LEGAL_BASIS is Record<RequestingAuthority, LegalBasisEntry> but noUncheckedIndexedAccess
@@ -95,6 +98,8 @@ export async function adviseOnDocument(
       }
     : { norms: [], deadlineDays: null, liability: null, sanctions: null, conditions: [], exceptions: [] };
 
+  const hasAnswers = (meta.clientAnswers ?? []).length > 0;
+
   const input = {
     documentClass: meta.documentClass,
     authority: meta.authority,
@@ -102,7 +107,13 @@ export async function adviseOnDocument(
     companyInn: meta.companyInn,
     legalBasis,
     documentText,
+    clientAnswers: meta.clientAnswers ?? [],
   };
+
+  // Если клиент прислал ответы на вопросы — дописываем к системному промпту инструкцию.
+  const system = hasAnswers
+    ? ADVISE_SYSTEM + `\n\n## Уточнение по ответам клиента\n\nЕсли clientAnswers не пуст — клиент ответил на твои вопросы.\nДай УТОЧНЁННУЮ позицию с учётом этих фактов: применима ли мера, есть ли основания оспорить.\nВ поле questions верни ПУСТОЙ массив [].\nВ поле offeredDocuments перечисли конкретные документы, которые нужно составить (не пустой массив).`
+    : ADVISE_SYSTEM;
 
   try {
     // thinking включён: правовая квалификация — аналитическая задача.
@@ -111,7 +122,7 @@ export async function adviseOnDocument(
       model: "claude-sonnet-4-6",
       max_tokens: 16384,
       thinking: { type: "enabled", budget_tokens: 4000 },
-      system: [{ type: "text", text: ADVISE_SYSTEM, cache_control: { type: "ephemeral" } }],
+      system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
       messages: [{ role: "user", content: JSON.stringify(input, null, 2) }],
     });
 

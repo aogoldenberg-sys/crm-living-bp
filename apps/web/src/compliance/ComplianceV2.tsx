@@ -14,12 +14,13 @@ import { RequestSummary } from "./RequestSummary";
 import { RequisitesForm, type OrgRequisites } from "./RequisitesForm";
 import { ClarifyDialog } from "./ClarifyDialog";
 import { PackageResult } from "./PackageResult";
-import { AdvisoryView, type Advisory } from "./AdvisoryView";
+import { AdvisoryView, type Advisory, type QA } from "./AdvisoryView";
+import { CasesListView } from "../features/compliance/CasesListView";
 
 interface Props { businessId: string }
 
 type Step =
-  | "upload" | "review" | "requisites"
+  | "cases" | "upload" | "review" | "requisites"
   | "clarify" | "clarify_confirm"
   | "assembling" | "done"
   | "advisory_pending" | "advisory_done";
@@ -52,7 +53,7 @@ type State = {
 };
 
 const INITIAL: State = {
-  step: "upload", caseId: null, authority: null,
+  step: "cases", caseId: null, authority: null,
   documentClass: null, documentEssence: "",
   items: [], entries: [], checkedMap: {}, openItems: [],
   requisites: null, parsedAnswers: [],
@@ -62,7 +63,7 @@ const INITIAL: State = {
 
 const WORKER = import.meta.env.VITE_INGEST_WORKER_URL as string;
 
-export function ComplianceV2({ businessId: _businessId }: Props) {
+export function ComplianceV2({ businessId }: Props) {
   const { user } = useAuth();
   const [state, setState] = useState<State>(INITIAL);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -76,17 +77,97 @@ export function ComplianceV2({ businessId: _businessId }: Props) {
 
   async function getToken(): Promise<string> { return user!.getIdToken(); }
 
+  // ── Open existing case ─────────────────────────────────────────────
+  async function handleSelectCase(caseId: string) {
+    try {
+      const token = await getToken();
+      const res = await fetch(`${WORKER}/compliance/case/${caseId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) { setState(s => ({ ...s, step: "cases", error: "Не удалось открыть кейс" })); return; }
+      const data = await res.json() as {
+        status?: string;
+        documentClass?: string;
+        documentEssence?: string;
+        authority?: RequestingAuthority;
+        items?: RequestItem[];
+        entries?: ChecklistEntry[];
+        advisory?: Advisory;
+        response?: { letterDraft?: string };
+        registry?: RegistryRow[];
+        clientPosition?: string;
+        generatedDocs?: GeneratedDoc[];
+      };
+
+      caseIdRef.current = caseId;
+
+      if (data.advisory || data.documentClass === "warning" || data.documentClass === "unknown") {
+        // Advisory path — open advisory result if done, else show pending
+        if (data.advisory) {
+          setState(s => ({
+            ...s, caseId, documentClass: data.documentClass ?? null,
+            documentEssence: data.documentEssence ?? "",
+            authority: data.authority ?? null,
+            advisory: data.advisory!,
+            step: "advisory_done", error: null,
+          }));
+        } else {
+          setState(s => ({
+            ...s, caseId, documentClass: data.documentClass ?? null,
+            documentEssence: data.documentEssence ?? "",
+            step: "advisory_pending", error: null,
+          }));
+          startPolling();
+        }
+        return;
+      }
+
+      if (data.status === "done" && data.response?.letterDraft) {
+        setState(s => ({
+          ...s, caseId, step: "done",
+          letter: data.response!.letterDraft!,
+          registry: data.registry ?? [],
+          clientPosition: data.clientPosition ?? "",
+          generatedDocs: data.generatedDocs ?? [],
+          error: null,
+        }));
+        return;
+      }
+
+      // Requirement in progress — show checklist
+      setState(s => ({
+        ...s, caseId,
+        documentClass: data.documentClass ?? null,
+        documentEssence: data.documentEssence ?? "",
+        authority: data.authority ?? null,
+        items: data.items ?? [],
+        entries: data.entries ?? [],
+        checkedMap: {}, openItems: [],
+        step: "review", error: null,
+      }));
+    } catch (e) {
+      setState(s => ({ ...s, error: e instanceof Error ? e.message : "Ошибка сети" }));
+    }
+  }
+
   // ── Advisory trigger ───────────────────────────────────────────────
-  async function triggerAdvisory(caseId: string) {
+  async function triggerAdvisory(caseId: string, answers?: QA[]) {
     try {
       const token = await getToken();
       await fetch(`${WORKER}/compliance/advise`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ caseId }),
+        body: JSON.stringify({ caseId, answers }),
       });
     } catch { /* polling picks up result */ }
     startPolling();
+  }
+
+  // ── Advisory answers (clarify round) ──────────────────────────────
+  function handleAdvisoryAnswers(qa: QA[]) {
+    if (!state.caseId) return;
+    setState(s => ({ ...s, step: "advisory_pending", advisory: null, error: null }));
+    void triggerAdvisory(state.caseId, qa);
   }
 
   // ── Upload & extract ───────────────────────────────────────────────
@@ -125,7 +206,6 @@ export function ComplianceV2({ businessId: _businessId }: Props) {
       const isRequirement = data.documentClass === "requirement" && data.hasItemList === true;
 
       if (!isRequirement) {
-        // Не-требование: запустить advisory и перейти на экран ожидания
         caseIdRef.current = data.caseId!;
         setState(s => ({
           ...s, step: "advisory_pending",
@@ -155,7 +235,6 @@ export function ComplianceV2({ businessId: _businessId }: Props) {
 
   // ── Confirm checkboxes → requisites ────────────────────────────────
   function handleChecklistConfirm(checked: Record<string, boolean>) {
-    // Items where ALL their entries are unchecked and availability is missing_no_event
     const uncheckedMissing = new Set(
       state.entries
         .filter(e => e.availability === "missing_no_event" && !checked[e.entryId])
@@ -207,7 +286,6 @@ export function ComplianceV2({ businessId: _businessId }: Props) {
     setState(s => ({ ...s, step: "assembling", error: null }));
     const token = await getToken();
     const req = reqOverride ?? state.requisites;
-    // Convert checked entries to "have_paper" answers for the pipeline
     const checkedAnswers: ClarifyAnswer[] = state.entries
       .filter(e => state.checkedMap[e.entryId] && e.availability === "missing_no_event")
       .map(e => ({ itemId: e.requestItemId, status: "have_paper" as const, note: null }));
@@ -252,7 +330,6 @@ export function ComplianceV2({ businessId: _businessId }: Props) {
         documentEssence?: string;
       };
       if (data.status === "done" && data.advisory) {
-        // Advisory path done
         if (pollRef.current) clearInterval(pollRef.current);
         setState(s => ({
           ...s, step: "advisory_done",
@@ -260,7 +337,6 @@ export function ComplianceV2({ businessId: _businessId }: Props) {
           documentEssence: data.documentEssence ?? s.documentEssence,
         }));
       } else if (data.status === "done" && data.response?.letterDraft) {
-        // Requirement path done
         if (pollRef.current) clearInterval(pollRef.current);
         setState(s => ({
           ...s, step: "done",
@@ -273,7 +349,7 @@ export function ComplianceV2({ businessId: _businessId }: Props) {
         if (pollRef.current) clearInterval(pollRef.current);
         setState(s => ({
           ...s,
-          step: s.step === "advisory_pending" ? "upload" : "review",
+          step: s.step === "advisory_pending" ? "cases" : "review",
           error: `Ошибка: ${data.packageError ?? data.advisoryError}`,
         }));
       }
@@ -293,6 +369,19 @@ export function ComplianceV2({ businessId: _businessId }: Props) {
   }
 
   // ── Screens ────────────────────────────────────────────────────────
+  if (state.step === "cases") {
+    return (
+      <>
+        {state.error && <p className="crm-v2-error" style={{ margin: "0 0 8px" }}>{state.error}</p>}
+        <CasesListView
+          businessId={businessId}
+          onSelectCase={id => { void handleSelectCase(id); }}
+          onNewCase={() => setState(s => ({ ...s, step: "upload", error: null }))}
+        />
+      </>
+    );
+  }
+
   if (state.step === "advisory_pending") {
     return (
       <div className="crm-v2-panel">
@@ -308,7 +397,9 @@ export function ComplianceV2({ businessId: _businessId }: Props) {
         advisory={state.advisory}
         essence={state.documentEssence}
         caseId={state.caseId!}
+        onBack={() => setState(s => ({ ...s, step: "cases", error: null }))}
         onReset={() => setState(INITIAL)}
+        onAnswers={handleAdvisoryAnswers}
       />
     );
   }
@@ -317,6 +408,11 @@ export function ComplianceV2({ businessId: _businessId }: Props) {
     return (
       <>
         {state.error && <p className="crm-v2-error">{state.error}</p>}
+        <div style={{ marginBottom: 8 }}>
+          <button type="button" className="crm-v2-btn-secondary" onClick={() => setState(s => ({ ...s, step: "cases", error: null }))}>
+            ← К списку кейсов
+          </button>
+        </div>
         <RequestSummary
           items={state.items}
           entries={state.entries}
@@ -355,19 +451,31 @@ export function ComplianceV2({ businessId: _businessId }: Props) {
 
   if (state.step === "done") {
     return (
-      <PackageResult
-        caseId={state.caseId!}
-        letter={state.letter}
-        registry={state.registry}
-        clientPosition={state.clientPosition}
-        generatedDocs={state.generatedDocs}
-      />
+      <>
+        <div style={{ marginBottom: 8 }}>
+          <button type="button" className="crm-v2-btn-secondary" onClick={() => setState(s => ({ ...s, step: "cases", error: null }))}>
+            ← К списку кейсов
+          </button>
+        </div>
+        <PackageResult
+          caseId={state.caseId!}
+          letter={state.letter}
+          registry={state.registry}
+          clientPosition={state.clientPosition}
+          generatedDocs={state.generatedDocs}
+        />
+      </>
     );
   }
 
   // upload step
   return (
     <div className="crm-v2-panel crm-v2-upload-wrap">
+      <div style={{ marginBottom: 8 }}>
+        <button type="button" className="crm-v2-btn-secondary" onClick={() => setState(s => ({ ...s, step: "cases", error: null }))}>
+          ← К списку кейсов
+        </button>
+      </div>
       <div
         className="crm-v2-dropzone"
         onClick={() => inputRef.current?.click()}
