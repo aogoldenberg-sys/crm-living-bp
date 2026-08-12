@@ -477,9 +477,40 @@ export function ComplianceV2({ businessId }: Props) {
         </div>
         <h2 className="crm-v2-title">Готовые документы</h2>
         {state.error && <p className="crm-v2-error">{state.error}</p>}
+        {state.producedDocs.length > 1 && (
+          <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+            <button type="button" className="crm-v2-btn-primary"
+              onClick={() => state.producedDocs.forEach(d => downloadTxt(d.content, safeFileName(d.title, "txt")))}
+            >
+              Скачать все .txt ({state.producedDocs.length})
+            </button>
+            <button type="button" className="crm-v2-btn-primary"
+              onClick={() => state.producedDocs.forEach(d => downloadDoc(d.title, d.content, safeFileName(d.title, "doc")))}
+            >
+              Скачать все .doc ({state.producedDocs.length})
+            </button>
+          </div>
+        )}
         {state.producedDocs.map((doc, i) => (
-          <section key={i} style={{ marginBottom: 16 }}>
-            <h3 className="crm-v2-subtitle">{doc.title}</h3>
+          <section key={i} style={{ marginBottom: 20 }}>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+              <h3 className="crm-v2-subtitle" style={{ flex: 1, margin: 0 }}>{doc.title}</h3>
+              <button type="button" className="crm-v2-btn-secondary"
+                onClick={() => downloadTxt(doc.content, safeFileName(doc.title, "txt"))}
+              >
+                .txt
+              </button>
+              <button type="button" className="crm-v2-btn-secondary"
+                onClick={() => downloadDoc(doc.title, doc.content, safeFileName(doc.title, "doc"))}
+              >
+                .doc (Word)
+              </button>
+              <button type="button" className="crm-v2-btn-secondary"
+                onClick={() => { void navigator.clipboard.writeText(doc.content); }}
+              >
+                Копировать
+              </button>
+            </div>
             <pre className="crm-v2-doc-content">{doc.content}</pre>
           </section>
         ))}
@@ -620,4 +651,55 @@ function ClarifyConfirmScreen({ answers, openItems, error, onChangeStatus, onSub
       <button type="button" className="crm-v2-btn" onClick={onSubmit}>Собрать пакет</button>
     </div>
   );
+}
+
+// ── Утилиты скачивания документов ────────────────────────────────────────────
+
+function safeFileName(title: string, ext: string): string {
+  const base = title
+    .replace(/[<>:"/\\|?*]/g, "")
+    .replace(/\s+/g, "_")
+    .slice(0, 80);
+  return `${base}.${ext}`;
+}
+
+function downloadTxt(content: string, filename: string) {
+  const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+  triggerDownload(URL.createObjectURL(blob), filename);
+}
+
+// Word открывает HTML-файл с расширением .doc — позволяет редактировать и печатать.
+function downloadDoc(title: string, content: string, filename: string) {
+  // Переносы строк → абзацы, чтобы Word не слипал текст в одну строку.
+  const paragraphs = content
+    .split(/\n/)
+    .map(line => `<p>${line.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") || "&nbsp;"}</p>`)
+    .join("\n");
+
+  const html = `<html xmlns:o='urn:schemas-microsoft-com:office:office'
+    xmlns:w='urn:schemas-microsoft-com:office:word'
+    xmlns='http://www.w3.org/TR/REC-html40'>
+<head><meta charset='utf-8'>
+<style>
+  body { font-family: "Times New Roman", serif; font-size: 12pt; margin: 2cm; line-height: 1.5; }
+  h1 { font-size: 14pt; text-align: center; margin-bottom: 24pt; }
+  p { margin: 0 0 6pt; text-indent: 1.25cm; }
+</style>
+</head>
+<body>
+<h1>${title.replace(/&/g, "&amp;").replace(/</g, "&lt;")}</h1>
+${paragraphs}
+</body></html>`;
+
+  const blob = new Blob([html], { type: "application/msword;charset=utf-8" });
+  triggerDownload(URL.createObjectURL(blob), filename);
+}
+
+function triggerDownload(url: string, filename: string) {
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  // Небольшая задержка перед revoke — браузер должен успеть начать загрузку.
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
