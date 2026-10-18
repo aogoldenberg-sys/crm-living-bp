@@ -23,7 +23,16 @@ interface ALine {
   matches: PricelistMatch[];
 }
 
-interface Props { order: Order; businessId: string; uid: string; allSupplierNames: string[]; plIndex: PlIndex; showManagerAssign?: boolean; isFocused?: boolean }
+interface Props { order: Order; businessId: string; uid: string; allSupplierNames: string[]; plIndex: PlIndex; showManagerAssign?: boolean; isFocused?: boolean; stockMap?: Map<string, number> }
+
+// Возвращает остаток на складе по штрихкоду или названию
+function getStockQty(map: Map<string, number>, item: { barcode?: string | null; productName: string }): number {
+  if (item.barcode) {
+    const v = map.get(String(item.barcode));
+    if (v !== undefined) return v;
+  }
+  return map.get(item.productName.toLowerCase()) ?? 0;
+}
 
 const MANAGERS = ["Марина", "Ольга", "Анна"];
 
@@ -43,7 +52,7 @@ function dedup(matches: PricelistMatch[]): PricelistMatch[] {
   return Array.from(map.values()).sort((a, b) => (a.priceKopecks ?? 0) - (b.priceKopecks ?? 0));
 }
 
-export function AssemblyCard({ order, businessId, uid, allSupplierNames, plIndex, showManagerAssign = false, isFocused = false }: Props) {
+export function AssemblyCard({ order, businessId, uid, allSupplierNames, plIndex, showManagerAssign = false, isFocused = false, stockMap = new Map() }: Props) {
   const [lines, setLines] = useState<ALine[] | null>(null);
   const [saving, setSaving] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
@@ -56,6 +65,8 @@ export function AssemblyCard({ order, businessId, uid, allSupplierNames, plIndex
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const dirtyRef     = useRef(false);
   const drafts       = useNumDrafts();
+  const stockMapRef  = useRef(stockMap);
+  stockMapRef.current = stockMap;
 
   // Обновляем дедлайн раз в минуту
   useEffect(() => { const t = setInterval(() => setTick(n => n + 1), 60_000); return () => clearInterval(t); }, []);
@@ -88,6 +99,13 @@ export function AssemblyCard({ order, businessId, uid, allSupplierNames, plIndex
 
   useEffect(() => {
     function buildLine(item: Order["items"][number], idx: number, m: PricelistMatch[]): ALine {
+      // Приоритет: сначала склад, если есть остаток
+      if (getStockQty(stockMapRef.current, item) > 0) {
+        return { idx, productName: item.productName, barcode: item.barcode ?? null,
+          qtyOrdered: item.quantity, qtyPacked: 0, unitSellKopecks: item.unitPrice,
+          supplierName: "Склад", supplierId: "stock", unitCostKopecks: 0,
+          sentToPurchase: false, replaced: false, matches: m };
+      }
       const isStock = item.supplierId === "СКЛАД";
       const preByOrder = item.supplierId ? m.find(x => x.supplierName === item.supplierId) : undefined;
       const chosen = preByOrder ?? m[0];
@@ -262,6 +280,24 @@ export function AssemblyCard({ order, businessId, uid, allSupplierNames, plIndex
           items: debtItems,
           createdAt: new Date().toISOString(),
         });
+      }
+
+      // Списание со склада для позиций с поставщиком "Склад"
+      const stockLines = ls.filter(l => l.supplierName === "Склад" && l.qtyPacked > 0);
+      if (stockLines.length > 0) {
+        await Promise.all(stockLines.map(l =>
+          addDoc(collection(db, `tenants/${businessId}/stock`), {
+            productName: l.productName,
+            barcode: l.barcode ?? null,
+            qty: -l.qtyPacked,
+            supplierName: null,
+            costKopecks: 0,
+            note: `Списание: ${order.customerName}`,
+            region: order.region ?? null,
+            createdAt: new Date().toISOString(),
+            createdBy: uid,
+          }),
+        ));
       }
     } catch (e) {
       console.error("Deliver failed:", e);

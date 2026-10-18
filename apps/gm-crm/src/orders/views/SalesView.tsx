@@ -284,6 +284,27 @@ export function SalesView({ businessId, onGoToPurchasing: _onGoToPurchasing, onG
           items: debtItems, createdAt: new Date().toISOString(),
         });
       }
+
+      // Списание со склада для позиций с поставщиком "Склад"
+      const suppliers = assemblySuppliers[order.id] ?? [];
+      const stockToDeduct = order.items
+        .map((it, i) => ({ it, shipped: Math.min(qtys[i] ?? 0, it.quantity), supplier: suppliers[i] }))
+        .filter(({ shipped, supplier }) => supplier === "Склад" && shipped > 0);
+      if (stockToDeduct.length > 0) {
+        await Promise.all(stockToDeduct.map(({ it, shipped }) =>
+          addDoc(collection(db, `tenants/${businessId}/stock`), {
+            productName: it.productName,
+            barcode: it.barcode ?? null,
+            qty: -shipped,
+            supplierName: null,
+            costKopecks: 0,
+            note: `Списание: ${order.customerName}`,
+            ...(order.region ? { region: order.region } : {}),
+            createdAt: new Date().toISOString(),
+            createdBy: uid,
+          }),
+        ));
+      }
     } catch (e) {
       alert("Ошибка при отгрузке: " + String(e));
     }

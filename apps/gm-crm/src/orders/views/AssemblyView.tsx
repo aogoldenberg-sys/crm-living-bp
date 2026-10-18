@@ -44,6 +44,19 @@ export function AssemblyView({ businessId, managerFilter, showManagerAssign = fa
     loadPricelist().then(pl => setPlIndex(buildPlIndex(pl)));
   }, []);
 
+  // Подписка на остатки склада — для приоритетного выбора при сборке
+  useEffect(() => {
+    return onSnapshot(collection(db, `tenants/${businessId}/stock`), snap => {
+      const map = new Map<string, number>();
+      for (const d of snap.docs) {
+        const e = d.data() as { barcode?: string | null; productName: string; qty: number };
+        const key = e.barcode ? String(e.barcode) : e.productName.toLowerCase();
+        map.set(key, (map.get(key) ?? 0) + e.qty);
+      }
+      setStockMap(map);
+    });
+  }, [businessId]);
+
   // Загружаем список всех поставщиков + досеваем пропущенных из каталога (один раз)
   useEffect(() => {
     seeded.current = false;
@@ -63,6 +76,7 @@ export function AssemblyView({ businessId, managerFilter, showManagerAssign = fa
     });
   }, [businessId]);
 
+  const [stockMap, setStockMap] = useState<Map<string, number>>(new Map());
   const [search, setSearch] = useState("");
 
   const filtered = orders
@@ -177,7 +191,7 @@ export function AssemblyView({ businessId, managerFilter, showManagerAssign = fa
       {assembling.length === 0
         ? <div className="go-empty">Нет заказов в сборке</div>
         : assembling.map(o => (
-            <AssemblyCard key={o.id} order={o} businessId={businessId} uid={uid} allSupplierNames={supplierNames} plIndex={plIndex} showManagerAssign={showManagerAssign} isFocused={focusOrderId === o.id} />
+            <AssemblyCard key={o.id} order={o} businessId={businessId} uid={uid} allSupplierNames={supplierNames} plIndex={plIndex} showManagerAssign={showManagerAssign} isFocused={focusOrderId === o.id} stockMap={stockMap} />
           ))
       }
     </div>
