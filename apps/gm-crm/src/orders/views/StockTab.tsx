@@ -10,6 +10,7 @@ interface StockEntry {
   productName: string;
   barcode: string | null;
   qty: number;
+  unit?: string;
   supplierName: string | null;
   costKopecks: number;
   note: string | null;
@@ -23,6 +24,7 @@ interface Balance {
   productName: string;
   barcode: string | null;
   qty: number;
+  unit: string;
   lastSupplier: string | null;
   lastCostKopecks: number;
   lastDate: string;
@@ -40,6 +42,26 @@ function slugify(name: string) {
 // Блокируем нечисловые клавиши в поле цены (e, +, -)
 function numericKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
   if (["e", "E", "+", "-"].includes(e.key)) e.preventDefault();
+}
+
+function exportStockCsv(balances: Balance[], regionLabel: string) {
+  const rows = [
+    ["Наименование", "Штрихкод", "Остаток", "Ед.", "Цена закупки (руб.)"],
+    ...balances.map(b => [
+      b.productName,
+      b.barcode ?? "",
+      String(b.qty),
+      b.unit,
+      b.lastCostKopecks > 0 ? (b.lastCostKopecks / 100).toFixed(2) : "",
+    ]),
+  ];
+  const csv = "\uFEFF" + rows.map(r => r.map(cell => `"${cell.replace(/"/g, '""')}"`).join(";")).join("\r\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `склад_${regionLabel}_${new Date().toLocaleDateString("ru-RU").replace(/\./g, "-")}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
 }
 
 export function StockTab({ businessId, currentUser, region }: { businessId: string; currentUser: string; region?: string }) {
@@ -123,7 +145,7 @@ export function StockTab({ businessId, currentUser, region }: { businessId: stri
     for (const e of [...regionEntries].reverse()) {
       const key = e.barcode || e.productName;
       if (!map.has(key)) {
-        map.set(key, { key, productName: e.productName, barcode: e.barcode, qty: 0, lastSupplier: null, lastCostKopecks: 0, lastDate: "" });
+        map.set(key, { key, productName: e.productName, barcode: e.barcode, qty: 0, unit: e.unit || "шт", lastSupplier: null, lastCostKopecks: 0, lastDate: "" });
       }
       const b = map.get(key)!;
       b.qty += e.qty;
@@ -131,6 +153,7 @@ export function StockTab({ businessId, currentUser, region }: { businessId: stri
         b.lastDate         = e.createdAt;
         b.lastSupplier     = e.supplierName;
         b.lastCostKopecks  = e.costKopecks;
+        if (e.unit) b.unit = e.unit;
       }
     }
     return [...map.values()].sort((a, b) => b.qty - a.qty);
@@ -228,10 +251,20 @@ export function StockTab({ businessId, currentUser, region }: { businessId: stri
         <div style={{ fontSize: 13, color: "#8B7355" }}>
           {balances.length} позиций · {effectiveRegion === "spb" ? "Склад Санкт-Петербург" : "Склад Москва"}
         </div>
-        <button onClick={() => { resetForm(); setShowForm(v => !v); }}
-          className="go-btn go-btn--gold">
-          {showForm ? "Отмена" : "+ Приход"}
-        </button>
+        <div style={{ display: "flex", gap: 8 }}>
+          {balances.length > 0 && (
+            <button
+              onClick={() => exportStockCsv(filteredBalances, effectiveRegion === "spb" ? "СПб" : "Москва")}
+              style={{ padding: "6px 14px", fontSize: 12, borderRadius: 8, cursor: "pointer", whiteSpace: "nowrap",
+                border: "1px solid rgba(200,154,52,.4)", background: "transparent", color: "#8B6914" }}>
+              ⬇ Выгрузить CSV
+            </button>
+          )}
+          <button onClick={() => { resetForm(); setShowForm(v => !v); }}
+            className="go-btn go-btn--gold">
+            {showForm ? "Отмена" : "+ Приход"}
+          </button>
+        </div>
       </div>
 
       {showForm && (
