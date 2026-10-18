@@ -47,6 +47,8 @@ export function StockTab({ businessId, currentUser, region }: { businessId: stri
   const [suppliers, setSuppliers] = useState<string[]>([]);
   const [showForm, setShowForm]   = useState(false);
   const [balanceSearch, setBalanceSearch] = useState("");
+  // regionTab — только когда region не задан (директор видит оба склада)
+  const [regionTab, setRegionTab] = useState<"msk" | "spb">("msk");
 
   // оставляем для кнопки "Новый поставщик" в форме накладной
   const [saving, setSaving]       = useState(false);
@@ -67,11 +69,10 @@ export function StockTab({ businessId, currentUser, region }: { businessId: stri
   useEffect(() => {
     const q = query(collection(db, `tenants/${businessId}/stock`), orderBy("createdAt", "desc"));
     return onSnapshot(q, snap => {
-      const all = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<StockEntry, "id">) }));
-      // region=undefined → Москва (null/msk/старые записи); region="spb" → только СПб
-      setEntries(region ? all.filter(e => e.region === region) : all.filter(e => !e.region || e.region === "msk"));
+      // Загружаем все записи; фильтрация по региону — в рендере (для директора переключается таб)
+      setEntries(snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<StockEntry, "id">) })));
     });
-  }, [businessId, region]);
+  }, [businessId]);
 
   useEffect(() => {
     return onSnapshot(collection(db, `tenants/${businessId}/suppliers`), snap => {
@@ -111,9 +112,15 @@ export function StockTab({ businessId, currentUser, region }: { businessId: stri
     return suppliers.filter(s => s.toLowerCase().includes(q));
   }, [suppliers, fSupplier]);
 
+  // effectiveRegion: если region задан (спб-менеджер) — фиксирован; иначе — по табу директора
+  const effectiveRegion = region ?? regionTab;
+  const regionEntries = entries.filter(e =>
+    effectiveRegion === "spb" ? e.region === "spb" : (!e.region || e.region === "msk")
+  );
+
   const balances = useMemo(() => {
     const map = new Map<string, Balance>();
-    for (const e of [...entries].reverse()) {
+    for (const e of [...regionEntries].reverse()) {
       const key = e.barcode || e.productName;
       if (!map.has(key)) {
         map.set(key, { key, productName: e.productName, barcode: e.barcode, qty: 0, lastSupplier: null, lastCostKopecks: 0, lastDate: "" });
@@ -127,7 +134,8 @@ export function StockTab({ businessId, currentUser, region }: { businessId: stri
       }
     }
     return [...map.values()].sort((a, b) => b.qty - a.qty);
-  }, [entries]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [regionEntries]);
 
   const filteredBalances = useMemo(() => {
     const q = balanceSearch.toLowerCase();
@@ -200,9 +208,25 @@ export function StockTab({ businessId, currentUser, region }: { businessId: stri
 
   return (
     <div>
+      {/* Переключатель склада — только для директора (region не задан) */}
+      {!region && (
+        <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+          <button onClick={() => setRegionTab("msk")}
+            style={{ padding: "5px 16px", borderRadius: 20, border: "1px solid #e0d8cc", fontSize: 12, cursor: "pointer",
+              background: regionTab === "msk" ? "#C8963480" : "#faf8f4", fontWeight: regionTab === "msk" ? 700 : 400 }}>
+            🏙 Склад Москва
+          </button>
+          <button onClick={() => setRegionTab("spb")}
+            style={{ padding: "5px 16px", borderRadius: 20, border: "1px solid #e0d8cc", fontSize: 12, cursor: "pointer",
+              background: regionTab === "spb" ? "#1565C080" : "#faf8f4", color: regionTab === "spb" ? "#fff" : undefined, fontWeight: regionTab === "spb" ? 700 : 400 }}>
+            🌊 Склад СПб
+          </button>
+        </div>
+      )}
+
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
         <div style={{ fontSize: 13, color: "#8B7355" }}>
-          {balances.length} позиций · {region === "spb" ? "Склад Санкт-Петербург" : "Склад Москва"}
+          {balances.length} позиций · {effectiveRegion === "spb" ? "Склад Санкт-Петербург" : "Склад Москва"}
         </div>
         <button onClick={() => { resetForm(); setShowForm(v => !v); }}
           className="go-btn go-btn--gold">
@@ -214,7 +238,7 @@ export function StockTab({ businessId, currentUser, region }: { businessId: stri
         <StockReceiptForm
           businessId={businessId}
           currentUser={currentUser}
-          region={region}
+          region={effectiveRegion}
           suppliers={suppliers}
           onSaved={() => setShowForm(false)}
           onCancel={() => setShowForm(false)}
@@ -277,7 +301,7 @@ export function StockTab({ businessId, currentUser, region }: { businessId: stri
       </div>
 
       {/* Последние приходы */}
-      {entries.length > 0 && (
+      {regionEntries.length > 0 && (
         <div style={{ marginTop: 28 }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: "#8B7355",
             textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 10 }}>
@@ -295,7 +319,7 @@ export function StockTab({ businessId, currentUser, region }: { businessId: stri
               </tr>
             </thead>
             <tbody>
-              {entries.slice(0, 20).map(e => (
+              {regionEntries.slice(0, 20).map(e => (
                 <tr key={e.id} style={{ borderBottom: "1px solid #f0ece5" }}>
                   <td style={{ ...TD, color: "#888", whiteSpace: "nowrap" }}>
                     {new Date(e.createdAt).toLocaleDateString("ru-RU")}

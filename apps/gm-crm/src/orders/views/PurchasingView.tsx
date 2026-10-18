@@ -108,11 +108,14 @@ export function PurchasingView({ businessId, clientFilter, regionFilter }: Props
   const [supplierKey, setSupplierKey] = useState("msk");
   const [expectedDate, setExpectedDate] = useState("");
   const [saving, setSaving] = useState(false);
+  // regionTab используется только когда regionFilter не задан (директор/закупщик видит всё)
+  const [regionTab, setRegionTab] = useState<"msk" | "spb">("msk");
+  const effectiveRegion = regionFilter ?? regionTab;
 
   const newOrders = orders.filter((o) => {
     if (o.status !== "received" && o.status !== "approved") return false;
     if (clientFilter && o.customerName !== clientFilter) return false;
-    if (regionFilter && o.region !== regionFilter) return false;
+    if (effectiveRegion === "spb" ? o.region !== "spb" : (o.region === "spb")) return false;
     return true;
   });
 
@@ -137,6 +140,7 @@ export function PurchasingView({ businessId, clientFilter, regionFilter }: Props
         status: "sent",
         items,
         expectedDate,
+        region: effectiveRegion,
         createdAt: new Date().toISOString(),
       });
       setSelectedIds(new Set()); setExpectedDate("");
@@ -155,6 +159,22 @@ export function PurchasingView({ businessId, clientFilter, regionFilter }: Props
       <div className="go-header">
         <h1 className="go-title">Закупки · Густорико</h1>
       </div>
+
+      {/* Переключатель региона — только когда видны оба */}
+      {!regionFilter && (
+        <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+          <button onClick={() => setRegionTab("msk")}
+            style={{ padding: "5px 16px", borderRadius: 20, border: "1px solid #e0d8cc", fontSize: 12, cursor: "pointer",
+              background: regionTab === "msk" ? "#C8963480" : "#faf8f4", fontWeight: regionTab === "msk" ? 700 : 400 }}>
+            🏙 Москва
+          </button>
+          <button onClick={() => setRegionTab("spb")}
+            style={{ padding: "5px 16px", borderRadius: 20, border: "1px solid #e0d8cc", fontSize: 12, cursor: "pointer",
+              background: regionTab === "spb" ? "#1565C080" : "#faf8f4", color: regionTab === "spb" ? "#fff" : undefined, fontWeight: regionTab === "spb" ? 700 : 400 }}>
+            🌊 Санкт-Петербург
+          </button>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="go-tabs" style={{ marginBottom: 16 }}>

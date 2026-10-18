@@ -178,8 +178,15 @@ export function SalesView({ businessId, onGoToPurchasing: _onGoToPurchasing, onG
   }
 
   const now = new Date();
-  // regionFilter: если задан — показываем только заказы с совпадающим регионом
-  const regionOrders = regionFilter ? orders.filter((o) => o.region === regionFilter) : orders;
+  // regionFilter: если задан — показываем заказы с region-тегом ИЛИ с СПб в адресе
+  const regionOrders = regionFilter ? orders.filter((o) => {
+    if (o.region === regionFilter) return true;
+    if (regionFilter === "spb") {
+      const a = (o.address ?? "").toLowerCase();
+      return a.includes("санкт-петербург") || a.includes("петербург") || a.includes("с.-петербург") || a.includes("спб") || a.includes("ленинградская");
+    }
+    return false;
+  }) : orders;
   const monthOrders = regionOrders.filter((o) => {
     if (o.status === "cancelled") return false;
     const d = new Date(o.createdAt);
