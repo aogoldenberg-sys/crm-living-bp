@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { collection, onSnapshot, addDoc, doc, setDoc, query, orderBy } from "firebase/firestore";
 import { db } from "../../firebase";
 import { fmtRub, loadPricelist } from "../useOrders";
+import { parseQty, rubToKopecks } from "../numInput";
 
 interface StockEntry {
   id: string;
@@ -99,8 +100,8 @@ export function StockTab({ businessId, currentUser, region }: { businessId: stri
     if (q.length < 2) { setSuggestions([]); return; }
     loadPricelist().then(pl => {
       const hits = pl.filter(it =>
-        it.name.toLowerCase().includes(q) || (it.barcode ?? "").includes(q)
-      ).slice(0, 8).map(it => ({ productName: it.name, barcode: it.barcode }));
+        String(it.name ?? "").toLowerCase().includes(q) || String(it.barcode ?? "").includes(q)
+      ).slice(0, 8).map(it => ({ productName: it.name, barcode: it.barcode == null ? null : String(it.barcode) }));
       setSuggestions(hits);
     });
   }, [fSearch]);
@@ -133,7 +134,7 @@ export function StockTab({ businessId, currentUser, region }: { businessId: stri
     const q = balanceSearch.toLowerCase();
     if (!q) return balances;
     return balances.filter(b =>
-      b.productName.toLowerCase().includes(q) || (b.barcode ?? "").includes(q)
+      String(b.productName ?? "").toLowerCase().includes(q) || String(b.barcode ?? "").includes(q)
     );
   }, [balances, balanceSearch]);
 
@@ -147,36 +148,55 @@ export function StockTab({ businessId, currentUser, region }: { businessId: stri
   async function saveNewSupplier() {
     if (!newSupName.trim()) return;
     setSavingNewSup(true);
-    const id = slugify(newSupName.trim());
-    await setDoc(doc(db, `tenants/${businessId}/suppliers`, id), {
-      id, name: newSupName.trim(),
-      phone: newSupPhone.trim() || null,
-      cat: "", icon: "📦", section: "current", hasContract: false,
-    });
-    setFSupplier(newSupName.trim());
-    setNewSupName(""); setNewSupPhone("");
-    setShowNewSup(false); setSupOpen(false);
-    setSavingNewSup(false);
+    try {
+      const id = slugify(newSupName.trim());
+      await setDoc(doc(db, `tenants/${businessId}/suppliers`, id), {
+        id, name: newSupName.trim(),
+        phone: newSupPhone.trim() || null,
+        cat: "", icon: "📦", section: "current", hasContract: false,
+      });
+      setFSupplier(newSupName.trim());
+      setNewSupName(""); setNewSupPhone("");
+      setShowNewSup(false); setSupOpen(false);
+    } catch (e) {
+      console.error("Supplier save failed:", e);
+      alert("Ошибка сохранения: " + String(e));
+    } finally {
+      setSavingNewSup(false);
+    }
   }
+
+  // Количество: дробное (кг/л), точность 0,001, строго > 0
+  const qtyValue   = parseQty(fQty);
+  const qtyInvalid = fQty.trim() !== "" && qtyValue === null;
+  const costValue  = rubToKopecks(fCost, 0);
+  const costInvalid = costValue === null;
 
   async function save() {
     const product = fProduct ?? (fSearch.trim() ? { productName: fSearch.trim(), barcode: null } : null);
     if (!product || !fQty) return;
+    if (qtyValue === null || costValue === null) return;
     setSaving(true);
-    await addDoc(collection(db, `tenants/${businessId}/stock`), {
-      productName:  product.productName,
-      barcode:      product.barcode ?? null,
-      qty:          parseFloat(fQty),
-      supplierName: fSupplier.trim() || null,
-      costKopecks:  fCost ? Math.round(parseFloat(fCost) * 100) : 0,
-      note:         fNote || null,
-      region:       region ?? null,
-      createdAt:    new Date().toISOString(),
-      createdBy:    currentUser,
-    });
-    resetForm();
-    setShowForm(false);
-    setSaving(false);
+    try {
+      await addDoc(collection(db, `tenants/${businessId}/stock`), {
+        productName:  product.productName,
+        barcode:      product.barcode ?? null,
+        qty:          qtyValue,
+        supplierName: fSupplier.trim() || null,
+        costKopecks:  costValue,
+        note:         fNote || null,
+        region:       region ?? null,
+        createdAt:    new Date().toISOString(),
+        createdBy:    currentUser,
+      });
+      resetForm();
+      setShowForm(false);
+    } catch (e) {
+      console.error("Stock save failed:", e);
+      alert("Ошибка сохранения: " + String(e));
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -227,15 +247,17 @@ export function StockTab({ businessId, currentUser, region }: { businessId: stri
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}>
             <div className="go-field">
               <label>Количество</label>
-              <input type="number" min="0" step="1" inputMode="numeric"
+              <input type="text" inputMode="decimal"
                 value={fQty} onKeyDown={numericKeyDown}
-                onChange={e => setFQty(e.target.value)} placeholder="0" />
+                onChange={e => setFQty(e.target.value)} placeholder="0"
+                style={qtyInvalid ? { borderColor: "#C62828" } : undefined} />
             </div>
             <div className="go-field">
               <label>Цена закупки (₽/шт)</label>
-              <input type="number" min="0" step="0.01" inputMode="decimal"
+              <input type="text" inputMode="decimal"
                 value={fCost} onKeyDown={numericKeyDown}
-                onChange={e => setFCost(e.target.value)} placeholder="0" />
+                onChange={e => setFCost(e.target.value)} placeholder="0"
+                style={costInvalid ? { borderColor: "#C62828" } : undefined} />
             </div>
 
             {/* Поставщик — combobox */}
@@ -319,7 +341,7 @@ export function StockTab({ businessId, currentUser, region }: { businessId: stri
 
           <button className="go-btn go-btn--gold" style={{ marginTop: 12 }}
             onClick={() => void save()}
-            disabled={saving || !fQty || (!fProduct && !fSearch.trim())}>
+            disabled={saving || !fQty || qtyInvalid || costInvalid || (!fProduct && !fSearch.trim())}>
             {saving ? "Сохранение…" : "Сохранить приход"}
           </button>
         </div>

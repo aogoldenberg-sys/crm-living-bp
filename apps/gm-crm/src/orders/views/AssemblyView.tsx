@@ -2,15 +2,13 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { collection, onSnapshot, doc, setDoc } from "firebase/firestore";
 import { db } from "../../firebase";
 import { useAuth } from "../../auth/useAuth";
-import { useOrders, loadPricelist, type PricelistMatch } from "../useOrders";
+import { useOrders, loadPricelist } from "../useOrders";
+import { buildPlIndex, type PlIndex } from "../plIndex";
 import { AssemblyCard } from "./AssemblyCard";
 import catalog from "../suppliersCatalog.json";
 import "../orders.css";
 
-export type PlIndex = {
-  byBarcode: Map<string, PricelistMatch[]>; // barcode/sku → matches
-  byWord:    Map<string, PricelistMatch[]>; // нормализованное слово → matches
-};
+export type { PlIndex };
 
 type CatEntry = { cat: string; icon: string; suppliers: { name: string; cat: string; icon: string; section?: string; hasContract?: boolean; status?: string; assortment?: string; conditions?: string }[] };
 const CATALOG_FLAT = (catalog as CatEntry[]).flatMap((g) =>
@@ -41,40 +39,9 @@ export function AssemblyView({ businessId, managerFilter, showManagerAssign = fa
   const [plIndex, setPlIndex] = useState<PlIndex | null>(null);
   const seeded = useRef(false);
 
-  // Загружаем прайс один раз — строим два индекса: по штрихкоду и по словам
+  // Загружаем прайс один раз — строим два индекса: по штрихкоду (нормализованному) и по словам
   useEffect(() => {
-    const STOP = new Set(["вода","напиток","напитки","газированный","газированная",
-      "негазированный","натуральный","сок","соки","молоко","масло","сахар","мл","пэт",
-      "стекло","банка","жестяная","картон","блок","упаковка","штук","литр","литра",
-      "литров","грамм","гр","кг","шт","пак","дой","туба","бутылка","бут"]);
-    function norm(s: string) { return s.toLowerCase().replace(/[^а-яёa-z0-9]/gi, " ").replace(/\s+/g, " ").trim(); }
-
-    loadPricelist().then(pl => {
-      const byBarcode: PlIndex["byBarcode"] = new Map();
-      const byWord: PlIndex["byWord"] = new Map();
-      for (const it of pl) {
-        // Фильтруем мусорные цены (дата из Excel, > 10 млн руб за коробку)
-        if (it.price > 10_000_000) continue;
-        // price уже в копейках за штуку; quant = мин. кол-во заказа (не делитель)
-        const match: PricelistMatch = {
-          supplierId: it.sid, supplierName: it.sname,
-          priceKopecks: it.price,
-          barcode: it.barcode, productName: it.name,
-        };
-        if (it.barcode) {
-          const arr = byBarcode.get(it.barcode) ?? []; arr.push(match); byBarcode.set(it.barcode, arr);
-        }
-        if (it.sku && it.sku !== it.barcode) {
-          const arr = byBarcode.get(it.sku) ?? []; arr.push(match); byBarcode.set(it.sku, arr);
-        }
-        // Индексируем каждое значимое слово из названия товара
-        const words = norm(it.name).split(" ").filter(w => w.length > 3 && !STOP.has(w));
-        for (const w of words) {
-          const arr = byWord.get(w) ?? []; arr.push(match); byWord.set(w, arr);
-        }
-      }
-      setPlIndex({ byBarcode, byWord });
-    });
+    loadPricelist().then(pl => setPlIndex(buildPlIndex(pl)));
   }, []);
 
   // Загружаем список всех поставщиков + досеваем пропущенных из каталога (один раз)
@@ -110,8 +77,8 @@ export function AssemblyView({ businessId, managerFilter, showManagerAssign = fa
         if (String(Math.round((o.totalKopecks ?? 0) / 100)).includes(q)) return true;
         return o.items.some(it =>
           it.productName?.toLowerCase().includes(q) ||
-          (it.barcode ?? "").toLowerCase().includes(q) ||
-          (it.productId ?? "").toLowerCase().includes(q)
+          String(it.barcode ?? "").toLowerCase().includes(q) ||
+          String(it.productId ?? "").toLowerCase().includes(q)
         );
       })
     : filtered;
@@ -128,7 +95,7 @@ export function AssemblyView({ businessId, managerFilter, showManagerAssign = fa
     for (const o of filtered) {
       for (const it of o.items) {
         const nameMatch = it.productName?.toLowerCase().includes(q);
-        const barcodeMatch = (it.barcode ?? "").toLowerCase().includes(q);
+        const barcodeMatch = String(it.barcode ?? "").toLowerCase().includes(q);
         if (!nameMatch && !barcodeMatch) continue;
         rows.push({
           productName: it.productName ?? it.productId ?? "—",

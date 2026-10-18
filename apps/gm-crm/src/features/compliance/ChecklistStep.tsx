@@ -140,7 +140,7 @@ function BranchBreakdown({ items, entries }: {
   const clientOnly: Array<{ num: string; label: string }> = [];
 
   // Группируем entry по requestItemId → берём первый docKind
-  const itemIndexMap = new Map(items.map((it, i) => [it.itemId, i]));
+  const itemIndexMap = new Map<string, number>(items.map((it: { itemId: string }, i: number): [string, number] => [it.itemId, i]));
 
   for (const entry of entries) {
     const item = items.find(it => it.itemId === entry.requestItemId);

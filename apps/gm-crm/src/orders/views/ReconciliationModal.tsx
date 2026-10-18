@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { collection, query, where, getDocs } from "firebase/firestore";
 import { db } from "../../firebase";
-import { fmtRub } from "../useOrders";
 import "../orders.css";
+import { parseRub, useNumDrafts } from "../numInput";
+import { paymentBelongsTo, paymentDisplayDate, sortReconRows, type PaymentDocLike } from "../reconcile";
 
 interface ReconRow {
   date: string;
@@ -17,19 +18,20 @@ interface Props {
   customerInn?: string;
   customerAddr?: string;
   email?: string;            // email клиента — подставляется в поле отправки
-  orderId?: string;          // для фильтрации платежей
+  orderId?: string;          // для фильтрации платежей (пока не используется)
   onClose: () => void;
 }
 
 const PROXY_URL = "https://opentgp.ru/food/pay-proxy.php";
 
-export function ReconciliationModal({ businessId, customerName, customerInn, customerAddr, email, orderId, onClose }: Props) {
+export function ReconciliationModal({ businessId, customerName, customerInn, customerAddr, email, onClose }: Props) {
   const [rows, setRows] = useState<ReconRow[]>([]);
   const [toEmail, setToEmail] = useState(email ?? "");
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; error?: string } | null>(null);
+  const drafts = useNumDrafts();
 
   const today = new Date().toLocaleDateString("ru-RU");
   const monthAgo = new Date(Date.now() - 30 * 86400000).toLocaleDateString("ru-RU");
@@ -43,25 +45,45 @@ export function ReconciliationModal({ businessId, customerName, customerInn, cus
     try {
       const loaded: ReconRow[] = [];
 
-      // Заказы клиента = дебет (отгрузка)
+      // Заказы клиента = дебет (только отгруженные)
       const oSnap = await getDocs(
         query(collection(db, `tenants/${businessId}/orders`),
               where("customerName", "==", customerName))
       );
       oSnap.docs.forEach(d => {
-        const o = d.data() as { createdAt?: string; status?: string; totalKopecks?: number; items?: {unitPrice:number;quantity:number}[] };
-        if (!o.createdAt) return;
-        const total = o.totalKopecks
-          ? o.totalKopecks / 100
-          : (o.items ?? []).reduce((s, it) => s + it.unitPrice * it.quantity / 100, 0);
-        if (total > 0) {
-          loaded.push({
-            date: new Date(o.createdAt).toLocaleDateString("ru-RU"),
-            doc: `Заказ ${d.id.slice(-6)}`,
-            debit: Math.round(total * 100) / 100,
-            credit: 0,
-          });
+        const o = d.data() as {
+          createdAt?: string; deliveryDate?: string; status?: string;
+          totalKopecks?: number; externalId?: string; orderId?: string;
+          items?: { unitPrice: number; quantity: number }[];
+          assembledQtys?: number[];
+        };
+
+        const isDelivered = o.status === "delivered";
+        const hasAssembled = o.assembledQtys?.some(q => q > 0) ?? false;
+        if (!isDelivered && !hasAssembled) return; // не отгружен — пропускаем
+
+        let shippedKopecks: number;
+        if (isDelivered) {
+          shippedKopecks = o.totalKopecks
+            ?? (o.items ?? []).reduce((s, it) => s + it.unitPrice * it.quantity, 0);
+        } else {
+          // частичная отгрузка по assembledQtys
+          shippedKopecks = (o.items ?? []).reduce((s, it, i) => {
+            return s + it.unitPrice * (o.assembledQtys?.[i] ?? 0);
+          }, 0);
         }
+        if (shippedKopecks <= 0) return;
+
+        const num = o.externalId || o.orderId || d.id.slice(-6);
+        const rawDate = o.deliveryDate || o.createdAt || "";
+        const dateStr = rawDate ? new Date(rawDate).toLocaleDateString("ru-RU") : "—";
+
+        loaded.push({
+          date: dateStr,
+          doc: `УПД №${num} от ${dateStr}`,
+          debit: Math.round(shippedKopecks) / 100,
+          credit: 0,
+        });
       });
 
       // Платежи клиента = кредит
@@ -79,7 +101,9 @@ export function ReconciliationModal({ businessId, customerName, customerInn, cus
         pSnap.docs.forEach(d => paymentDocs.push(d));
       }
 
-      // Шаг 2: платежи по имени плательщика (unmatched платежи)
+      // Шаг 2: платежи по имени плательщика (unmatched платежи).
+      // Точное совпадение — как раньше; плюс непривязанные платежи, у которых наименование
+      // совпадает нормализованно (кавычки/регистр/пробелы — старые импорты портили кавычки) или ИНН.
       const byNameSnap = await getDocs(
         query(collection(db, `tenants/${businessId}/payments`),
               where("payerName", "==", customerName))
@@ -87,33 +111,37 @@ export function ReconciliationModal({ businessId, customerName, customerInn, cus
       byNameSnap.docs.forEach(d => {
         if (!paymentDocs.some(x => x.id === d.id)) paymentDocs.push(d);
       });
+      const unmatchedSnap = await getDocs(
+        query(collection(db, `tenants/${businessId}/payments`),
+              where("status", "==", "unmatched"))
+      );
+      unmatchedSnap.docs.forEach(d => {
+        if (paymentDocs.some(x => x.id === d.id)) return;
+        if (paymentBelongsTo(d.data() as PaymentDocLike, customerName, customerInn)) paymentDocs.push(d);
+      });
 
       paymentDocs.forEach(d => {
-        const p = d.data() as { txDate?: string; createdAt?: string; amount?: number; purpose?: string; payerName?: string };
+        const p = d.data() as PaymentDocLike;
         const amtRub = (p.amount ?? 0) / 100;
         if (amtRub <= 0) return;
         loaded.push({
-          date: new Date(p.txDate ?? p.createdAt ?? "").toLocaleDateString("ru-RU"),
+          // txDate бывает ISO (новые импорты) и "ДД.ММ.ГГГГ" (старые) — new Date() давал Invalid Date
+          date: paymentDisplayDate(p),
           doc: p.purpose || `Оплата`,
           debit: 0,
           credit: Math.round(amtRub * 100) / 100,
         });
       });
 
-      // Сортируем по дате
-      loaded.sort((a, b) => {
-        const parse = (s: string) => {
-          const [d, m, y] = s.split(".");
-          return new Date(+y, +m - 1, +d).getTime();
-        };
-        return parse(a.date) - parse(b.date);
-      });
-
-      setRows(loaded);
+      // Сортируем по дате (стабильно; нераспознанные даты — в конец)
+      setRows(sortReconRows(loaded));
+      drafts.clearAll();
     } catch (e) {
+      console.error("Reconciliation load failed:", e);
       alert("Ошибка загрузки: " + String(e));
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }
 
   function addRow() {
@@ -142,6 +170,7 @@ export function ReconciliationModal({ businessId, customerName, customerInn, cus
   }
 
   async function downloadPdf() {
+    if (drafts.anyInvalid) return;
     setDownloading(true);
     try {
       const res = await fetch(PROXY_URL, {
@@ -158,13 +187,15 @@ export function ReconciliationModal({ businessId, customerName, customerInn, cus
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
+      console.error("Reconciliation PDF failed:", e);
       alert("Ошибка PDF: " + String(e));
+    } finally {
+      setDownloading(false);
     }
-    setDownloading(false);
   }
 
   async function send() {
-    if (!toEmail.trim()) return;
+    if (!toEmail.trim() || drafts.anyInvalid) return;
     setSending(true);
     try {
       const res = await fetch(PROXY_URL, {
@@ -175,9 +206,11 @@ export function ReconciliationModal({ businessId, customerName, customerInn, cus
       const data = await res.json() as { ok: boolean; error?: string };
       setResult(data);
     } catch (e) {
+      console.error("Reconciliation send failed:", e);
       setResult({ ok: false, error: String(e) });
+    } finally {
+      setSending(false);
     }
-    setSending(false);
   }
 
   return (
@@ -195,7 +228,7 @@ export function ReconciliationModal({ businessId, customerName, customerInn, cus
             {customerInn && <div style={{ fontSize: 12, color: "#8B7355", marginTop: 3 }}>ИНН {customerInn}</div>}
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <button onClick={() => void downloadPdf()} disabled={downloading || rows.length === 0}
+            <button onClick={() => void downloadPdf()} disabled={downloading || rows.length === 0 || drafts.anyInvalid}
               style={{ fontSize: 12, padding: "5px 12px", borderRadius: 7, border: "1px solid #C89A34",
                 background: "#C89A34", color: "#fff", cursor: "pointer", fontWeight: 600 }}>
               {downloading ? "Генерируем…" : "⬇ Скачать PDF"}
@@ -252,19 +285,31 @@ export function ReconciliationModal({ businessId, customerName, customerInn, cus
                     style={{ width: "100%", border: "none", borderBottom: "1px solid #e0d8cc", background: "transparent", fontSize: 13 }} />
                 </td>
                 <td style={{ padding: "4px 8px" }}>
-                  <input type="number" step={0.01} min={0} value={r.debit || ""}
-                    onChange={e => updateRow(i, { debit: Number(e.target.value) || 0 })}
-                    style={{ width: 100, textAlign: "right", border: "none", borderBottom: "1px solid #e0d8cc",
+                  <input type="text" inputMode="decimal" value={drafts.value(`debit-${i}`, r.debit ? String(r.debit) : "")}
+                    onChange={e => {
+                      const v = parseRub(e.target.value, 0);
+                      drafts.set(`debit-${i}`, e.target.value, v !== null);
+                      if (v !== null) updateRow(i, { debit: v });
+                    }}
+                    onBlur={() => { if (!drafts.invalid(`debit-${i}`)) drafts.clear(`debit-${i}`); }}
+                    style={{ width: 100, textAlign: "right", border: "none",
+                      borderBottom: drafts.invalid(`debit-${i}`) ? "1px solid #C62828" : "1px solid #e0d8cc",
                       background: "transparent", fontSize: 13, color: "#C62828" }} />
                 </td>
                 <td style={{ padding: "4px 8px" }}>
-                  <input type="number" step={0.01} min={0} value={r.credit || ""}
-                    onChange={e => updateRow(i, { credit: Number(e.target.value) || 0 })}
-                    style={{ width: 100, textAlign: "right", border: "none", borderBottom: "1px solid #e0d8cc",
+                  <input type="text" inputMode="decimal" value={drafts.value(`credit-${i}`, r.credit ? String(r.credit) : "")}
+                    onChange={e => {
+                      const v = parseRub(e.target.value, 0);
+                      drafts.set(`credit-${i}`, e.target.value, v !== null);
+                      if (v !== null) updateRow(i, { credit: v });
+                    }}
+                    onBlur={() => { if (!drafts.invalid(`credit-${i}`)) drafts.clear(`credit-${i}`); }}
+                    style={{ width: 100, textAlign: "right", border: "none",
+                      borderBottom: drafts.invalid(`credit-${i}`) ? "1px solid #C62828" : "1px solid #e0d8cc",
                       background: "transparent", fontSize: 13, color: "#2E7D32" }} />
                 </td>
                 <td>
-                  <button onClick={() => setRows(p => p.filter((_, idx) => idx !== i))}
+                  <button onClick={() => { drafts.clearAll(); setRows(p => p.filter((_, idx) => idx !== i)); }}
                     style={{ background: "none", border: "none", color: "#C62828", cursor: "pointer", fontSize: 16, padding: "0 4px" }}>×</button>
                 </td>
               </tr>
@@ -322,7 +367,7 @@ export function ReconciliationModal({ businessId, customerName, customerInn, cus
               placeholder="email@company.ru" />
           </div>
           <button className="go-btn go-btn--gold" onClick={() => void send()}
-            disabled={sending || !toEmail.trim() || rows.length === 0}>
+            disabled={sending || !toEmail.trim() || rows.length === 0 || drafts.anyInvalid}>
             {sending ? "Отправляем…" : "Отправить акт"}
           </button>
           <button className="go-btn go-btn--outline" onClick={onClose}>Закрыть</button>

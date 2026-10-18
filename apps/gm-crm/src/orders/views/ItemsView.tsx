@@ -85,7 +85,7 @@ export function ItemsView({ businessId, regionFilter }: { businessId: string; re
     let list = search
       ? items.filter(i =>
           i.productName.toLowerCase().includes(q) ||
-          (i.barcode ?? "").includes(q)
+          String(i.barcode ?? "").includes(q)
         )
       : [...items];
 

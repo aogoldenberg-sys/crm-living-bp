@@ -1,5 +1,6 @@
 import { useState } from "react";
 import "../orders.css";
+import { parseQty, parseRub, useNumDrafts } from "../numInput";
 
 export interface UpdItem {
   name: string;
@@ -30,7 +31,7 @@ export function UpdModal({ orderNum, customerName, customerInn, customerAddr, it
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; num?: number; error?: string } | null>(null);
 
-  const today = new Date().toLocaleDateString("ru-RU");
+  const drafts = useNumDrafts();
   const fmt = (n: number) => n.toLocaleString("ru-RU", { maximumFractionDigits: 2 });
 
   const selected = items.filter(it => it.selected);
@@ -61,7 +62,7 @@ export function UpdModal({ orderNum, customerName, customerInn, customerAddr, it
   }
 
   async function downloadPdf() {
-    if (!selected.length) return;
+    if (!selected.length || drafts.anyInvalid) return;
     setDownloading(true);
     try {
       const res = await fetch(PROXY_URL, {
@@ -80,13 +81,15 @@ export function UpdModal({ orderNum, customerName, customerInn, customerAddr, it
       setResult({ ok: true });
       onShip?.();
     } catch (e) {
+      console.error("UPD PDF failed:", e);
       setResult({ ok: false, error: String(e) });
+    } finally {
+      setDownloading(false);
     }
-    setDownloading(false);
   }
 
   async function send() {
-    if (!toEmail.trim() || !selected.length) return;
+    if (!toEmail.trim() || !selected.length || drafts.anyInvalid) return;
     setSending(true);
     try {
       const res = await fetch(PROXY_URL, {
@@ -98,9 +101,11 @@ export function UpdModal({ orderNum, customerName, customerInn, customerAddr, it
       setResult(data);
       if (data.ok) onShip?.();
     } catch (e) {
+      console.error("UPD send failed:", e);
       setResult({ ok: false, error: String(e) });
+    } finally {
+      setSending(false);
     }
-    setSending(false);
   }
 
   return (
@@ -130,7 +135,7 @@ export function UpdModal({ orderNum, customerName, customerInn, customerAddr, it
                 style={{ width: 14, height: 14, cursor: "pointer" }} />
               Печать
             </label>
-            <button onClick={() => void downloadPdf()} disabled={downloading || !selected.length}
+            <button onClick={() => void downloadPdf()} disabled={downloading || !selected.length || drafts.anyInvalid}
               style={{ fontSize: 12, padding: "5px 12px", borderRadius: 7, border: "1px solid #C89A34",
                 background: "#C89A34", color: "#fff", cursor: "pointer", fontWeight: 600,
                 opacity: selected.length ? 1 : 0.5 }}>
@@ -173,9 +178,15 @@ export function UpdModal({ orderNum, customerName, customerInn, customerAddr, it
                       background: "transparent", fontSize: 13 }} />
                 </td>
                 <td style={{ padding: "4px 8px" }}>
-                  <input type="number" min={0.001} step={0.001} value={it.qty}
-                    onChange={e => updateItem(i, { qty: Number(e.target.value) || 1 })}
-                    style={{ width: 60, textAlign: "right", border: "none", borderBottom: "1px solid #e0d8cc",
+                  <input type="text" inputMode="decimal" value={drafts.value(`qty-${i}`, String(it.qty))}
+                    onChange={e => {
+                      const q = parseQty(e.target.value);
+                      drafts.set(`qty-${i}`, e.target.value, q !== null);
+                      if (q !== null) updateItem(i, { qty: q });
+                    }}
+                    onBlur={() => { if (!drafts.invalid(`qty-${i}`)) drafts.clear(`qty-${i}`); }}
+                    style={{ width: 60, textAlign: "right", border: "none",
+                      borderBottom: drafts.invalid(`qty-${i}`) ? "1px solid #C62828" : "1px solid #e0d8cc",
                       background: "transparent", fontSize: 13 }} />
                 </td>
                 <td style={{ padding: "4px 8px" }}>
@@ -184,9 +195,15 @@ export function UpdModal({ orderNum, customerName, customerInn, customerAddr, it
                       background: "transparent", fontSize: 13 }} />
                 </td>
                 <td style={{ padding: "4px 8px" }}>
-                  <input type="number" step={0.01} min={0} value={it.price}
-                    onChange={e => updateItem(i, { price: Number(e.target.value) || 0 })}
-                    style={{ width: 90, textAlign: "right", border: "none", borderBottom: "1px solid #e0d8cc",
+                  <input type="text" inputMode="decimal" value={drafts.value(`price-${i}`, String(it.price))}
+                    onChange={e => {
+                      const p = parseRub(e.target.value, 0);
+                      drafts.set(`price-${i}`, e.target.value, p !== null);
+                      if (p !== null) updateItem(i, { price: p });
+                    }}
+                    onBlur={() => { if (!drafts.invalid(`price-${i}`)) drafts.clear(`price-${i}`); }}
+                    style={{ width: 90, textAlign: "right", border: "none",
+                      borderBottom: drafts.invalid(`price-${i}`) ? "1px solid #C62828" : "1px solid #e0d8cc",
                       background: "transparent", fontSize: 13 }} />
                 </td>
                 <td style={{ padding: "4px 8px", textAlign: "right", fontWeight: 500, color: "#8B7355" }}>
@@ -238,7 +255,7 @@ export function UpdModal({ orderNum, customerName, customerInn, customerAddr, it
               placeholder="email@company.ru" />
           </div>
           <button className="go-btn go-btn--gold" onClick={() => void send()}
-            disabled={sending || !toEmail.trim() || !selected.length}>
+            disabled={sending || !toEmail.trim() || !selected.length || drafts.anyInvalid}>
             {sending ? "Отправляем…" : "Отправить УПД"}
           </button>
           <button className="go-btn go-btn--outline" onClick={onClose}>Закрыть</button>

@@ -25,8 +25,8 @@ async function loadItems(): Promise<SalesItem[]> {
     .map(it => ({
       group:       it.sname ?? "",
       name:        it.name,
-      article:     it.sku ?? "",
-      barcode:     it.barcode ?? "",
+      article:     it.sku == null ? "" : String(it.sku),
+      barcode:     it.barcode == null ? "" : String(it.barcode),
       priceKopecks: it.price,
       minQty:      it.quant ?? 1,
     }));

@@ -4,9 +4,8 @@ import { db } from "../../firebase";
 import { useAuth } from "../../auth/useAuth";
 import {
   useOrders, usePurchaseOrders, usePricelistLookup, statusLabel, statusColor, fmtRub,
-  type Order, type OrderItem, type PricelistMatch,
+  type Order, type OrderItem,
 } from "../useOrders";
-// PricelistMatch используется в ItemsTable ↑
 import { PurchaseLinesSection } from "./PurchaseLinesSection";
 import "../orders.css";
 
@@ -128,18 +127,25 @@ export function PurchasingView({ businessId, clientFilter, regionFilter }: Props
   async function createPO() {
     if (selectedIds.size === 0) return;
     setSaving(true);
-    const grouped = groupBySupplier(orders, selectedIds);
-    const items = grouped[supplierKey] ?? Object.values(grouped).flat();
-    await addDoc(collection(db, `tenants/${businessId}/purchase_orders`), {
-      orderIds: [...selectedIds],
-      supplierId: supplierKey,
-      supplierName: SUPPLIER_NAMES[supplierKey] ?? supplierKey,
-      status: "sent",
-      items,
-      expectedDate,
-      createdAt: new Date().toISOString(),
-    });
-    setSelectedIds(new Set()); setExpectedDate(""); setSaving(false);
+    try {
+      const grouped = groupBySupplier(orders, selectedIds);
+      const items = grouped[supplierKey] ?? Object.values(grouped).flat();
+      await addDoc(collection(db, `tenants/${businessId}/purchase_orders`), {
+        orderIds: [...selectedIds],
+        supplierId: supplierKey,
+        supplierName: SUPPLIER_NAMES[supplierKey] ?? supplierKey,
+        status: "sent",
+        items,
+        expectedDate,
+        createdAt: new Date().toISOString(),
+      });
+      setSelectedIds(new Set()); setExpectedDate("");
+    } catch (e) {
+      console.error("createPO:", e);
+      alert("Ошибка сохранения: " + String(e));
+    } finally {
+      setSaving(false);
+    }
   }
 
   if (ordersLoading || poLoading) return <div className="go-main"><div className="go-empty">Загрузка…</div></div>;

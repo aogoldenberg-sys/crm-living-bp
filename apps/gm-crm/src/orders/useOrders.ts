@@ -144,12 +144,18 @@ export function useOrders(
   useEffect(() => {
     if (!businessId) return;
     attemptRef.current = 0;
+    // Актуальная подписка (меняется при переподключении) и флаг размонтирования —
+    // cleanup должен закрывать именно текущую подписку, а не первую.
+    let currentUnsub: (() => void) | null = null;
+    let disposed = false;
 
     function subscribe() {
+      if (disposed) return;
       const col = collection(db, `tenants/${businessId}/orders`);
       const q = query(col, orderBy("createdAt", "desc"));
 
       const unsub = onSnapshot(q, (snap) => {
+        if (disposed) return;
         attemptRef.current = 0;
         setError(null);
         let list = snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Order, "id">) }));
@@ -160,22 +166,27 @@ export function useOrders(
         setLoading(false);
       }, (err) => {
         console.error("useOrders onSnapshot error:", err.code, err.message);
+        if (disposed) return;
         setLoading(false);
         attemptRef.current += 1;
         const delay = Math.min(5000 * attemptRef.current, 30000);
         setError(`Ошибка соединения (${err.code}). Повтор через ${delay / 1000}с…`);
+        if (retryRef.current) clearTimeout(retryRef.current);
         retryRef.current = setTimeout(() => {
+          retryRef.current = null;
+          if (currentUnsub === unsub) currentUnsub = null;
           unsub();
           subscribe();
         }, delay);
       });
-      return unsub;
+      currentUnsub = unsub;
     }
 
-    const unsub = subscribe();
+    subscribe();
     return () => {
-      unsub();
-      if (retryRef.current) clearTimeout(retryRef.current);
+      disposed = true;
+      if (retryRef.current) { clearTimeout(retryRef.current); retryRef.current = null; }
+      if (currentUnsub) { currentUnsub(); currentUnsub = null; }
     };
   }, [businessId, roleId]);
 
@@ -201,76 +212,171 @@ interface PlItem {
 let _plCache: PlItem[] | null = null;
 let _plLoading: Promise<PlItem[]> | null = null;
 
-const PRICELIST_URL = "/gm-crm/pricelist.json";
+// BASE_URL = '/gm-crm/' в прод-сборке (vite base), '/' в dev.
+const PRICELIST_URL = `${import.meta.env.BASE_URL}pricelist.json`;
 
 export async function loadPricelist(): Promise<PlItem[]> {
   if (_plCache) return _plCache;
   if (_plLoading) return _plLoading;
   _plLoading = fetch(PRICELIST_URL)
-    .then((r) => { if (!r.ok) throw new Error(`${r.status}`); return r.json() as Promise<{ items: PlItem[] }>; })
-    .then((d) => { _plCache = d.items; return d.items; })
-    .catch(() => { _plCache = []; _plLoading = null; return []; });
+    .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() as Promise<{ items: PlItem[] }>; })
+    .then((d) => {
+      if (!d || !Array.isArray(d.items)) throw new Error("неверный формат pricelist.json (нет items[])");
+      _plCache = d.items;
+      _plLoading = null;
+      return d.items;
+    })
+    .catch((e: unknown) => {
+      // Не кэшируем пустой результат: следующий вызов повторит загрузку.
+      console.warn(`loadPricelist: не удалось загрузить ${PRICELIST_URL}:`, e);
+      _plLoading = null;
+      return [] as PlItem[];
+    });
   return _plLoading;
+}
+
+/** Только для тестов: сброс in-memory кэша прайса. */
+export function _resetPricelistCache(): void {
+  _plCache = null;
+  _plLoading = null;
 }
 
 function normStr(s: string): string {
   return s.toLowerCase().replace(/[^а-яёa-z0-9]/gi, " ").replace(/\s+/g, " ").trim();
 }
 
-// Возвращает Map<barcode|sku|productName → PricelistMatch[]>
+/**
+ * Канонический ключ штрихкода/артикула для сравнения.
+ * - number и string приводятся к строке без потери разрядов (4.6e12 → "4600000000000");
+ * - убираются пробелы, NBSP, дефисы, хвост ".0" (Google Sheets / Excel);
+ * - научная нотация в строке ("4,6E+12", "4.607007729208e12") разворачивается;
+ * - для цифровых кодов отбрасываются ведущие нули: EAN-13 "0012345678905",
+ *   UPC-12 "012345678905" и GTIN-14 "00012345678905" дают один ключ;
+ * - нецифровой артикул — trim + upper-case без пробелов.
+ * Возвращает null для пустых значений.
+ */
+export function normalizeBarcode(v: unknown): string | null {
+  if (v === null || v === undefined) return null;
+  let s: string;
+  if (typeof v === "number") {
+    if (!Number.isFinite(v) || v <= 0) return null;
+    s = Number.isInteger(v) ? v.toFixed(0) : String(v);
+  } else if (typeof v === "string") {
+    s = v;
+  } else {
+    return null;
+  }
+  s = s.replace(/[\s\u00A0\u202F'’-]/g, "").trim();
+  if (!s) return null;
+  // Научная нотация из таблиц: 4.6e12, 4,6E+12
+  if (/^\d+(?:[.,]\d+)?e\+?\d+$/i.test(s)) {
+    const n = Number(s.replace(",", "."));
+    if (Number.isFinite(n) && n > 0) s = Math.round(n).toFixed(0);
+  }
+  // Хвост ".0" / ",00" у числа, выгруженного как float
+  const m = /^(\d+)[.,]0+$/.exec(s);
+  if (m) s = m[1];
+  if (/^\d+$/.test(s)) {
+    const t = s.replace(/^0+/, "");
+    return t || null;
+  }
+  return s.toUpperCase();
+}
+
+const toMatch = (it: PlItem): PricelistMatch => ({
+  supplierId: it.sid,
+  supplierName: it.sname,
+  priceKopecks: it.price,
+  barcode: it.barcode == null ? null : String(it.barcode),
+  productName: it.name,
+});
+
+/**
+ * Чистая функция подбора (вынесена из usePricelistLookup для тестов).
+ * Результат кладётся под ВСЕМИ ключами позиции — сырой barcode, нормализованный
+ * barcode, productId и productName, — потому что потребители (PurchasingView)
+ * читают lookup.get(item.barcode) ?? lookup.get(item.productName).
+ */
+export function buildPricelistLookup(pl: PlItem[], items: OrderItem[]): Map<string, PricelistMatch[]> {
+  const map = new Map<string, PricelistMatch[]>();
+
+  // Индексы по нормализованному штрихкоду и артикулу (sku)
+  const byBarcode = new Map<string, PlItem[]>();
+  const bySku = new Map<string, PlItem[]>();
+  const push = (idx: Map<string, PlItem[]>, k: string | null, it: PlItem) => {
+    if (!k) return;
+    const arr = idx.get(k);
+    if (arr) arr.push(it); else idx.set(k, [it]);
+  };
+  for (const it of pl) {
+    push(byBarcode, normalizeBarcode(it.barcode), it);
+    push(bySku, normalizeBarcode(it.sku), it);
+  }
+  const findCode = (raw: unknown): PlItem[] | undefined => {
+    const k = normalizeBarcode(raw);
+    if (!k) return undefined;
+    return byBarcode.get(k) ?? bySku.get(k);
+  };
+
+  const setAll = (item: OrderItem, matches: PricelistMatch[]) => {
+    const keys = new Set<string>();
+    const rawBc = item.barcode as unknown;
+    if (rawBc !== null && rawBc !== undefined && rawBc !== "") keys.add(String(rawBc));
+    const nb = normalizeBarcode(rawBc);
+    if (nb) keys.add(nb);
+    if (item.productId) keys.add(String(item.productId));
+    if (item.productName) keys.add(item.productName);
+    for (const k of keys) if (!map.has(k)) map.set(k, matches);
+    // На случай, если barcode в Firestore хранится числом: get(number) тоже должен работать
+    if (typeof rawBc === "number" && !map.has(rawBc as unknown as string)) {
+      map.set(rawBc as unknown as string, matches);
+    }
+  };
+
+  for (const item of items) {
+    // 1. По штрихкоду
+    let hits = findCode(item.barcode);
+    // 2. Запасной вариант: productId сравнивается со штрихкодом/артикулом прайса
+    if (!hits?.length) hits = findCode(item.productId);
+    if (hits?.length) { setAll(item, hits.map(toMatch)); continue; }
+
+    // 3. Keyword-поиск по названию (первые 3 значимых слова)
+    if (!item.productName) continue;
+    const words = normStr(item.productName).split(" ").filter((w) => w.length > 3).slice(0, 3);
+    if (!words.length) continue;
+    const nameHits = pl.filter((p) => p.name && words.every((w) => normStr(p.name).includes(w)));
+    if (nameHits.length) setAll(item, nameHits.slice(0, 5).map(toMatch));
+  }
+  return map;
+}
+
+// Возвращает Map<barcode|productId|productName → PricelistMatch[]>
 export function usePricelistLookup(
   _businessId: string,
   items: OrderItem[]
 ): Map<string, PricelistMatch[]> {
   const [result, setResult] = useState<Map<string, PricelistMatch[]>>(new Map());
 
+  // Стабильный ключ состава позиций: пересчёт при замене товара даже при том же количестве
+  const itemsKey = items
+    .map((i) => `${i.barcode ?? ""}\u0001${i.productId ?? ""}\u0001${i.productName ?? ""}`)
+    .join("\u0002");
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+
   useEffect(() => {
-    if (items.length === 0) return;
-
+    const current = itemsRef.current;
+    if (current.length === 0) {
+      setResult((prev) => (prev.size ? new Map() : prev));
+      return;
+    }
+    let cancelled = false;
     loadPricelist().then((pl) => {
-      const map = new Map<string, PricelistMatch[]>();
-
-      // Индекс по штрихкоду
-      const byBarcode = new Map<string, PlItem[]>();
-      for (const it of pl) {
-        if (it.barcode) {
-          const arr = byBarcode.get(it.barcode) ?? [];
-          arr.push(it);
-          byBarcode.set(it.barcode, arr);
-        }
-      }
-
-      const toMatch = (it: PlItem): PricelistMatch => ({
-        supplierId: it.sid,
-        supplierName: it.sname,
-        priceKopecks: it.price,
-        barcode: it.barcode,
-        productName: it.name,
-      });
-
-      for (const item of items) {
-        // 1. По штрихкоду
-        if (item.barcode) {
-          const hits = byBarcode.get(item.barcode);
-          if (hits?.length) { map.set(item.barcode, hits.map(toMatch)); continue; }
-        }
-        // 2. По артикулу совпадение с barcode/sku в прайсе
-        if (item.productId) {
-          const hits = byBarcode.get(item.productId);
-          if (hits?.length) { map.set(item.productId, hits.map(toMatch)); continue; }
-        }
-        // 3. Keyword-поиск по названию (первые 3 значимых слова)
-        const key = item.barcode ?? item.productId ?? item.productName;
-        if (map.has(key)) continue;
-        const words = normStr(item.productName).split(" ").filter((w) => w.length > 3).slice(0, 3);
-        if (!words.length) continue;
-        const hits = pl.filter((p) => words.every((w) => normStr(p.name).includes(w)));
-        if (hits.length) map.set(item.productName, hits.slice(0, 5).map(toMatch));
-      }
-
-      setResult(map);
+      if (cancelled) return; // устаревший результат: размонтирован или items сменились
+      setResult(buildPricelistLookup(pl, current));
     }).catch(console.error);
-  }, [items.length]);  // eslint-disable-line react-hooks/exhaustive-deps
+    return () => { cancelled = true; };
+  }, [itemsKey]);
 
   return result;
 }

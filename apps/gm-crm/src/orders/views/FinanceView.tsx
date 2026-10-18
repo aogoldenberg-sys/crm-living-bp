@@ -1,71 +1,12 @@
 import { useState, useEffect, useRef } from "react";
-import { updateDoc, doc, collection, onSnapshot, query, orderBy, limit, setDoc } from "firebase/firestore";
+import { updateDoc, doc, collection, onSnapshot, query, orderBy, limit, setDoc, getDoc, getDocs, where } from "firebase/firestore";
 import { db } from "../../firebase";
 import { useAuth } from "../../auth/useAuth";
 import { useOrders, statusLabel, statusColor, fmtRub } from "../useOrders";
 import "../orders.css";
-
-// ── Парсер CSV-выписки T-Bank ─────────────────────────────────────────────
-interface BankRow {
-  date: string;
-  credit: number;     // копейки, входящий платёж (Зачислено)
-  payerName: string;
-  payerInn: string;
-  purpose: string;
-}
-
-function parseTBankCsv(text: string): BankRow[] {
-  // T-Bank использует ; как разделитель, первые строки могут быть шапкой отчёта
-  const lines = text.split(/\r?\n/).filter((l) => l.trim());
-
-  // Ищем строку-заголовок (содержит "зачислено" или "приход")
-  let headerIdx = -1;
-  for (let i = 0; i < Math.min(lines.length, 20); i++) {
-    if (/зачислено|приход|credit/i.test(lines[i])) { headerIdx = i; break; }
-  }
-  if (headerIdx === -1) return [];
-
-  const sep = lines[headerIdx].includes(";") ? ";" : ",";
-  const headers = lines[headerIdx].split(sep).map((h) => h.trim().replace(/"/g, "").toLowerCase());
-
-  const col = (names: string[]) => {
-    for (const n of names) {
-      const idx = headers.findIndex((h) => h.includes(n));
-      if (idx !== -1) return idx;
-    }
-    return -1;
-  };
-
-  const iDate    = col(["дата операции", "дата", "date"]);
-  const iCredit  = col(["зачислено", "приход", "credit", "income"]);
-  const iPayer   = col(["наименование контрагента", "контрагент", "плательщик", "payer", "counterparty"]);
-  const iInn     = col(["инн/кпп", "инн контрагента", "инн плательщика", "inn", "инн"]);
-  const iPurpose = col(["назначение платежа", "назначение", "описание", "purpose", "description"]);
-
-  const rows: BankRow[] = [];
-  for (let i = headerIdx + 1; i < lines.length; i++) {
-    const cells = lines[i].split(sep).map((c) => c.trim().replace(/^"|"$/g, ""));
-    if (cells.length < 3) continue;
-
-    // Только входящие (зачислено > 0)
-    const creditStr = iCredit >= 0 ? cells[iCredit] : "";
-    const credit = Math.round(parseFloat(creditStr.replace(/\s/g, "").replace(",", ".")) * 100);
-    if (!credit || credit <= 0) continue;
-
-    // ИНН: берём часть до "/" (формат "ИНН/КПП")
-    const innRaw = iInn >= 0 ? cells[iInn] : "";
-    const payerInn = innRaw.split("/")[0].trim();
-
-    rows.push({
-      date:      iDate    >= 0 ? cells[iDate]    : "",
-      credit,
-      payerName: iPayer   >= 0 ? cells[iPayer]   : "",
-      payerInn,
-      purpose:   iPurpose >= 0 ? cells[iPurpose] : "",
-    });
-  }
-  return rows;
-}
+import {
+  parseTBankCsv, assignTxIds, legacyTxId, safeDocId, findMatchingOrder, fmtRuDate, txDateSortKey,
+} from "../bankCsv";
 
 interface Props { businessId: string; regionFilter?: string; }
 
@@ -89,8 +30,9 @@ function isOverdue(createdAt: string): boolean {
   return Date.now() - new Date(createdAt).getTime() > 7 * 24 * 60 * 60 * 1000;
 }
 
+// Поддерживает ISO (новые txDate, createdAt) и старый формат txDate "ДД.ММ.ГГГГ"
 function fmtDate(iso: string) {
-  try { return new Date(iso).toLocaleDateString("ru-RU"); } catch { return iso; }
+  return fmtRuDate(iso);
 }
 
 function usePayments(businessId: string) {
@@ -100,11 +42,19 @@ function usePayments(businessId: string) {
   useEffect(() => {
     const q = query(
       collection(db, `tenants/${businessId}/payments`),
-      orderBy("txDate", "desc"),
+      // txDate в базе в двух форматах (старый ДД.ММ.ГГГГ, новый ISO) — лексикографический orderBy("txDate")
+      // выбирал бы не те 100 записей. Окно — по времени импорта (createdAt, всегда ISO), порядок — ниже по txDate.
+      orderBy("createdAt", "desc"),
       limit(100),
     );
     const unsub = onSnapshot(q, (snap) => {
-      setPayments(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Payment, "id">) })));
+      const list = snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Payment, "id">) }));
+      // В базе txDate бывает и "ГГГГ-ММ-ДД" (новые), и "ДД.ММ.ГГГГ" (старые) — сортируем по нормализованной дате
+      list.sort((a, b) => {
+        const ka = txDateSortKey(a.txDate), kb = txDateSortKey(b.txDate);
+        return ka === kb ? 0 : ka < kb ? 1 : -1;
+      });
+      setPayments(list);
       setLoading(false);
     }, () => setLoading(false));
     return () => unsub();
@@ -131,45 +81,61 @@ export function FinanceView({ businessId, regionFilter }: Props) {
     setImportResult(null);
     try {
       const text = await file.text();
-      const rows = parseTBankCsv(text);
+      const rows = assignTxIds(parseTBankCsv(text));
+      const paymentsCol = `tenants/${businessId}/payments`;
 
-      // Индекс неоплаченных заказов по ИНН
-      const ordersByInn = new Map<string, typeof orders[0][]>();
-      for (const o of orders) {
-        if (!o.customerInn || o.paid) continue;
-        const inn = o.customerInn.trim();
-        if (!ordersByInn.has(inn)) ordersByInn.set(inn, []);
-        ordersByInn.get(inn)!.push(o);
-      }
+      // Заказы, которые уже не могут получить платёж: имеют привязанный платёж (из загруженных)
+      // или сопоставлены в текущем импорте. Оплаченные отсекает findMatchingOrder.
+      // Отменённые НЕ исключаются — привязка нужна для акта сверки.
+      const taken = new Set<string>();
+      for (const p of payments) if (p.orderId) taken.add(p.orderId);
 
       let matchedCount = 0;
       let newCount = 0;
 
       for (const row of rows) {
-        const txId = `${row.date}_${row.credit}_${row.payerInn}`;
-        const alreadyExists = payments.some((p) => p.txId === txId);
+        const txId = row.txId;
+        const paymentRef = doc(db, paymentsCol, safeDocId(txId));
 
-        const candidates = ordersByInn.get(row.payerInn) ?? [];
-        // Сопоставляем по ИНН И сумме — без точного совпадения не трогаем заказ
-        const exactMatch = candidates.find((o) => o.totalKopecks === row.credit);
+        // Дедупликация по базе, а не по payments (limit 100):
+        // 1) новый формат — детерминированный id документа;
+        // 2) старый формат (txId = сырая_дата_сумма_ИНН, авто-id) — запрос where txId ==.
+        //    Старый импорт писал все одинаковые строки с одним txId, поэтому k-я одинаковая
+        //    строка считается импортированной, если старых документов >= k.
+        let alreadyExists = (await getDoc(paymentRef)).exists();
+        if (!alreadyExists) {
+          const legacy = legacyTxId(row.dateRaw, row.credit, row.innRaw);
+          const legacySnap = await getDocs(query(collection(db, paymentsCol), where("txId", "==", legacy)));
+          alreadyExists = legacySnap.size >= row.occurrence;
+        }
+        if (alreadyExists) continue;
+
+        // Сопоставляем строго по ИНН И сумме; самый старый неоплаченный и ещё не занятый заказ
+        let exactMatch = findMatchingOrder(orders, row.payerInn, row.credit, taken);
+        while (exactMatch) {
+          // payments ограничены limit(100) — проверяем привязку в базе
+          const linked = await getDocs(query(collection(db, paymentsCol), where("orderId", "==", exactMatch.id), limit(1)));
+          if (linked.empty) break;
+          taken.add(exactMatch.id);
+          exactMatch = findMatchingOrder(orders, row.payerInn, row.credit, taken);
+        }
         const status: "matched" | "unmatched" = exactMatch ? "matched" : "unmatched";
 
-        if (!alreadyExists) {
-          await setDoc(doc(collection(db, `tenants/${businessId}/payments`)), {
-            txId,
-            amount:    row.credit,
-            payerName: row.payerName,
-            payerInn:  row.payerInn,
-            purpose:   row.purpose,
-            txDate:    row.date,
-            orderId:   exactMatch?.id ?? null,
-            status,
-            createdAt: new Date().toISOString(),
-          });
-          newCount++;
-        }
+        await setDoc(paymentRef, {
+          txId,
+          amount:    row.credit,
+          payerName: row.payerName,
+          payerInn:  row.payerInn,
+          purpose:   row.purpose,
+          txDate:    row.date,
+          orderId:   exactMatch?.id ?? null,
+          status,
+          createdAt: new Date().toISOString(),
+        });
+        newCount++;
 
-        if (exactMatch && !alreadyExists) {
+        if (exactMatch) {
+          taken.add(exactMatch.id);
           matchedCount++;
           await updateDoc(doc(db, `tenants/${businessId}/orders`, exactMatch.id), {
             paid: true, paidAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
@@ -181,8 +147,9 @@ export function FinanceView({ businessId, regionFilter }: Props) {
       setTab("payments");
     } catch (e) {
       alert("Ошибка разбора файла: " + String(e));
+    } finally {
+      setImporting(false);
     }
-    setImporting(false);
   }
 
   // regionFilter: если задан — показываем только заказы и платежи этого региона
@@ -193,7 +160,8 @@ export function FinanceView({ businessId, regionFilter }: Props) {
   const monthRevenue = active
     .filter((o) => {
       if (!o.paid) return false;
-      const d = new Date(o.createdAt);
+      // Выручка по деньгам: дата оплаты; для старых заказов без paidAt — дата создания
+      const d = new Date(o.paidAt || o.createdAt);
       return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
     })
     .reduce((s, o) => s + o.totalKopecks, 0);

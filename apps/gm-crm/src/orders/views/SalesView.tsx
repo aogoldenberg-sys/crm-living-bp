@@ -91,7 +91,7 @@ function calcProgress(items: Order["items"], actuals: number[]): number {
 }
 
 
-export function SalesView({ businessId, onGoToPurchasing, onGoToAssembly, readonlyManager = false, regionFilter }: Props) {
+export function SalesView({ businessId, onGoToPurchasing: _onGoToPurchasing, onGoToAssembly, readonlyManager = false, regionFilter }: Props) {
   const { user } = useAuth();
   const uid = user?.uid ?? "";
   const { orders, loading, error: ordersError } = useOrders(businessId, "sales", uid);
@@ -316,22 +316,29 @@ export function SalesView({ businessId, onGoToPurchasing, onGoToAssembly, readon
   async function createOrder() {
     if (!customerName.trim()) return;
     setSaving(true);
-    const items = newOrderItems.map((p, i) => ({
-      lineId: `new-${i}`, productId: p.productId, productName: p.productName,
-      barcode: p.barcode ?? null, quantity: p.quantity, unitPrice: p.unitPrice,
-      totalKopecks: p.unitPrice * p.quantity, supplierId: null,
-    }));
-    const totalKopecks = items.reduce((s, it) => s + it.totalKopecks, 0);
-    await addDoc(collection(db, `tenants/${businessId}/orders`), {
-      orderId: crypto.randomUUID(), customerName: customerName.trim(),
-      phone, comment, source, status: "received" as OrderStatus,
-      totalKopecks, managerId: uid, items, externalId: null, customerInn: null,
-      ...(regionFilter ? { region: regionFilter } : {}),
-      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-    });
-    setCustomerName(""); setPhone(""); setComment(""); setSource("manual");
-    setNewOrderItems([]);
-    setShowForm(false); setSaving(false);
+    try {
+      const items = newOrderItems.map((p, i) => ({
+        lineId: `new-${i}`, productId: p.productId, productName: p.productName,
+        barcode: p.barcode ?? null, quantity: p.quantity, unitPrice: p.unitPrice,
+        totalKopecks: p.unitPrice * p.quantity, supplierId: null,
+      }));
+      const totalKopecks = items.reduce((s, it) => s + it.totalKopecks, 0);
+      await addDoc(collection(db, `tenants/${businessId}/orders`), {
+        orderId: crypto.randomUUID(), customerName: customerName.trim(),
+        phone, comment, source, status: "received" as OrderStatus,
+        totalKopecks, managerId: uid, items, externalId: null, customerInn: null,
+        ...(regionFilter ? { region: regionFilter } : {}),
+        createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      });
+      setCustomerName(""); setPhone(""); setComment(""); setSource("manual");
+      setNewOrderItems([]);
+      setShowForm(false);
+    } catch (e) {
+      console.error("createOrder:", e);
+      alert("Ошибка сохранения: " + String(e));
+    } finally {
+      setSaving(false);
+    }
   }
 
   function setActual(orderId: string, idx: number, val: number) {

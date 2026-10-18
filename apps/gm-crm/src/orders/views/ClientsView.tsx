@@ -7,6 +7,7 @@ import { PhoneButton } from "../../telephony/PhoneButton";
 import { ClientEmailSection } from "./ClientEmailSection";
 import { ReconciliationModal } from "./ReconciliationModal";
 import { UpdModal, type UpdItem } from "./UpdModal";
+import { MailingView } from "./MailingView";
 
 function clientSlug(name: string) {
   return name.toLowerCase().replace(/[^а-яёa-z0-9]/gi, "_").slice(0, 80);
@@ -231,6 +232,7 @@ export function ClientsView({ businessId, regionFilter }: { businessId: string; 
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
   const [reconOpen, setReconOpen] = useState(false);
   const [updOrder, setUpdOrder]   = useState<Order | null>(null);
+  const [subTab, setSubTab]       = useState<"clients" | "mailing">("clients");
 
   useEffect(() => {
     const q = query(
@@ -319,13 +321,30 @@ export function ClientsView({ businessId, regionFilter }: { businessId: string; 
 
   const active = selected ? clients.find(c => c.name === selected) : null;
 
+  const TAB_STYLE = (active: boolean): React.CSSProperties => ({
+    padding: "6px 20px", fontSize: 13, fontWeight: active ? 700 : 400, cursor: "pointer",
+    border: "none", borderRadius: 8,
+    background: active ? "linear-gradient(135deg,#C89A34,#E8B84B)" : "transparent",
+    color: active ? "#fff" : "#8B6914",
+    boxShadow: active ? "0 2px 8px rgba(200,154,52,.35)" : "none",
+    transition: "all .18s",
+  });
+
   return (
     <div className="go-main">
-      <div className="go-header">
-        <h1 className="go-title">Клиенты · Густорико</h1>
+      <div className="go-header" style={{ display: "flex", alignItems: "center", gap: 16 }}>
+        <h1 className="go-title" style={{ marginRight: "auto" }}>Клиенты · Густорико</h1>
+        {!active && (
+          <div style={{ display: "flex", gap: 4, background: "rgba(200,154,52,.08)", borderRadius: 10, padding: 4 }}>
+            <button style={TAB_STYLE(subTab === "clients")} onClick={() => setSubTab("clients")}>👥 Клиенты</button>
+            <button style={TAB_STYLE(subTab === "mailing")} onClick={() => setSubTab("mailing")}>📨 Рассылка</button>
+          </div>
+        )}
       </div>
 
-      {active ? (
+      {subTab === "mailing" && !active ? (
+        <MailingView businessId={businessId} />
+      ) : active ? (
         // ── Карточка клиента ─────────────────────────────────────────────────
         <div>
           <button onClick={() => setSelected(null)}

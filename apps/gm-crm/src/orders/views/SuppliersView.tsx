@@ -1,14 +1,10 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { collection, onSnapshot, doc, setDoc } from "firebase/firestore";
 import { db } from "../../firebase";
-import { loadPricelist, type PricelistMatch } from "../useOrders";
+import { loadPricelist } from "../useOrders";
+import { buildPlIndex, plLookupCode, type PlIndex } from "../plIndex";
 import catalog from "../suppliersCatalog.json";
 import "../orders.css";
-
-type PlIndex = {
-  byBarcode: Map<string, PricelistMatch[]>;
-  byWord:    Map<string, PricelistMatch[]>;
-};
 
 const STOP = new Set(["вода","напиток","напитки","газированный","газированная",
   "негазированный","натуральный","сок","соки","молоко","масло","сахар","мл","пэт",
@@ -104,7 +100,7 @@ function SupplierModal({ sup, businessId, onClose }: { sup: Sup | null; business
   }
 
   const sheetUrl = form.sheetUrl
-    || (form.sheetName ? `${SHEET_URL}#gid=0&sheet=${encodeURIComponent(form.sheetName)}` : null);
+    || (form.sheetName ? sheetLink(form.sheetName) : null);
 
   const textFields: [keyof Sup, string, boolean][] = [
     ["name","Название", false], ["cat","Категория", false],
@@ -186,7 +182,7 @@ function SupplierTile({ s, onClick }: { s: Sup; onClick: () => void }) {
   const icon = meta?.icon || s.icon || "📦";
   const sub  = s.assortment || meta?.assortment || "";
   const priceUrl = s.sheetUrl
-    || (s.sheetName ? `${SHEET_URL}#gid=0&sheet=${encodeURIComponent(s.sheetName)}` : null);
+    || (s.sheetName ? sheetLink(s.sheetName) : null);
 
   return (
     <div style={{ position:"relative" }}>
@@ -238,28 +234,7 @@ export function SuppliersView({ businessId }: { businessId: string }) {
   const seeded = useRef(false);
 
   useEffect(() => {
-    loadPricelist().then(pl => {
-      const byBarcode: PlIndex["byBarcode"] = new Map();
-      const byWord: PlIndex["byWord"] = new Map();
-      for (const it of pl) {
-        if (it.price > 10_000_000) continue;
-        const match: PricelistMatch = {
-          supplierId: it.sid, supplierName: it.sname,
-          priceKopecks: it.price, barcode: it.barcode, productName: it.name,
-        };
-        if (it.barcode) {
-          const a = byBarcode.get(it.barcode) ?? []; a.push(match); byBarcode.set(it.barcode, a);
-        }
-        if (it.sku && it.sku !== it.barcode) {
-          const a = byBarcode.get(it.sku) ?? []; a.push(match); byBarcode.set(it.sku, a);
-        }
-        const words = norm(it.name).split(" ").filter(w => w.length > 3 && !STOP.has(w));
-        for (const w of words) {
-          const a = byWord.get(w) ?? []; a.push(match); byWord.set(w, a);
-        }
-      }
-      setPlIndex({ byBarcode, byWord });
-    });
+    loadPricelist().then(pl => setPlIndex(buildPlIndex(pl)));
   }, []);
 
   // Загрузка из Firestore + досев пропущенных из каталога (один раз)
@@ -296,7 +271,7 @@ export function SuppliersView({ businessId }: { businessId: string }) {
     const hits = new Set<string>();
     if (plIndex) {
       // Точный матч по штрихкоду
-      for (const m of (plIndex.byBarcode.get(q) ?? [])) hits.add(m.supplierName);
+      for (const m of (plLookupCode(plIndex, search.trim()) ?? [])) hits.add(m.supplierName);
       // Словарный матч: нормализуем запрос и ищем каждое слово в индексе
       const words = norm(q).split(" ").filter(w => w.length > 3 && !STOP.has(w));
       for (const w of words) {

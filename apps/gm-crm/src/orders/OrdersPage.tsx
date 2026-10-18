@@ -13,7 +13,7 @@ import { ClientsView } from "./views/ClientsView";
 import { ItemsView } from "./views/ItemsView";
 import { LogisticsView } from "./views/LogisticsView";
 import { ChatView } from "./views/ChatView";
-import { MailingView } from "./views/MailingView";
+// MailingView теперь внутри ClientsView
 import { IncomingCallPopup } from "../telephony/IncomingCallPopup";
 import { CallLogView } from "../telephony/CallLogView";
 import { GUSTORIKO_ROLES, useGustorikoRole } from "../auth/useRole";
@@ -80,7 +80,7 @@ const NAV_ICONS: Record<string, string> = {
   chat: "💬", mailing: "📨",
 };
 
-type Section = "sales" | "assembly" | "purchasing" | "finance" | "director" | "suppliers" | "debts" | "clients" | "items" | "logistics" | "calls" | "chat" | "mailing";
+type Section = "sales" | "assembly" | "purchasing" | "finance" | "director" | "suppliers" | "debts" | "clients" | "items" | "logistics" | "calls" | "chat";
 
 const ALL_SECTIONS: { id: Section; label: string }[] = [
   { id: "sales",      label: "Заказы" },
@@ -94,14 +94,13 @@ const ALL_SECTIONS: { id: Section; label: string }[] = [
   { id: "debts",      label: "Долги" },
   { id: "logistics",  label: "Логистика" },
   { id: "calls",      label: "Звонки" },
-  { id: "mailing" as Section, label: "Рассылка" },
-  // chat убран из сайдбара — вынесен в кнопку верхнего угла
+  // mailing перенесён в суб-таб ClientsView; chat — кнопка верхнего угла
 ];
 
 const HIDDEN_FOR_ROLE: Partial<Record<string, Section[]>> = {
-  sales_manager:  ["finance", "director", "clients", "chat", "mailing"],
-  marina_manager: ["finance", "director", "chat", "mailing"],
-  spb_manager:    ["suppliers", "director", "mailing"],
+  sales_manager:  ["finance", "director", "clients", "chat"],
+  marina_manager: ["finance", "director", "chat"],
+  spb_manager:    ["suppliers", "director"],
 };
 
 const DEFAULT_SECTION: Record<string, Section> = {
@@ -118,7 +117,12 @@ export function OrdersPage() {
   const { roleId, displayName, managerName, loading } = useGustorikoRole();
   const [section, setSection] = useState<Section | null>(null);
   const [chatToasts, setChatToasts] = useState<{ id: string; author: string; text: string }[]>([]);
-  const active = section ?? (DEFAULT_SECTION[roleId] as Section) ?? "sales";
+  const hiddenForActive = (roleId ? HIDDEN_FOR_ROLE[roleId] : undefined) ?? [];
+  const requestedSection: Section = section ?? (roleId ? DEFAULT_SECTION[roleId] : undefined) ?? "sales";
+  // Если роль скрывает раздел — фолбэк на первый видимый
+  const active: Section = hiddenForActive.includes(requestedSection)
+    ? (ALL_SECTIONS.find(s => !hiddenForActive.includes(s.id))?.id ?? "sales")
+    : requestedSection;
   const [purchasingClient, setPurchasingClient] = useState<string | null>(null);
   const [assemblyFocusId, setAssemblyFocusId] = useState<string | null>(null);
   const [badgeCounts, setBadgeCounts] = useState<Record<string, number>>({});
@@ -319,7 +323,7 @@ export function OrdersPage() {
         {active === "logistics"  && <LogisticsView businessId={bid} />}
         {active === "calls"      && <CallLogView />}
         {active === "chat"       && <ChatView businessId={bid} currentUser={user?.email ?? ""} />}
-        {active === "mailing"    && <MailingView businessId={bid} />}
+        {/* mailing перенесён в ClientsView */}
       </main>
 
       {/* Правый верхний угол: чат + шарики */}

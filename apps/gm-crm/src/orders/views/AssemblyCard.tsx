@@ -3,9 +3,10 @@ import type { CSSProperties } from "react";
 import { doc, setDoc, onSnapshot, addDoc, collection, updateDoc, getDocs, query, where, deleteDoc } from "firebase/firestore";
 import { db } from "../../firebase";
 import { type Order, type PricelistMatch, fmtRub, deadlineTimer, addWorkDays } from "../useOrders";
-import type { PlIndex } from "./AssemblyView";
+import { computePlMatches, type PlIndex } from "../plIndex";
 import { UpdModal } from "./UpdModal";
 import type { UpdItem } from "./UpdModal";
+import { parseQty, rubToKopecks, useNumDrafts } from "../numInput";
 
 interface ALine {
   idx: number;
@@ -29,11 +30,6 @@ const MANAGERS = ["Марина", "Ольга", "Анна"];
 const th: CSSProperties = { padding: "5px 8px", textAlign: "left", color: "#8B7355", fontWeight: 500, whiteSpace: "nowrap", fontSize: 11 };
 const td: CSSProperties = { padding: "3px 8px", verticalAlign: "middle" };
 
-const STOP = new Set(["вода","напиток","напитки","газированный","газированная",
-  "негазированный","натуральный","сок","соки","молоко","масло","сахар","мл","пэт",
-  "стекло","банка","жестяная","картон","блок","упаковка","штук","литр","литра",
-  "литров","грамм","гр","кг","шт","пак","дой","туба","бутылка","бут"]);
-function norm(s: string) { return s.toLowerCase().replace(/[^а-яёa-z0-9]/gi, " ").replace(/\s+/g, " ").trim(); }
 function fmtRubFull(kopecks: number): string {
   return (kopecks / 100).toLocaleString("ru-RU", { style: "currency", currency: "RUB", minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
@@ -59,6 +55,7 @@ export function AssemblyCard({ order, businessId, uid, allSupplierNames, plIndex
   const lastEditRef  = useRef(0);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const dirtyRef     = useRef(false);
+  const drafts       = useNumDrafts();
 
   // Обновляем дедлайн раз в минуту
   useEffect(() => { const t = setInterval(() => setTick(n => n + 1), 60_000); return () => clearInterval(t); }, []);
@@ -84,36 +81,9 @@ export function AssemblyCard({ order, businessId, uid, allSupplierNames, plIndex
   }, [order.paid, order.paidAt]); // eslint-disable-line
 
   // Вынесено из useEffect чтобы переиспользовать при замене позиции
+  // Подбор по нормализованному штрихкоду/артикулу → по словам названия (см. ../plIndex)
   function computeMatches(item: { productName: string; barcode?: string | null; productId?: string }): PricelistMatch[] {
-    function sorted(arr: PricelistMatch[]) { return [...arr].sort((a, b) => (a.priceKopecks ?? 0) - (b.priceKopecks ?? 0)); }
-    if (item.barcode) {
-      const h = plIndex.byBarcode.get(item.barcode);
-      if (h?.length) return sorted(h);
-    }
-    if (item.productId) {
-      const h = plIndex.byBarcode.get(item.productId);
-      if (h?.length) return sorted(h);
-    }
-    const words = norm(item.productName).split(" ").filter(w => w.length >= 3 && !STOP.has(w)).slice(0, 5);
-    if (!words.length) return [];
-    const wordSets = words.map(w => ({ w, hits: plIndex.byWord.get(w) ?? [] }));
-    wordSets.sort((a, b) => a.hits.length - b.hits.length);
-    const anchor = wordSets.find(s => s.hits.length > 0);
-    if (!anchor) return [];
-    const minMatch = Math.max(1, Math.ceil(words.length * 0.5));
-    // Если запрос — продукт питания, пропускаем упаковочные позиции
-    const PACK = ["стакан", "бумажный", "крышка", "дпе16", "подложк"];
-    const queryIsFood = !PACK.some(w => norm(item.productName).includes(w));
-    const seen = new Map<string, PricelistMatch>();
-    for (const m of anchor.hits) {
-      const n = norm(m.productName);
-      if (queryIsFood && PACK.some(w => n.includes(w))) continue;
-      if (words.filter(w => n.includes(w)).length < minMatch) continue;
-      const key = m.supplierName + "|" + m.productName;
-      const ex = seen.get(key);
-      if (!ex || (m.priceKopecks ?? 0) < (ex.priceKopecks ?? 0)) seen.set(key, m);
-    }
-    return sorted([...seen.values()]).slice(0, 6);
+    return computePlMatches(plIndex, item);
   }
 
   useEffect(() => {
@@ -169,6 +139,7 @@ export function AssemblyCard({ order, businessId, uid, allSupplierNames, plIndex
     if (!editing) return;
     const newMatches = computeMatches({ productName: editing.name, barcode: editing.barcode || null });
     const best = newMatches[0];
+    drafts.clear(`cost-${editing.idx}`);
     patch(editing.idx, {
       productName: editing.name,
       barcode: editing.barcode || null,
@@ -184,14 +155,20 @@ export function AssemblyCard({ order, businessId, uid, allSupplierNames, plIndex
   async function persist(ls: ALine[]) {
     if (!ls.length) return;
     setSaving(true);
-    await setDoc(
-      doc(db, `tenants/${businessId}/assembly/${order.id}`),
-      { lines: ls.map(({ matches: _m, ...l }) => l), assembler: uid, updatedAt: new Date().toISOString() },
-      { merge: true },
-    );
-    dirtyRef.current = false;
-    setIsDirty(false);
-    setSaving(false);
+    try {
+      await setDoc(
+        doc(db, `tenants/${businessId}/assembly/${order.id}`),
+        { lines: ls.map(({ matches: _m, ...l }) => l), assembler: uid, updatedAt: new Date().toISOString() },
+        { merge: true },
+      );
+      dirtyRef.current = false;
+      setIsDirty(false);
+    } catch (e) {
+      console.error("Assembly save failed:", e);
+      alert("Ошибка сохранения: " + String(e));
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function deletePendingLines() {
@@ -203,7 +180,13 @@ export function AssemblyCard({ order, businessId, uid, allSupplierNames, plIndex
   }
 
   async function resetPurchase() {
-    await deletePendingLines();
+    try {
+      await deletePendingLines();
+    } catch (e) {
+      console.error("Reset purchase failed:", e);
+      alert("Ошибка сохранения: " + String(e));
+      return;
+    }
     const updated = linesRef.current.map(l => ({ ...l, sentToPurchase: false }));
     linesRef.current = updated;
     setLines(updated);
@@ -217,26 +200,32 @@ export function AssemblyCard({ order, businessId, uid, allSupplierNames, plIndex
     const toStock  = ls.filter(l => l.supplierName === "Склад");
     if (!toOrder.length && !toStock.length) return;
 
-    if (order.status === "approved") {
-      await updateDoc(doc(db, `tenants/${businessId}/orders/${order.id}`), {
-        status: "sourcing", updatedAt: new Date().toISOString(),
-      });
-    }
+    try {
+      if (order.status === "approved") {
+        await updateDoc(doc(db, `tenants/${businessId}/orders/${order.id}`), {
+          status: "sourcing", updatedAt: new Date().toISOString(),
+        });
+      }
 
-    // Удаляем старые pending lines — чтобы не висела история при смене поставщика
-    await deletePendingLines();
+      // Удаляем старые pending lines — чтобы не висела история при смене поставщика
+      await deletePendingLines();
 
-    if (toOrder.length) {
-      await Promise.all(toOrder.map(l =>
-        addDoc(collection(db, `tenants/${businessId}/purchase_lines`), {
-          orderId: order.id, customerName: order.customerName,
-          productName: l.productName, barcode: l.barcode,
-          supplierName: l.supplierName, supplierId: l.supplierId,
-          qty: l.qtyPacked || l.qtyOrdered,
-          unitCostKopecks: l.unitCostKopecks,
-          assembler: uid, status: "pending", createdAt: new Date().toISOString(),
-        }),
-      ));
+      if (toOrder.length) {
+        await Promise.all(toOrder.map(l =>
+          addDoc(collection(db, `tenants/${businessId}/purchase_lines`), {
+            orderId: order.id, customerName: order.customerName,
+            productName: l.productName, barcode: l.barcode,
+            supplierName: l.supplierName, supplierId: l.supplierId,
+            qty: l.qtyPacked || l.qtyOrdered,
+            unitCostKopecks: l.unitCostKopecks,
+            assembler: uid, status: "pending", createdAt: new Date().toISOString(),
+          }),
+        ));
+      }
+    } catch (e) {
+      console.error("Distribute failed:", e);
+      alert("Ошибка сохранения: " + String(e));
+      return;
     }
     const toMark = new Set([...toOrder, ...toStock].map(l => l.idx));
     const updated = ls.map(l => toMark.has(l.idx) ? { ...l, sentToPurchase: true } : l);
@@ -256,7 +245,7 @@ export function AssemblyCard({ order, businessId, uid, allSupplierNames, plIndex
           barcode: l.barcode,
           qtyOrdered: l.qtyOrdered,
           qtyShipped: l.qtyPacked,
-          qtyDebt: l.qtyOrdered - l.qtyPacked,
+          qtyDebt: Math.round((l.qtyOrdered - l.qtyPacked) * 1000) / 1000,
           unitSellKopecks: l.unitSellKopecks,
         }));
 
@@ -275,6 +264,7 @@ export function AssemblyCard({ order, businessId, uid, allSupplierNames, plIndex
         });
       }
     } catch (e) {
+      console.error("Deliver failed:", e);
       alert("Ошибка при отгрузке: " + String(e));
     }
   }
@@ -285,6 +275,7 @@ export function AssemblyCard({ order, businessId, uid, allSupplierNames, plIndex
         status: "received", updatedAt: new Date().toISOString(),
       });
     } catch (e) {
+      console.error("Return to received failed:", e);
       alert("Ошибка: " + String(e));
     }
   }
@@ -413,7 +404,7 @@ export function AssemblyCard({ order, businessId, uid, allSupplierNames, plIndex
 
               // ── Обычная строка ─────────────────────────────────────────────────
               const d = (l.unitSellKopecks - l.unitCostKopecks) * l.qtyPacked;
-              const debt = l.qtyOrdered - l.qtyPacked;
+              const debt = Math.round((l.qtyOrdered - l.qtyPacked) * 1000) / 1000;
               const unique = dedup(l.matches);
               const isStock = l.supplierName === "Склад";
               return (
@@ -440,10 +431,17 @@ export function AssemblyCard({ order, businessId, uid, allSupplierNames, plIndex
                   </td>
                   <td style={{ ...td, textAlign:"right", color:"#8B7355" }}>{l.qtyOrdered}</td>
                   <td style={{ ...td, textAlign:"right" }}>
-                    <input type="number" min={0} value={l.qtyPacked}
-                      onChange={e => patch(l.idx, { qtyPacked: +(e.target.value)||0 })}
-                      title={l.qtyPacked > l.qtyOrdered ? `+${l.qtyPacked - l.qtyOrdered} сверх заявки` : undefined}
-                      style={{ width:50, textAlign:"right", border:"1px solid #e0d8cc", borderRadius:4, padding:"2px 4px",
+                    <input type="text" inputMode="decimal" value={drafts.value(`qty-${l.idx}`, String(l.qtyPacked))}
+                      onChange={e => {
+                        const t = e.target.value;
+                        const q = t.trim() === "" ? 0 : parseQty(t, true);
+                        drafts.set(`qty-${l.idx}`, t, q !== null);
+                        if (q !== null) patch(l.idx, { qtyPacked: q });
+                      }}
+                      onBlur={() => { if (!drafts.invalid(`qty-${l.idx}`)) drafts.clear(`qty-${l.idx}`); }}
+                      onKeyDown={e => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                      title={l.qtyPacked > l.qtyOrdered ? `+${Math.round((l.qtyPacked - l.qtyOrdered) * 1000) / 1000} сверх заявки` : undefined}
+                      style={{ width:50, textAlign:"right", border: drafts.invalid(`qty-${l.idx}`) ? "1px solid #C62828" : "1px solid #e0d8cc", borderRadius:4, padding:"2px 4px",
                         background: l.qtyPacked > l.qtyOrdered ? "#FFFDE7" : undefined }} />
                   </td>
                   <td style={{ ...td, textAlign:"right" }}>{fmtRubFull(l.unitSellKopecks)}</td>
@@ -453,7 +451,7 @@ export function AssemblyCard({ order, businessId, uid, allSupplierNames, plIndex
                         const sel = l.supplierName === m.supplierName;
                         return (
                           <button key={m.supplierId}
-                            onClick={() => patch(l.idx, { supplierName:m.supplierName, supplierId:m.supplierId, unitCostKopecks:m.priceKopecks??0 })}
+                            onClick={() => { drafts.clear(`cost-${l.idx}`); patch(l.idx, { supplierName:m.supplierName, supplierId:m.supplierId, unitCostKopecks:m.priceKopecks??0 }); }}
                             style={{ fontSize:11, padding:"3px 9px", borderRadius:5, cursor:"pointer", whiteSpace:"nowrap",
                               border: sel ? "1.5px solid #c8a434" : "1px solid #ddd",
                               background: sel ? "rgba(200,154,52,.18)" : "#fafaf9",
@@ -471,16 +469,22 @@ export function AssemblyCard({ order, businessId, uid, allSupplierNames, plIndex
                       </button>
                       <select
                         value={unique.some(m=>m.supplierName===l.supplierName)||isStock ? "" : l.supplierName}
-                        onChange={e => { const n=e.target.value; if(n) patch(l.idx,{supplierName:n,supplierId:n,unitCostKopecks:0}); }}
+                        onChange={e => { const n=e.target.value; if(n) { drafts.clear(`cost-${l.idx}`); patch(l.idx,{supplierName:n,supplierId:n,unitCostKopecks:0}); } }}
                         style={{ fontSize:10, border:"1px solid #ddd", borderRadius:4, padding:"2px 3px", color:"#888",
                           background: unique.some(m=>m.supplierName===l.supplierName)||isStock?"transparent":"rgba(200,154,52,.1)" }}>
                         <option value="">+ другой…</option>
                         {allSupplierNames.filter(n=>!unique.some(m=>m.supplierName===n)).map(n=><option key={n} value={n}>{n}</option>)}
                       </select>
                       {l.supplierName && (
-                        <input type="number" min={0} step="0.01" value={(l.unitCostKopecks/100).toFixed(2)}
-                          onChange={e => patch(l.idx, { unitCostKopecks: Math.round((parseFloat(e.target.value)||0)*100) })}
-                          style={{ width:62, textAlign:"right", border:"1px solid #e0d8cc", borderRadius:4, padding:"2px 4px", fontSize:11, marginLeft:4 }} />
+                        <input type="text" inputMode="decimal" value={drafts.value(`cost-${l.idx}`, (l.unitCostKopecks/100).toFixed(2))}
+                          onChange={e => {
+                            const k = rubToKopecks(e.target.value, 0);
+                            drafts.set(`cost-${l.idx}`, e.target.value, k !== null);
+                            if (k !== null) patch(l.idx, { unitCostKopecks: k });
+                          }}
+                          onBlur={() => { if (!drafts.invalid(`cost-${l.idx}`)) drafts.clear(`cost-${l.idx}`); }}
+                          onKeyDown={e => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                          style={{ width:62, textAlign:"right", border: drafts.invalid(`cost-${l.idx}`) ? "1px solid #C62828" : "1px solid #e0d8cc", borderRadius:4, padding:"2px 4px", fontSize:11, marginLeft:4 }} />
                       )}
                     </div>
                   </td>

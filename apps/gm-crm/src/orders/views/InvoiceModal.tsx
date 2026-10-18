@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { addDoc, collection, updateDoc, doc } from "firebase/firestore";
 import { db } from "../../firebase";
-import { type Order, fmtRub } from "../useOrders";
+import { type Order } from "../useOrders";
+import { parseQty, parseRub, useNumDrafts } from "../numInput";
 import "../orders.css";
 
 interface InvoiceRow {
@@ -32,6 +33,7 @@ export function InvoiceModal({ order, businessId, onClose }: Props) {
   const [sending, setSending] = useState(false);
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; num?: number; error?: string } | null>(null);
+  const drafts = useNumDrafts();
 
   const subtotal = rows.reduce((s, r) => s + r.qty * r.price, 0);
   const vat      = subtotal * 0.22;
@@ -81,6 +83,7 @@ trade@opentgp.ru · +7 (495) 205-35-00</p>
   }
 
   async function save() {
+    if (drafts.anyInvalid) return;
     setSaving(true);
     try {
       const invData = {
@@ -97,6 +100,8 @@ trade@opentgp.ru · +7 (495) 205-35-00</p>
       await updateDoc(doc(db, `tenants/${businessId}/orders`, order.id), { status: "invoiced" });
       setResult({ ok: true });
     } catch (e) {
+      console.error("Invoice save failed:", e);
+      alert("Ошибка сохранения: " + String(e));
       setResult({ ok: false, error: String(e) });
     } finally {
       setSaving(false);
@@ -106,6 +111,7 @@ trade@opentgp.ru · +7 (495) 205-35-00</p>
   const [downloading, setDownloading] = useState(false);
 
   async function downloadPdf() {
+    if (drafts.anyInvalid) return;
     setDownloading(true);
     try {
       const res = await fetch(PROXY_URL, {
@@ -131,13 +137,15 @@ trade@opentgp.ru · +7 (495) 205-35-00</p>
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
+      console.error("Invoice PDF failed:", e);
       alert("Ошибка загрузки PDF: " + String(e));
+    } finally {
+      setDownloading(false);
     }
-    setDownloading(false);
   }
 
   async function send() {
-    if (!toEmail.trim()) return;
+    if (!toEmail.trim() || drafts.anyInvalid) return;
     setSending(true);
     try {
       const res = await fetch(PROXY_URL, {
@@ -176,9 +184,11 @@ trade@opentgp.ru · +7 (495) 205-35-00</p>
         }
       }
     } catch (e) {
+      console.error("Invoice send failed:", e);
       setResult({ ok: false, error: String(e) });
+    } finally {
+      setSending(false);
     }
-    setSending(false);
   }
 
   return (
@@ -197,7 +207,7 @@ trade@opentgp.ru · +7 (495) 205-35-00</p>
             {order.address && <div style={{ fontSize: 12, color: "#8B7355" }}>{order.address}</div>}
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <button onClick={() => void downloadPdf()} disabled={downloading}
+            <button onClick={() => void downloadPdf()} disabled={downloading || drafts.anyInvalid}
               style={{ fontSize: 12, padding: "5px 12px", borderRadius: 7, border: "1px solid #C89A34",
                 background: "#C89A34", color: "#fff", cursor: "pointer", fontWeight: 600 }}>
               {downloading ? "Генерируем…" : "⬇ Скачать PDF"}
@@ -232,15 +242,27 @@ trade@opentgp.ru · +7 (495) 205-35-00</p>
                       background: "transparent", fontSize: 13, padding: "2px 0" }} />
                 </td>
                 <td style={{ padding: "4px 8px" }}>
-                  <input type="number" min={1} value={r.qty}
-                    onChange={(e) => updateRow(i, { qty: Math.max(1, Number(e.target.value)) })}
-                    style={{ width: 50, textAlign: "right", border: "none", borderBottom: "1px solid #e0d8cc",
+                  <input type="text" inputMode="decimal" value={drafts.value(`qty-${i}`, String(r.qty))}
+                    onChange={(e) => {
+                      const q = parseQty(e.target.value);
+                      drafts.set(`qty-${i}`, e.target.value, q !== null);
+                      if (q !== null) updateRow(i, { qty: q });
+                    }}
+                    onBlur={() => { if (!drafts.invalid(`qty-${i}`)) drafts.clear(`qty-${i}`); }}
+                    style={{ width: 50, textAlign: "right", border: "none",
+                      borderBottom: drafts.invalid(`qty-${i}`) ? "1px solid #C62828" : "1px solid #e0d8cc",
                       background: "transparent", fontSize: 13 }} />
                 </td>
                 <td style={{ padding: "4px 8px" }}>
-                  <input type="number" step={0.01} min={0} value={r.price}
-                    onChange={(e) => updateRow(i, { price: Number(e.target.value), confirmed: true })}
-                    style={{ width: 90, textAlign: "right", border: "none", borderBottom: "1px solid #e0d8cc",
+                  <input type="text" inputMode="decimal" value={drafts.value(`price-${i}`, String(r.price))}
+                    onChange={(e) => {
+                      const p = parseRub(e.target.value, 0);
+                      drafts.set(`price-${i}`, e.target.value, p !== null);
+                      if (p !== null) updateRow(i, { price: p, confirmed: true });
+                    }}
+                    onBlur={() => { if (!drafts.invalid(`price-${i}`)) drafts.clear(`price-${i}`); }}
+                    style={{ width: 90, textAlign: "right", border: "none",
+                      borderBottom: drafts.invalid(`price-${i}`) ? "1px solid #C62828" : "1px solid #e0d8cc",
                       background: "transparent", fontSize: 13,
                       color: r.confirmed ? "#1A1814" : "#C62828",
                       fontWeight: r.confirmed ? 400 : 600 }} />
@@ -249,7 +271,7 @@ trade@opentgp.ru · +7 (495) 205-35-00</p>
                   {fmt(r.qty * r.price)}
                 </td>
                 <td>
-                  <button onClick={() => setRows((p) => p.filter((_, idx) => idx !== i))}
+                  <button onClick={() => { drafts.clearAll(); setRows((p) => p.filter((_, idx) => idx !== i)); }}
                     style={{ background: "none", border: "none", color: "#C62828", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "0 4px" }}>×</button>
                 </td>
               </tr>
@@ -303,10 +325,10 @@ trade@opentgp.ru · +7 (495) 205-35-00</p>
               placeholder="email@company.ru" />
           </div>
           <button className="go-btn go-btn--gold" onClick={() => void send()}
-            disabled={sending || !toEmail.trim()}>
+            disabled={sending || !toEmail.trim() || drafts.anyInvalid}>
             {sending ? "Отправляем…" : "Отправить счёт"}
           </button>
-          <button className="go-btn go-btn--green" onClick={() => void save()} disabled={saving}>
+          <button className="go-btn go-btn--green" onClick={() => void save()} disabled={saving || drafts.anyInvalid}>
             {saving ? "…" : "Сохранить"}
           </button>
           <button className="go-btn go-btn--outline" onClick={onClose}>Закрыть</button>
