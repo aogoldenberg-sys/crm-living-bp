@@ -1,0 +1,621 @@
+/* ── Gustoriko Orders — shared styles ───────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600;700&family=Inter:wght@400;500;600&display=swap');
+
+@keyframes go-spin { to { transform: rotate(360deg); } }
+@keyframes go-fadein { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes slideInRight { from { opacity: 0; transform: translateX(40px); } to { opacity: 1; transform: none; } }
+
+/* ── Фоновый градиент (фиксированный слой, как k-bg в Kairos) ── */
+.go-bg {
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 70% 55% at 88% 8%,  rgba(214,168,64,.36) 0%, transparent 65%),
+    radial-gradient(ellipse 60% 70% at 4% 100%, rgba(200,150,50,.264) 0%, transparent 60%),
+    linear-gradient(158deg, #F2ECE0 0%, #F2ECE0 42%, #FFFFFF 50%, #FFFFFF 100%);
+  z-index: 0;
+  pointer-events: none;
+}
+
+.go-page {
+  display: flex;
+  min-height: 100vh;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  color: #2A2520;
+  position: relative;
+}
+
+/* ── Летающие шары — самый верхний слой ── */
+.go-balls-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 200;
+}
+.go-ball {
+  position: absolute;
+  top: 0; left: 0;
+  will-change: transform;
+  filter: drop-shadow(0 8px 24px rgba(160,110,20,.35));
+  pointer-events: none;
+}
+
+/* ── Sidebar — стеклянная панель как в Kairos ── */
+.go-sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  background: rgba(255,255,255,.55);
+  backdrop-filter: blur(20px) saturate(1.4);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  border: 1px solid rgba(255,255,255,.9);
+  border-radius: 22px;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  height: calc(100vh - 24px);
+  z-index: 100;
+  overflow-y: auto;
+  box-shadow: 0 8px 32px rgba(160,110,20,.10);
+}
+
+/* Сдвиг основного контента вправо */
+.go-page > *:not(.go-sidebar):not(.go-balls-layer):not(.go-bg) {
+  margin-left: 244px;
+}
+
+/* ── Спираль в сайдбаре — точно как в Kairos ── */
+.go-spiral-wrap {
+  padding: 16px;
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.go-spiral {
+  width: 96px;
+  height: 106px;
+  opacity: .65;
+  animation: go-spin 34s linear infinite;
+}
+
+.go-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 20px 16px 16px;
+  border-bottom: 1px solid rgba(200,154,52,.15);
+}
+
+.go-logo img {
+  width: 32px;
+  height: 32px;
+}
+
+.go-logo-name {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-size: 18px;
+  font-weight: 700;
+  color: #1A1814;
+  letter-spacing: 0.12em;
+  line-height: 1;
+}
+
+.go-logo-sub {
+  font-size: 10px;
+  color: #8B7355;
+  display: block;
+  letter-spacing: 0.04em;
+  margin-top: 2px;
+}
+
+.go-nav {
+  flex: 1;
+  padding: 12px 0;
+  overflow-y: auto;
+}
+
+.go-nav-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 16px;
+  background: none;
+  border: none;
+  color: #5A4E3C;
+  font-size: 14px;
+  font-weight: 400;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s, color 0.15s;
+  border-radius: 0;
+  letter-spacing: 0.01em;
+}
+
+.go-nav-btn:hover {
+  background: rgba(200,154,52,.10);
+  color: #1A1814;
+}
+
+.go-nav-btn.active {
+  background: rgba(200,154,52,.22);
+  color: #1A1814;
+  font-weight: 600;
+}
+
+.go-nav-icon {
+  font-size: 15px;
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+
+.go-user {
+  padding: 14px 16px;
+  border-top: 1px solid rgba(200,154,52,.15);
+}
+
+.go-user-name {
+  font-size: 12px;
+  color: #5A4E3C;
+  margin-bottom: 2px;
+}
+
+.go-role-badge {
+  display: inline-block;
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 8px;
+  background: rgba(200,154,52,.18);
+  color: #7A5C14;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.go-logout {
+  background: none;
+  border: none;
+  color: #8B7355;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.go-logout:hover {
+  color: #1A1814;
+}
+
+/* ── Рабочая панель — стекло как в Kairos ── */
+.go-main {
+  flex: 1;
+  min-width: 0;
+  padding: 28px 32px;
+  background: rgba(255,255,255,.14);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border-radius: 20px;
+  box-shadow: 0 8px 40px rgba(160,110,20,.08);
+  border: 1px solid rgba(255,255,255,.5);
+  min-height: calc(100vh - 24px);
+  margin: 12px 12px 12px 0;
+  position: relative;
+  z-index: 1;
+  overflow: hidden;
+}
+
+/* Водяной знак Густорико */
+.go-main::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: url('/gm-crm/gustoriko-logo.png') center center / min(460px, 42vw) no-repeat;
+  opacity: 0.50;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Весь контент go-main поверх водяного знака */
+.go-main > * {
+  position: relative;
+  z-index: 1;
+}
+
+.go-header {
+  margin-bottom: 24px;
+}
+
+.go-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: #1A1814;
+  margin: 0 0 4px;
+}
+
+.go-subtitle {
+  font-size: 13px;
+  color: #8B7355;
+  margin: 0;
+}
+
+/* Stats row */
+.go-stats {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.go-stat-card {
+  flex: 1;
+  min-width: 140px;
+  padding: 16px 20px;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(200, 154, 52, 0.2);
+  border-radius: 12px;
+  backdrop-filter: blur(8px);
+}
+
+/* Градиентные карточки — золото/бронза/серебро */
+.go-stat-card--gold {
+  background: linear-gradient(135deg,#8A6415 0%,#B98D2A 15%,#E4C260 34%,#F7E4A0 50%,#E0BA4C 64%,#A67E1E 83%,#7C5C12 100%);
+  border-color: transparent;
+  box-shadow: 0 4px 20px rgba(184,150,78,.25);
+}
+.go-stat-card--gold .label { color: rgba(74,50,8,.7); }
+.go-stat-card--gold .value { color: #3A2800; }
+
+.go-stat-card--bronze {
+  background: linear-gradient(135deg,#6E3F1C 0%,#995C2C 15%,#C68B4A 33%,#E9B778 46%,#F3D29A 52%,#C88A46 64%,#8E5427 82%,#5F3818 100%);
+  border-color: transparent;
+  box-shadow: 0 4px 20px rgba(150,90,40,.25);
+}
+.go-stat-card--bronze .label { color: rgba(255,242,216,.7); }
+.go-stat-card--bronze .value { color: #FFF2D8; }
+
+.go-stat-card--silver {
+  background: linear-gradient(135deg,#5A5A5A 0%,#8A8A8A 20%,#C0C0C0 40%,#E8E8E8 52%,#B0B0B0 66%,#787878 84%,#4A4A4A 100%);
+  border-color: transparent;
+  box-shadow: 0 4px 20px rgba(100,100,100,.2);
+}
+.go-stat-card--silver .label { color: rgba(255,255,255,.65); }
+.go-stat-card--silver .value { color: #fff; }
+
+.go-stat-card .label {
+  font-size: 11px;
+  color: #8B7355;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 6px;
+}
+
+.go-stat-card .value {
+  font-size: 24px;
+  font-weight: 700;
+  color: #1A1814;
+}
+
+/* Table */
+.go-table-wrap {
+  overflow-x: auto;
+  border-radius: 12px;
+  border: 1px solid rgba(200, 154, 52, 0.15);
+}
+
+.go-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.go-table th {
+  padding: 10px 14px;
+  background: rgba(200, 154, 52, 0.07);
+  text-align: left;
+  font-weight: 600;
+  font-size: 11px;
+  color: #8B7355;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid rgba(200, 154, 52, 0.15);
+  position: relative;
+  user-select: none;
+  overflow: hidden;
+}
+
+.go-col-resize {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 5px;
+  cursor: col-resize;
+  background: transparent;
+  z-index: 2;
+  transition: background 0.1s;
+}
+.go-col-resize:hover,
+.go-col-resize.dragging {
+  background: rgba(200, 154, 52, 0.55);
+}
+
+.go-table td {
+  padding: 11px 14px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+  color: #1A1814;
+  vertical-align: middle;
+}
+
+.go-table tr:last-child td {
+  border-bottom: none;
+}
+
+.go-table tr:hover td {
+  background: rgba(200, 154, 52, 0.04);
+}
+
+/* Status badge */
+.go-badge {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Action button */
+.go-btn {
+  padding: 7px 14px;
+  border-radius: 8px;
+  border: none;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.go-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.go-btn--gold {
+  background: linear-gradient(135deg, #C89A34, #E4C260);
+  color: #3A2800;
+}
+
+.go-btn--outline {
+  background: transparent;
+  border: 1px solid rgba(200, 154, 52, 0.4);
+  color: #8B6914;
+}
+
+.go-btn--green {
+  background: #2E7D32;
+  color: #fff;
+}
+
+.go-btn--danger {
+  background: transparent;
+  border: 1px solid rgba(198, 40, 40, 0.3);
+  color: #C62828;
+}
+
+/* Cards grid (assembly) */
+.go-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.go-card {
+  background: rgba(255, 255, 255, 0.75);
+  border: 1px solid rgba(200, 154, 52, 0.2);
+  border-radius: 14px;
+  backdrop-filter: blur(8px);
+  padding: 18px 20px;
+}
+
+.go-card-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #1A1814;
+  margin: 0 0 6px;
+}
+
+.go-card-meta {
+  font-size: 12px;
+  color: #8B7355;
+  margin-bottom: 12px;
+}
+
+.go-card-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+
+/* Form */
+.go-form {
+  background: rgba(255, 255, 255, 0.75);
+  border: 1px solid rgba(200, 154, 52, 0.2);
+  border-radius: 14px;
+  padding: 20px 24px;
+  margin-bottom: 24px;
+  backdrop-filter: blur(8px);
+}
+
+.go-form h3 {
+  margin: 0 0 16px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #1A1814;
+}
+
+.go-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.go-field label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #8B7355;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.go-field input,
+.go-field select,
+.go-field textarea {
+  padding: 8px 12px;
+  border: 1px solid rgba(200, 154, 52, 0.25);
+  border-radius: 8px;
+  font-size: 13px;
+  background: rgba(254, 252, 246, 0.8);
+  color: #1A1814;
+  font-family: inherit;
+}
+
+.go-field input:focus,
+.go-field select:focus,
+.go-field textarea:focus {
+  outline: none;
+  border-color: #C89A34;
+}
+
+/* Toggle tabs */
+.go-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 20px;
+  background: rgba(200, 154, 52, 0.08);
+  padding: 4px;
+  border-radius: 10px;
+  width: fit-content;
+}
+
+.go-tab {
+  padding: 6px 16px;
+  border-radius: 7px;
+  border: none;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  background: transparent;
+  color: #8B7355;
+  transition: all 0.15s;
+}
+
+.go-tab.active {
+  background: #fff;
+  color: #1A1814;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Section heading */
+.go-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.go-section-head h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: #1A1814;
+}
+
+/* Empty state */
+.go-empty {
+  text-align: center;
+  padding: 60px 24px;
+  color: #8B7355;
+  font-size: 14px;
+}
+
+/* Kanban columns (director) */
+.go-kanban {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 28px;
+}
+
+@media (max-width: 900px) {
+  .go-kanban {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.go-kanban-col {
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(200, 154, 52, 0.15);
+  border-radius: 12px;
+  padding: 14px 16px;
+  backdrop-filter: blur(6px);
+}
+
+.go-kanban-col-head {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #8B7355;
+  margin-bottom: 10px;
+}
+
+.go-kanban-count {
+  font-size: 32px;
+  font-weight: 700;
+  color: #1A1814;
+  line-height: 1;
+}
+
+.go-kanban-sub {
+  font-size: 12px;
+  color: #8B7355;
+  margin-top: 4px;
+}
+
+.go-search-input {
+  width: 100%; max-width: 440px; padding: 9px 14px;
+  border: 1px solid rgba(200,154,52,.3); border-radius: 8px;
+  font-size: 14px; background: #fff; color: #1A1814;
+  outline: none; box-sizing: border-box;
+}
+.go-search-input:focus { border-color: #C89A34; box-shadow: 0 0 0 3px rgba(200,154,52,.12); }
+.go-cat-grid { display: flex; flex-direction: column; gap: 6px; }
+.go-cat-card { width: 100%; display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: #fff; border: 1px solid rgba(200,154,52,.2); border-radius: 10px; cursor: pointer; text-align: left; transition: border-color .15s; }
+.go-cat-card:hover { border-color: #C89A34; }
+.go-cat-card--active { border-color: #C89A34; background: rgba(200,154,52,.04); border-bottom-left-radius: 0; border-bottom-right-radius: 0; border-bottom-color: transparent; }
+.go-cat-icon { font-size: 22px; flex-shrink: 0; }
+.go-cat-info { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.go-cat-name { font-size: 14px; font-weight: 600; color: #1A1814; }
+.go-cat-counts { font-size: 12px; color: #8B7355; }
+.go-cat-chevron { font-size: 10px; color: #C89A34; flex-shrink: 0; }
+.go-sup-list { border: 1px solid #C89A34; border-top: none; border-bottom-left-radius: 10px; border-bottom-right-radius: 10px; overflow: hidden; margin-bottom: 6px; }
+.go-sup-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; cursor: pointer; border-bottom: 1px solid rgba(200,154,52,.1); transition: background .12s; }
+.go-sup-row:last-child { border-bottom: none; }
+.go-sup-row:hover { background: rgba(200,154,52,.05); }
+.go-sup-row--open { background: rgba(200,154,52,.06); }
+.go-sup-row-main { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.go-sup-name { font-size: 14px; font-weight: 600; color: #1A1814; }
+.go-sup-cat { font-size: 11px; color: #8B7355; }
+.go-sup-row-meta { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.go-sup-chevron { font-size: 10px; color: #C89A34; margin-left: 4px; }
+.go-sup-card { padding: 16px; background: #FEFCF6; border-bottom: 1px solid rgba(200,154,52,.15); }
+.go-sup-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+.go-sup-field-label { font-size: 11px; color: #8B7355; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 3px; }
+.go-sup-field-value { font-size: 13px; color: #1A1814; line-height: 1.4; }

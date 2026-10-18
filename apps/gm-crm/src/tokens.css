@@ -1,0 +1,121 @@
+/*
+ * Design tokens — единственный источник правды.
+ * Импортируется первым в index.css.
+ * Компоненты используют только var(--token-*).
+ */
+
+/* ── Шрифты ────────────────────────────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&family=Inter:wght@400;500;600&display=swap');
+
+:root {
+  /* ── Палитра ──────────────────────────────────────────────────────────── */
+  --color-deep-black:  #1A1816;   /* фон основной */
+  --color-charcoal:    #2A2520;   /* поверхность / карта */
+  --color-ivory:       #E8DFD0;   /* текст на тёмном / светлая поверхность */
+  --color-sand:        #C9B99A;   /* приглушённый текст */
+  --color-bronze:      #8B6F47;   /* акцент: касса / деньги */
+  --color-terracotta:  #C65D3B;   /* акцент: тревога */
+  --color-burgundy:    #6B2737;   /* акцент: риск */
+  --color-muted-teal:  #5C7A7A;   /* акцент: спрос */
+  --color-lapis:       #1E3A5F;   /* акцент: план */
+  --color-caramel:     #C8956C;   /* тёплый акцент */
+  --color-gold:        #B8964E;   /* ТОЛЬКО волосок / акцент, не заливка фона */
+
+  /* ── Алфавит поверхностей ─────────────────────────────────────────────── */
+  --surface-base:      var(--color-deep-black);
+  --surface-card:      var(--color-charcoal);
+  --surface-raised:    #332D28;   /* на charcoal */
+
+  /* ── Текст ────────────────────────────────────────────────────────────── */
+  --text-primary:      var(--color-ivory);
+  --text-secondary:    var(--color-sand);
+  --text-muted:        #8C7B6A;
+  --text-inverse:      var(--color-deep-black);
+
+  /* ── Бордеры ──────────────────────────────────────────────────────────── */
+  --border-subtle:     rgba(232, 223, 208, 0.10);  /* ivory 10% */
+  --border-default:    rgba(232, 223, 208, 0.18);
+  --border-strong:     rgba(232, 223, 208, 0.35);
+
+  /* ── Акценты ──────────────────────────────────────────────────────────── */
+  --accent-cash:       var(--color-bronze);
+  --accent-alert:      var(--color-terracotta);
+  --accent-risk:       var(--color-burgundy);
+  --accent-demand:     var(--color-muted-teal);
+  --accent-plan:       var(--color-lapis);
+  --accent-warm:       var(--color-caramel);
+  --accent-gold:       var(--color-gold);
+
+  /* ── Типографика ──────────────────────────────────────────────────────── */
+  --font-serif:        'Cormorant Garamond', Georgia, serif;
+  --font-sans:         'Inter', system-ui, -apple-system, sans-serif;
+
+  --text-xs:           0.75rem;    /* 12px */
+  --text-sm:           0.875rem;   /* 14px */
+  --text-base:         1rem;       /* 16px */
+  --text-lg:           1.125rem;   /* 18px */
+  --text-xl:           1.25rem;    /* 20px */
+  --text-2xl:          1.5rem;     /* 24px */
+  --text-3xl:          1.875rem;   /* 30px */
+  --text-4xl:          2.25rem;    /* 36px */
+  --text-5xl:          3rem;       /* 48px */
+  --text-6xl:          clamp(3rem, 6vw, 4.5rem); /* 48–72px */
+
+  /* ── Спейсинг ─────────────────────────────────────────────────────────── */
+  --space-1:   0.25rem;   /*  4px */
+  --space-2:   0.5rem;    /*  8px */
+  --space-3:   0.75rem;   /* 12px */
+  --space-4:   1rem;      /* 16px */
+  --space-5:   1.25rem;   /* 20px */
+  --space-6:   1.5rem;    /* 24px */
+  --space-8:   2rem;      /* 32px */
+  --space-10:  2.5rem;    /* 40px */
+  --space-12:  3rem;      /* 48px */
+  --space-16:  4rem;      /* 64px */
+  --space-20:  5rem;      /* 80px */
+  --space-24:  6rem;      /* 96px */
+
+  /* ── Скругления ───────────────────────────────────────────────────────── */
+  --radius-sm:  8px;
+  --radius-md:  12px;
+  --radius-lg:  16px;
+  --radius-xl:  24px;
+
+  /* ── Тени (мягкие, warm-tinted) ──────────────────────────────────────── */
+  --shadow-sm:   0 1px 3px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow-md:   0 4px 16px rgba(0, 0, 0, 0.35), 0 2px 6px rgba(0, 0, 0, 0.2);
+  --shadow-lg:   0 12px 40px rgba(0, 0, 0, 0.45), 0 4px 12px rgba(0, 0, 0, 0.25);
+  --shadow-glow: 0 0 30px rgba(184, 150, 78, 0.15);  /* gold glow */
+
+  /* ── Переходы ─────────────────────────────────────────────────────────── */
+  --ease-out:    cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.45, 0, 0.55, 1);
+  --duration-fast:   150ms;
+  --duration-base:   250ms;
+  --duration-slow:   400ms;
+
+  /* ── Светлый канвас ───────────────────────────────────────────────────── */
+  --canvas-bg:        #F2EDE3;   /* основной холст */
+  --card-surface:     #FBF7F0;   /* карта чуть светлее холста */
+  --card-raised:      #FFFFFF;   /* поднятая поверхность внутри карты */
+
+  /* Текст на светлом */
+  --canvas-text:       #2A2520;   /* Charcoal — основной */
+  --canvas-heading:    #1A1816;   /* Deep Black — заголовки */
+  --canvas-muted:      #6B5D52;   /* приглушённый на светлом */
+  --canvas-subtle:     #9C8B7E;   /* очень тихий */
+
+  /* Бордеры на светлом */
+  --canvas-border:     rgba(42, 37, 32, 0.10);
+  --canvas-border-md:  rgba(42, 37, 32, 0.16);
+
+  /* Золото-волосок на светлом */
+  --gold-hairline:     rgba(184, 150, 78, 0.35);
+
+  /* Сайдбар */
+  --sidebar-bg:        #1A1816;
+  --sidebar-width:     220px;
+  --sidebar-text:      var(--color-sand);
+  --sidebar-text-muted: #6B5D52;
+  --sidebar-border:    rgba(232, 223, 208, 0.08);
+}

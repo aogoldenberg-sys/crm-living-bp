@@ -1,0 +1,245 @@
+/* ═══════════════════════════════════════════════════════════════
+   panels.css — RisksPanel + AutonomyPanel shared styles
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Shared layout ── */
+
+.panel-risks,
+.panel-autonomy {
+  padding: 2rem 2.5rem;
+  max-width: 780px;
+}
+
+.panel-title {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--color-charcoal, #1a1a2e);
+  margin: 0 0 1.5rem;
+  letter-spacing: -0.02em;
+}
+
+.panel-section {
+  margin-bottom: 2rem;
+}
+
+.panel-section--inline {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.panel-section-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-muted, #6b7280);
+  margin: 0 0 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.panel-section--inline .panel-section-title {
+  margin-bottom: 0;
+  white-space: nowrap;
+}
+
+/* ── Count badge ── */
+
+.panel-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5rem;
+  height: 1.5rem;
+  padding: 0 0.35rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.panel-count--risk    { background: #fee2e2; color: #b91c1c; }
+.panel-count--strength { background: #d1fae5; color: #065f46; }
+.panel-count--neutral  { background: #e5e7eb; color: #374151; }
+
+/* ── Empty states ── */
+
+.panel-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4rem 2rem;
+  text-align: center;
+  color: var(--color-muted, #6b7280);
+}
+
+.panel-empty--inline {
+  padding: 1.5rem 1rem;
+  flex-direction: row;
+  gap: 0.75rem;
+  text-align: left;
+}
+
+.panel-empty-icon {
+  font-size: 2rem;
+  margin-bottom: 0.75rem;
+  opacity: 0.4;
+}
+
+.panel-empty--inline .panel-empty-icon {
+  font-size: 1.25rem;
+  margin-bottom: 0;
+}
+
+.panel-empty-text {
+  font-size: 0.9rem;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.panel-no-items {
+  font-size: 0.875rem;
+  color: var(--color-muted, #9ca3af);
+  margin: 0.25rem 0 0;
+}
+
+/* ── Lists ── */
+
+.panel-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.panel-list-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.875rem 1rem;
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+}
+
+.panel-list-item--red    { border-left: 3px solid #ef4444; }
+.panel-list-item--yellow { border-left: 3px solid #f59e0b; }
+.panel-list-item--strength { border-left: 3px solid #10b981; }
+
+.panel-severity-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 0.3rem;
+}
+
+.panel-severity-dot--red    { background: #ef4444; }
+.panel-severity-dot--yellow { background: #f59e0b; }
+
+.panel-strength-check {
+  color: #10b981;
+  font-weight: 700;
+  font-size: 0.9rem;
+  flex-shrink: 0;
+}
+
+.panel-item-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.panel-item-title {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #111827;
+  margin: 0;
+  line-height: 1.4;
+}
+
+.panel-item-sub {
+  font-size: 0.8rem;
+  color: #6b7280;
+  margin: 0.3rem 0 0;
+  line-height: 1.4;
+}
+
+/* ── Autonomy level badge ── */
+
+.autonomy-level-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.4rem 1rem;
+  background: var(--color-charcoal, #1a1a2e);
+  color: #fff;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+/* ── Journal ── */
+
+.journal-list {
+  gap: 0.625rem;
+}
+
+.journal-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.875rem 1rem;
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+}
+
+.journal-row-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.journal-verdict {
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 0.2rem 0.55rem;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.verdict--execute { background: #d1fae5; color: #065f46; }
+.verdict--human   { background: #fef3c7; color: #92400e; }
+.verdict--nodata  { background: #f3f4f6; color: #6b7280; }
+
+.journal-dt {
+  font-size: 0.78rem;
+  color: #9ca3af;
+}
+
+.journal-reason {
+  font-size: 0.85rem;
+  color: #374151;
+  margin: 0;
+  line-height: 1.4;
+}
+
+.journal-meta {
+  display: flex;
+  gap: 1rem;
+  font-size: 0.75rem;
+  color: #9ca3af;
+}
+
+.journal-applied {
+  color: #10b981;
+  font-weight: 600;
+}

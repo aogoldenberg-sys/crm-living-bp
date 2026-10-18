@@ -1,0 +1,570 @@
+[
+  {
+    "cat": "Вода и напитки",
+    "icon": "🥤",
+    "suppliers": [
+      {
+        "name": "ApexFood",
+        "cat": "Вода и напитки",
+        "icon": "🥤",
+        "hasContract": false,
+        "hasPricefile": true,
+        "status": "📋 Прайс есть",
+        "section": "current",
+        "assortment": "",
+        "prices": "",
+        "conditions": "",
+        "sheetUrl": null
+      },
+      {
+        "name": "PepsiCo",
+        "cat": "Вода и напитки",
+        "icon": "🥤",
+        "hasContract": false,
+        "hasPricefile": true,
+        "status": "📋 Прайс есть",
+        "section": "current",
+        "assortment": "Напитки, снеки",
+        "prices": "",
+        "conditions": "",
+        "sheetUrl": null
+      },
+      {
+        "name": "OKF Korea",
+        "cat": "Вода и напитки",
+        "icon": "🥤",
+        "hasContract": false,
+        "hasPricefile": false,
+        "status": "❓ Нет файлов",
+        "section": "current",
+        "assortment": "",
+        "prices": "",
+        "conditions": "",
+        "sheetUrl": null
+      },
+      {
+        "name": "Ашкуди Энерджи",
+        "cat": "Вода и напитки",
+        "icon": "🥤",
+        "hasContract": false,
+        "hasPricefile": false,
+        "status": "❓ Нет файлов",
+        "section": "current",
+        "assortment": "",
+        "prices": "",
+        "conditions": "",
+        "sheetUrl": null
+      },
+      {
+        "name": "Мултон",
+        "cat": "Вода и напитки",
+        "icon": "🥤",
+        "hasContract": false,
+        "hasPricefile": true,
+        "status": "📋 Прайс есть",
+        "section": "current",
+        "assortment": "",
+        "prices": "",
+        "conditions": "",
+        "sheetUrl": null
+      },
+      {
+        "name": "Мурат / Ярмарка",
+        "cat": "Вода и напитки",
+        "icon": "🥤",
+        "hasContract": false,
+        "hasPricefile": true,
+        "status": "📋 Прайс есть",
+        "section": "current",
+        "assortment": "",
+        "prices": "",
+        "conditions": "",
+        "sheetUrl": null
+      },
+      {
+        "name": "Байкал",
+        "cat": "Вода и напитки",
+        "icon": "🥤",
+        "hasContract": false,
+        "hasPricefile": true,
+        "status": "📋 Прайс есть",
+        "section": "current",
+        "assortment": "",
+        "prices": "",
+        "conditions": "",
+        "sheetUrl": null
+      },
+      {
+        "name": "Сенежская",
+        "cat": "Вода и напитки",
+        "icon": "🥤",
+        "hasContract": false,
+        "hasPricefile": true,
+        "status": "📋 Прайс есть",
+        "section": "current",
+        "assortment": "",
+        "prices": "",
+        "conditions": "",
+        "sheetUrl": null
+      },
+      {
+        "name": "Черноголовка",
+        "cat": "Вода и напитки",
+        "icon": "🥤",
+        "hasContract": false,
+        "hasPricefile": true,
+        "status": "📋 Прайс есть",
+        "section": "current",
+        "assortment": "",
+        "prices": "",
+        "conditions": "",
+        "sheetUrl": null
+      }
+    ]
+  },
+  {
+    "cat": "Алкоголь и пиво",
+    "icon": "🍺",
+    "suppliers": [
+      {
+        "name": "Бочкарев / UniteBrewery",
+        "cat": "Алкоголь и пиво",
+        "icon": "🍺",
+        "hasContract": false,
+        "hasPricefile": true,
+        "status": "📋 Прайс есть",
+        "section": "current",
+        "assortment": "",
+        "prices": "",
+        "conditions": "",
+        "sheetUrl": null
+      }
+    ]
+  },
+  {
+    "cat": "Мясо и консервы",
+    "icon": "🥫",
+    "suppliers": [
+      {
+        "name": "А10",
+        "cat": "Мясо и консервы",
+        "icon": "🥫",
+        "hasContract": false,
+        "hasPricefile": true,
+        "status": "📋 Прайс есть",
+        "section": "current",
+        "assortment": "Консервы, мясо, тушёнка",
+        "prices": "",
+        "conditions": "",
+        "sheetUrl": null
+      },
+      {
+        "name": "Птицефабрика Сеймовская",
+        "cat": "Мясо и консервы",
+        "icon": "🥫",
+        "hasContract": false,
+        "hasPricefile": true,
+        "status": "📋 Прайс есть",
+        "section": "current",
+        "assortment": "Мясо, колбасы",
+        "prices": "",
+        "conditions": "",
+        "sheetUrl": null
+      },
+      {
+        "name": "Скорпинский",
+        "cat": "Мясо и консервы",
+        "icon": "🥫",
+        "hasContract": false,
+        "hasPricefile": true,
+        "status": "📋 Прайс есть",
+        "section": "current",
+        "assortment": "",
+        "prices": "",
+        "conditions": "",
+        "sheetUrl": null
+      },
+      {
+        "name": "Скопинский",
+        "cat": "Мясо и консервы",
+        "icon": "🥫",
+        "hasContract": false,
+        "hasPricefile": true,
+        "status": "📋 Прайс есть",
+        "section": "current",
+        "assortment": "",
+        "prices": "",
+        "conditions": "",
+        "sheetUrl": null
+      }
+    ]
+  },
+  {
+    "cat": "Сыры и молочное",
+    "icon": "🧀",
+    "suppliers": [
+      {
+        "name": "Курский МЗ",
+        "cat": "Сыры и молочное",
+        "icon": "🧀",
+        "hasContract": true,
+        "hasPricefile": true,
+        "status": "✅ Договор + прайс",
+        "section": "current",
+        "assortment": "",
+        "prices": "",
+        "conditions": "",
+        "sheetUrl": null
+      },
+      {
+        "name": "Молтрейд",
+        "cat": "Сыры и молочное",
+        "icon": "🧀",
+        "hasContract": true,
+        "hasPricefile": true,
+        "status": "✅ Договор + прайс",
+        "section": "current",
+        "assortment": "",
+        "prices": "",
+        "conditions": "",
+        "sheetUrl": null
+      },
+      {
+        "name": "Пик пак сыр",
+        "cat": "Сыры и молочное",
+        "icon": "🧀",
+        "hasContract": false,
+        "hasPricefile": true,
+        "status": "📋 Прайс есть",
+        "section": "current",
+        "assortment": "",
+        "prices": "",
+        "conditions": "",
+        "sheetUrl": null
+      }
+    ]
+  },
+  {
+    "cat": "Кондитерские изделия",
+    "icon": "🍬",
+    "suppliers": [
+      {
+        "name": "Дикси",
+        "cat": "Кондитерские изделия",
+        "icon": "🍬",
+        "hasContract": false,
+        "hasPricefile": false,
+        "status": "❓ Нет файлов",
+        "section": "current",
+        "assortment": "",
+        "prices": "",
+        "conditions": "",
+        "sheetUrl": null
+      },
+      {
+        "name": "Кэнди Фрут",
+        "cat": "Кондитерские изделия",
+        "icon": "🍬",
+        "hasContract": false,
+        "hasPricefile": true,
+        "status": "📋 Прайс есть",
+        "section": "current",
+        "assortment": "",
+        "prices": "",
+        "conditions": "",
+        "sheetUrl": null
+      },
+      {
+        "name": "Скатерть-Самобранка",
+        "cat": "Кондитерские изделия",
+        "icon": "🍬",
+        "hasContract": false,
+        "hasPricefile": false,
+        "status": "❓ Нет файлов",
+        "section": "current",
+        "assortment": "",
+        "prices": "",
+        "conditions": "",
+        "sheetUrl": null
+      },
+      {
+        "name": "ТД Орион",
+        "cat": "Кондитерские изделия",
+        "icon": "🍬",
+        "hasContract": false,
+        "hasPricefile": true,
+        "status": "📋 Прайс есть",
+        "section": "current",
+        "assortment": "",
+        "prices": "",
+        "conditions": "",
+        "sheetUrl": null
+      },
+      {
+        "name": "Тандер",
+        "cat": "Кондитерские изделия",
+        "icon": "🍬",
+        "hasContract": false,
+        "hasPricefile": true,
+        "status": "📋 Прайс есть",
+        "section": "current",
+        "assortment": "",
+        "prices": "",
+        "conditions": "",
+        "sheetUrl": null
+      },
+      {
+        "name": "Чупа Лэнд",
+        "cat": "Кондитерские изделия",
+        "icon": "🍬",
+        "hasContract": false,
+        "hasPricefile": true,
+        "status": "📋 Прайс есть",
+        "section": "current",
+        "assortment": "",
+        "prices": "",
+        "conditions": "",
+        "sheetUrl": null
+      },
+      {
+        "name": "КРУТОТЕСТОВО",
+        "cat": "Кондитерские изделия",
+        "icon": "🍬",
+        "hasContract": false,
+        "hasPricefile": true,
+        "status": "📋 Прайс есть",
+        "section": "current",
+        "assortment": "Кондитерские изделия",
+        "prices": "",
+        "conditions": "",
+        "sheetUrl": null
+      },
+      {
+        "name": "ТД Продвей",
+        "cat": "Кондитерские изделия",
+        "icon": "🍬",
+        "hasContract": false,
+        "hasPricefile": true,
+        "status": "📋 Прайс есть",
+        "section": "current",
+        "assortment": "Доширак, Акульчев и другие",
+        "prices": "",
+        "conditions": "",
+        "sheetUrl": null
+      },
+      {
+        "name": "Ротфронт",
+        "cat": "Кондитерские изделия",
+        "icon": "🍬",
+        "hasContract": false,
+        "hasPricefile": false,
+        "status": "❓ Нет файлов",
+        "section": "current",
+        "assortment": "Конфеты, шоколад, мармелад",
+        "prices": "",
+        "conditions": "",
+        "sheetUrl": null
+      }
+    ]
+  },
+  {
+    "cat": "Бакалея и консервы",
+    "icon": "🫙",
+    "suppliers": [
+      {
+        "name": "Eurotrade24",
+        "cat": "Бакалея и консервы",
+        "icon": "🫙",
+        "hasContract": false,
+        "hasPricefile": true,
+        "status": "📋 Прайс есть",
+        "section": "current",
+        "assortment": "",
+        "prices": "",
+        "conditions": "",
+        "sheetUrl": null
+      },
+      {
+        "name": "Great Green",
+        "cat": "Бакалея и консервы",
+        "icon": "🫙",
+        "hasContract": false,
+        "hasPricefile": false,
+        "status": "❓ Нет файлов",
+        "section": "current",
+        "assortment": "",
+        "prices": "",
+        "conditions": "",
+        "sheetUrl": null
+      },
+      {
+        "name": "Аксиома",
+        "cat": "Бакалея и консервы",
+        "icon": "🫙",
+        "hasContract": false,
+        "hasPricefile": true,
+        "status": "📋 Прайс есть",
+        "section": "current",
+        "assortment": "",
+        "prices": "",
+        "conditions": "",
+        "sheetUrl": null
+      },
+      {
+        "name": "IFG",
+        "cat": "Бакалея и консервы",
+        "icon": "🫙",
+        "hasContract": false,
+        "hasPricefile": true,
+        "status": "📋 Прайс есть",
+        "section": "current",
+        "assortment": "Крабовые палочки, сыры",
+        "prices": "",
+        "conditions": "",
+        "sheetUrl": null
+      },
+      {
+        "name": "Северный берег",
+        "cat": "Бакалея и консервы",
+        "icon": "🫙",
+        "hasContract": false,
+        "hasPricefile": true,
+        "status": "📋 Прайс есть",
+        "section": "current",
+        "assortment": "Оливковое масло",
+        "prices": "",
+        "conditions": "",
+        "sheetUrl": null
+      },
+      {
+        "name": "ИнтерФуд Групп",
+        "cat": "Бакалея и консервы",
+        "icon": "🫙",
+        "hasContract": false,
+        "hasPricefile": true,
+        "status": "📋 Прайс есть",
+        "section": "current",
+        "assortment": "",
+        "prices": "",
+        "conditions": "",
+        "sheetUrl": null
+      },
+      {
+        "name": "Метро",
+        "cat": "Бакалея и консервы",
+        "icon": "🫙",
+        "hasContract": false,
+        "hasPricefile": false,
+        "status": "❓ Нет файлов",
+        "section": "current",
+        "assortment": "",
+        "prices": "",
+        "conditions": "",
+        "sheetUrl": null
+      },
+      {
+        "name": "Первым Делом",
+        "cat": "Бакалея и консервы",
+        "icon": "🫙",
+        "hasContract": false,
+        "hasPricefile": false,
+        "status": "❓ Нет файлов",
+        "section": "current",
+        "assortment": "",
+        "prices": "",
+        "conditions": "",
+        "sheetUrl": null
+      },
+      {
+        "name": "Профитс (Русина)",
+        "cat": "Бакалея и консервы",
+        "icon": "🫙",
+        "hasContract": false,
+        "hasPricefile": false,
+        "status": "❓ Нет файлов",
+        "section": "current",
+        "assortment": "",
+        "prices": "",
+        "conditions": "",
+        "sheetUrl": null
+      },
+      {
+        "name": "ТД ЕврАзия",
+        "cat": "Бакалея и консервы",
+        "icon": "🫙",
+        "hasContract": false,
+        "hasPricefile": false,
+        "status": "❓ Нет файлов",
+        "section": "current",
+        "assortment": "",
+        "prices": "",
+        "conditions": "",
+        "sheetUrl": null
+      }
+    ]
+  },
+  {
+    "cat": "Замороженные",
+    "icon": "❄️",
+    "suppliers": [
+      {
+        "name": "ЛетоК",
+        "cat": "Замороженные",
+        "icon": "❄️",
+        "hasContract": false,
+        "hasPricefile": true,
+        "status": "📋 Прайс есть",
+        "section": "current",
+        "assortment": "",
+        "prices": "",
+        "conditions": "",
+        "sheetUrl": null
+      }
+    ]
+  },
+  {
+    "cat": "Прочее",
+    "icon": "📦",
+    "suppliers": [
+      {
+        "name": "ZSM RICHI",
+        "cat": "Прочее",
+        "icon": "📦",
+        "hasContract": false,
+        "hasPricefile": false,
+        "status": "❓ Нет файлов",
+        "section": "current",
+        "assortment": "",
+        "prices": "",
+        "conditions": "",
+        "sheetUrl": null
+      },
+      {
+        "name": "АРТ-ГРУПП ТР",
+        "cat": "Прочее",
+        "icon": "📦",
+        "hasContract": false,
+        "hasPricefile": false,
+        "status": "❓ Нет файлов",
+        "section": "current",
+        "assortment": "",
+        "prices": "",
+        "conditions": "",
+        "sheetUrl": null
+      },
+      {
+        "name": "Торговый Дом Восток",
+        "cat": "Прочее",
+        "icon": "📦",
+        "hasContract": false,
+        "hasPricefile": false,
+        "status": "❓ Нет файлов",
+        "section": "current",
+        "assortment": "",
+        "prices": "",
+        "conditions": "",
+        "sheetUrl": null
+      }
+    ]
+  }
+]
