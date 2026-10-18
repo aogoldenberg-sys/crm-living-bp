@@ -4,6 +4,7 @@ import { DealStageChanged } from "./deal.js";
 import { LeadCaptured } from "./lead.js";
 import { CallLogged } from "./call.js";
 import { BalanceAnchor } from "./balance_anchor.js";
+import { OrderStageChanged, PurchaseOrderEdited } from "../gustoriko/events.js";
 
 export { PaymentIn, PaymentOut, PaymentCorrection } from "./payment.js";
 export type { PaymentIn as PaymentInType, PaymentOut as PaymentOutType, PaymentCorrection as PaymentCorrectionType } from "./payment.js";
@@ -20,6 +21,9 @@ export type { ExternalSignal as ExternalSignalType, DemandTrendPoint as DemandTr
  * discriminatedUnion быстрее z.union — Zod находит схему за O(1) по полю type,
  * а не перебирает все варианты. Критично при парсинге потока событий.
  */
+export { OrderStageChanged, PurchaseOrderEdited } from "../gustoriko/events.js";
+export type { OrderStageChanged as OrderStageChangedType, PurchaseOrderEdited as PurchaseOrderEditedType } from "../gustoriko/events.js";
+
 export const BusinessEvent = z.discriminatedUnion("type", [
   PaymentIn,
   PaymentOut,
@@ -28,6 +32,8 @@ export const BusinessEvent = z.discriminatedUnion("type", [
   LeadCaptured,
   CallLogged,
   BalanceAnchor,
+  OrderStageChanged,
+  PurchaseOrderEdited,
 ]);
 
 export type BusinessEvent = z.infer<typeof BusinessEvent>;

@@ -28,5 +28,6 @@ export * from "./billing/index.js";
 export * from "./monitor/index.js";
 export * from "./report/index.js";
 export * from "./scenarios/index.js";
+export * from "./gustoriko/index.js";
 // pdf.ts не экспортируется отсюда — pdfkit Node-only, нельзя в браузерный бандл
 // import напрямую: import { generatePaymentPdf } from "@crm/core/documents/pdf"

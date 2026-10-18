@@ -11,8 +11,10 @@ import { Dashboard } from "./dashboard/Dashboard";
 import { PlanSectionPage } from "./plan/PlanSectionPage";
 import { OnboardingFlow } from "./onboarding/OnboardingFlow";
 import { usePlanExists } from "./onboarding/usePlanExists";
+import { useGustorikoRole } from "./auth/useRole";
 import { ServicesPage } from "./services/ServicesPage";
 import { BusinessPage } from "./features/revision/BusinessPage";
+import { OrdersPage } from "./orders/OrdersPage";
 
 // Обрабатывает #yandex_token= на ЛЮБОМ роуте — Worker редиректит на /kairos/
 function YandexAuthHandler() {
@@ -96,8 +98,13 @@ function EmailVerifyBanner() {
 function DashboardOrOnboarding() {
   const { user, businessId } = useAuth();
   const { loading, exists } = usePlanExists(businessId);
+  const { roleId, loading: grLoading } = useGustorikoRole();
+
   if (!user) return <Navigate to="/login" replace />;
-  // Wait until businessId is resolved AND plan check completes before deciding
+  // Сотрудники Густорико → сразу в модуль заказов
+  if (grLoading) return <div className="loading-screen">Загрузка...</div>;
+  if (roleId) return <Navigate to="/orders" replace />;
+  // Обычные пользователи Кайроса
   if (!businessId || loading) return <div className="loading-screen">Загрузка...</div>;
   if (!exists) return <Navigate to="/onboarding" replace />;
   return <Dashboard />;
@@ -238,6 +245,12 @@ export default function App() {
         <Route
           path="/services"
           element={user ? <ServicesPage /> : <Navigate to="/login" replace />}
+        />
+
+        {/* Густорико CRM — управление заказами */}
+        <Route
+          path="/orders"
+          element={user ? <OrdersPage /> : <Navigate to="/login" replace />}
         />
 
         {/* Fallback */}

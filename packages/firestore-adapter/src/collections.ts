@@ -14,4 +14,11 @@ export const COL = {
   FUNNELS:        "funnels",
   CASH_FORECAST:  "cash_forecast",
   PLANFACT:       "plan_fact",
+  // Густорико
+  PRODUCTS:        "products",
+  SUPPLIERS:       "suppliers",
+  SUPPLIER_PRICES: "supplier_prices",
+  ORDERS:          "orders",
+  PURCHASE_ORDERS: "purchase_orders",
+  CLIENTS:         "clients",
 } as const;

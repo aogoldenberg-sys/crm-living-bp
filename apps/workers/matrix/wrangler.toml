@@ -1,0 +1,13 @@
+name = "crm-matrix"
+main = "src/index.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat_v2"]
+
+# Секреты (wrangler secret put):
+#   MATRIX_DOMAIN   — домен АТС, напр. company.matrixtelecom.ru
+#   MATRIX_TOKEN    — API-токен из ЛК Matrix (раздел CRM-интеграция)
+#   MATRIX_CRM_TOKEN — токен валидации входящих вебхуков (придумываем сами)
+
+[[kv_namespaces]]
+binding = "CALL_EVENTS"
+id = "48c96ed6642441d589bc7483d21a9ec7"

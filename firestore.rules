@@ -45,6 +45,83 @@ service cloud.firestore {
       allow write: if false; // только CF Workers через admin SDK
     }
 
+    // ── Густорико — сотрудники по email ───────────────────────────────────────
+
+    // Вспомогательная функция: пользователь является сотрудником Густорико.
+    // Проверяет наличие его email в коллекции emailRoles.
+    function isGustorikoEmployee() {
+      return request.auth != null
+          && exists(/databases/$(database)/documents/tenants/gustoriko/emailRoles/$(request.auth.token.email));
+    }
+
+    // СПб менеджер — ограниченный доступ: только заказы/клиенты/финансы/долги своего региона.
+    // Поставщики, прайс, сборка, закупки — недоступны.
+    function isSpbManager() {
+      return isGustorikoEmployee()
+          && get(/databases/$(database)/documents/tenants/gustoriko/emailRoles/$(request.auth.token.email)).data.roleId == "spb_manager";
+    }
+
+    // Читать свою роль — только по совпадению email.
+    match /tenants/gustoriko/emailRoles/{email} {
+      allow read: if request.auth != null && request.auth.token.email == email;
+    }
+
+    // Заказы, клиенты, наряды, прайсы — любой сотрудник Густорико.
+    match /tenants/gustoriko/orders/{orderId} {
+      allow read: if isGustorikoEmployee();
+      allow write: if isGustorikoEmployee();
+    }
+    match /tenants/gustoriko/clients/{clientId} {
+      allow read: if isGustorikoEmployee();
+    }
+    match /tenants/gustoriko/client_contacts/{docId} {
+      allow read, write: if isGustorikoEmployee();
+    }
+    match /tenants/gustoriko/purchase_orders/{poId} {
+      allow read: if isGustorikoEmployee();
+      allow write: if isGustorikoEmployee();
+    }
+    match /tenants/gustoriko/pricelist_items/{itemId} {
+      allow read: if isGustorikoEmployee() && !isSpbManager();
+    }
+    match /tenants/gustoriko/suppliers/{supId} {
+      // spb_manager читает для combobox в StockTab; пишет только для добавления нового поставщика оттуда
+      allow read: if isGustorikoEmployee();
+      allow write: if isGustorikoEmployee();
+    }
+    match /tenants/gustoriko/invoices/{invId} {
+      allow read: if isGustorikoEmployee();
+      allow write: if isGustorikoEmployee();
+    }
+    match /tenants/gustoriko/payments/{payId} {
+      allow read: if isGustorikoEmployee();
+      // Создаёт VPS; сотрудник может обновить orderId/status для ручного сопоставления
+      allow create: if false;
+      allow update: if isGustorikoEmployee()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["orderId", "status"]);
+    }
+    match /tenants/gustoriko/assembly/{docId} {
+      allow read: if isGustorikoEmployee();
+      allow write: if isGustorikoEmployee();
+    }
+    match /tenants/gustoriko/stock/{docId} {
+      allow read: if isGustorikoEmployee();
+      allow write: if isGustorikoEmployee();
+    }
+    match /tenants/gustoriko/purchase_lines/{docId} {
+      allow read: if isGustorikoEmployee();
+      allow write: if isGustorikoEmployee();
+    }
+    match /tenants/gustoriko/debts/{docId} {
+      allow read: if isGustorikoEmployee();
+      allow write: if isGustorikoEmployee();
+    }
+    match /tenants/gustoriko/chat/{msgId} {
+      allow read: if isGustorikoEmployee();
+      allow create: if isGustorikoEmployee();
+      allow update, delete: if false;
+    }
+
     // Менеджер читает сделки только с совпадающим ownerId.
     // crmUserId — UUID менеджера в CRM, задаётся auth-воркером в custom claim.
     match /tenants/{businessId}/deals/{dealId} {

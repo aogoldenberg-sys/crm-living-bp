@@ -1,0 +1,41 @@
+{
+  "name": "@crm/gm-crm",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@crm/core": "workspace:*",
+    "@crm/schemas": "workspace:*",
+    "@tanstack/react-query": "^5.101.0",
+    "@types/d3": "^7.4.3",
+    "d3": "^7.9.0",
+    "firebase": "^10.14.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "6",
+    "recharts": "^2.15.4",
+    "xlsx": "^0.18.5",
+    "zustand": "^4.5.7"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^3.1.0",
+    "@vitest/coverage-v8": "^2.1.1",
+    "jsdom": "^26.1.0",
+    "typescript": "^5.9.3",
+    "vite": "^4.5.14",
+    "vitest": "^2.1.1"
+  }
+}

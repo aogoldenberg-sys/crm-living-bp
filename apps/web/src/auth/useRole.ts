@@ -85,6 +85,64 @@ export interface UseRoleResult {
   loading: boolean;
 }
 
+// ── Gustoriko roles ───────────────────────────────────────────────────────────
+
+export const GUSTORIKO_ROLES = {
+  sales:      { displayName: "Менеджер продаж" },
+  assembly:   { displayName: "Формирование заказа" },
+  purchasing: { displayName: "Менеджер по закупкам" },
+  finance:    { displayName: "Финансист" },
+  director:   { displayName: "Руководитель" },
+} as const;
+
+export interface UseGustorikoRoleResult {
+  roleId: string | null;
+  displayName: string | null;
+  loading: boolean;
+}
+
+/**
+ * Читает роль из tenants/gustoriko/emailRoles/{user.email}.
+ * Если записи нет — roleId=null (не сотрудник Густорико).
+ */
+export function useGustorikoRole(): UseGustorikoRoleResult {
+  const { user } = useAuth();
+  const [result, setResult] = useState<UseGustorikoRoleResult>({
+    roleId: null,
+    displayName: null,
+    loading: true,
+  });
+
+  useEffect(() => {
+    if (!user?.email) {
+      setResult({ roleId: null, displayName: null, loading: false });
+      return;
+    }
+
+    const docRef = doc(db, `tenants/gustoriko/emailRoles/${user.email}`);
+
+    const unsub = onSnapshot(
+      docRef,
+      (snap) => {
+        if (snap.exists()) {
+          const data = snap.data() as { roleId: string; displayName: string };
+          setResult({ roleId: data.roleId, displayName: data.displayName, loading: false });
+        } else {
+          setResult({ roleId: null, displayName: null, loading: false });
+        }
+      },
+      (err) => {
+        console.error("useGustorikoRole error:", err);
+        setResult({ roleId: null, displayName: null, loading: false });
+      },
+    );
+
+    return () => unsub();
+  }, [user?.email]);
+
+  return result;
+}
+
 /**
  * Читает полную запись роли из tenants/{businessId}/roles/{userId}.
  * Если документа нет — возвращает DEFAULT_ROLE (manager, самые узкие права).

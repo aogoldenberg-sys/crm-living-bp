@@ -27,3 +27,4 @@ export {
 } from "./deals.js";
 export { COL } from "./collections.js";
 export { saveDemandSignals, loadDemandSignals } from "./demand.js";
+export * from "./gustoriko/index.js";
