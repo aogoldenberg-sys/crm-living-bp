@@ -185,7 +185,13 @@ export function SalesView({ businessId, onGoToPurchasing: _onGoToPurchasing, onG
     const d = new Date(o.createdAt);
     return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
   });
-  const monthRevenue = monthOrders.filter((o) => o.paid).reduce((s, o) => s + o.totalKopecks, 0);
+  const cntPaid      = monthOrders.filter((o) => o.paid).length;
+  const cntAssembly  = regionOrders.filter((o) => o.status === "sourcing").length;
+  const cntShipped   = regionOrders.filter((o) => o.status === "delivered").length;
+  const cntDebt      = regionOrders.filter((o) => {
+    if (o.status === "cancelled" || o.status === "delivered") return false;
+    return (o.assembledQtys ?? []).some((q: number) => q > 0);
+  }).length;
 
   // Unique cities for filter dropdown
   const cities = [...new Set(
@@ -384,8 +390,20 @@ export function SalesView({ businessId, onGoToPurchasing: _onGoToPurchasing, onG
           <div className="value">{monthOrders.length}</div>
         </div>
         <div className="go-stat-card">
-          <div className="label">Выручка месяца</div>
-          <div className="value" style={{ fontSize: 18 }}>{fmtRub(monthRevenue)}</div>
+          <div className="label">Оплачены</div>
+          <div className="value">{cntPaid}</div>
+        </div>
+        <div className="go-stat-card">
+          <div className="label">В сборке</div>
+          <div className="value">{cntAssembly}</div>
+        </div>
+        <div className="go-stat-card">
+          <div className="label">Отгружены</div>
+          <div className="value">{cntShipped}</div>
+        </div>
+        <div className="go-stat-card">
+          <div className="label">Долги — недогружено</div>
+          <div className="value" style={cntDebt > 0 ? { color: "#C62828" } : {}}>{cntDebt}</div>
         </div>
       </div>
 

@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { collection, onSnapshot, addDoc, doc, setDoc, query, orderBy } from "firebase/firestore";
+import { collection, onSnapshot, doc, setDoc, query, orderBy } from "firebase/firestore";
 import { db } from "../../firebase";
 import { fmtRub, loadPricelist } from "../useOrders";
 import { parseQty, rubToKopecks } from "../numInput";
+import { StockReceiptForm } from "./StockReceiptForm";
 
 interface StockEntry {
   id: string;
@@ -45,18 +46,16 @@ export function StockTab({ businessId, currentUser, region }: { businessId: stri
   const [entries, setEntries]     = useState<StockEntry[]>([]);
   const [suppliers, setSuppliers] = useState<string[]>([]);
   const [showForm, setShowForm]   = useState(false);
-  const [saving, setSaving]       = useState(false);
+  const [balanceSearch, setBalanceSearch] = useState("");
 
-  // форма — товар
+  // оставляем для кнопки "Новый поставщик" в форме накладной
+  const [saving, setSaving]       = useState(false);
   const [fSearch,   setFSearch]   = useState("");
   const [fQty,      setFQty]      = useState("");
   const [fCost,     setFCost]     = useState("");
   const [fNote,     setFNote]     = useState("");
   const [fProduct,  setFProduct]  = useState<Suggestion | null>(null);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
-  const [balanceSearch, setBalanceSearch] = useState("");
-
-  // форма — поставщик (combobox)
   const [fSupplier,    setFSupplier]    = useState("");
   const [supOpen,      setSupOpen]      = useState(false);
   const [showNewSup,   setShowNewSup]   = useState(false);
@@ -212,139 +211,14 @@ export function StockTab({ businessId, currentUser, region }: { businessId: stri
       </div>
 
       {showForm && (
-        <div className="go-form" style={{ marginBottom: 20 }}>
-          <h3 style={{ margin: "0 0 12px", fontSize: 14, color: "#3A2E1E" }}>Приход товара</h3>
-
-          {/* Поиск товара */}
-          <div className="go-field" style={{ position: "relative" }}>
-            <label>Товар (штрихкод или название)</label>
-            <input
-              value={fProduct ? fProduct.productName : fSearch}
-              onChange={e => { setFProduct(null); setFSearch(e.target.value); }}
-              placeholder="Начните вводить…"
-              style={{ width: "100%", boxSizing: "border-box" }}
-            />
-            {fProduct && (
-              <button onClick={() => { setFProduct(null); setFSearch(""); }}
-                style={{ position: "absolute", right: 8, top: 32, background: "none", border: "none", color: "#aaa", cursor: "pointer", fontSize: 16 }}>×</button>
-            )}
-            {suggestions.length > 0 && !fProduct && (
-              <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: "#fff",
-                border: "1px solid #e0d8cc", borderRadius: 8, zIndex: 50, maxHeight: 220, overflowY: "auto", boxShadow: "0 4px 16px rgba(0,0,0,.1)" }}>
-                {suggestions.map((s, i) => (
-                  <div key={i} onClick={() => { setFProduct(s); setSuggestions([]); }}
-                    style={{ padding: "8px 12px", cursor: "pointer", fontSize: 12, borderBottom: "1px solid #f5f0e8" }}
-                    onMouseEnter={e => (e.currentTarget.style.background = "#faf8f4")}
-                    onMouseLeave={e => (e.currentTarget.style.background = "")}>
-                    <div style={{ fontWeight: 500 }}>{s.productName}</div>
-                    {s.barcode && <div style={{ fontSize: 10, color: "#aaa", fontFamily: "monospace" }}>{s.barcode}</div>}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}>
-            <div className="go-field">
-              <label>Количество</label>
-              <input type="text" inputMode="decimal"
-                value={fQty} onKeyDown={numericKeyDown}
-                onChange={e => setFQty(e.target.value)} placeholder="0"
-                style={qtyInvalid ? { borderColor: "#C62828" } : undefined} />
-            </div>
-            <div className="go-field">
-              <label>Цена закупки (₽/шт)</label>
-              <input type="text" inputMode="decimal"
-                value={fCost} onKeyDown={numericKeyDown}
-                onChange={e => setFCost(e.target.value)} placeholder="0"
-                style={costInvalid ? { borderColor: "#C62828" } : undefined} />
-            </div>
-
-            {/* Поставщик — combobox */}
-            <div className="go-field" style={{ position: "relative" }} ref={supRef}>
-              <label>Поставщик</label>
-              <input
-                value={fSupplier}
-                onChange={e => { setFSupplier(e.target.value); setSupOpen(true); setShowNewSup(false); }}
-                onFocus={() => setSupOpen(true)}
-                placeholder="Начните вводить…"
-                style={{ width: "100%", boxSizing: "border-box" }}
-                autoComplete="off"
-              />
-              {fSupplier && (
-                <button onClick={() => { setFSupplier(""); setSupOpen(false); setShowNewSup(false); }}
-                  style={{ position: "absolute", right: 8, top: 32, background: "none", border: "none", color: "#aaa", cursor: "pointer", fontSize: 16 }}>×</button>
-              )}
-              {supOpen && (
-                <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: "#fff",
-                  border: "1px solid #e0d8cc", borderRadius: 8, zIndex: 60, maxHeight: 240, overflowY: "auto",
-                  boxShadow: "0 4px 16px rgba(0,0,0,.1)" }}>
-                  {filteredSuppliers.map((s, i) => (
-                    <div key={i}
-                      onMouseDown={() => { setFSupplier(s); setSupOpen(false); }}
-                      style={{ padding: "8px 12px", cursor: "pointer", fontSize: 12, borderBottom: "1px solid #f5f0e8" }}
-                      onMouseEnter={e => (e.currentTarget.style.background = "#faf8f4")}
-                      onMouseLeave={e => (e.currentTarget.style.background = "")}>
-                      {s}
-                    </div>
-                  ))}
-                  {/* Кнопка нового поставщика */}
-                  <div
-                    onMouseDown={() => { setShowNewSup(true); setSupOpen(false); }}
-                    style={{ padding: "8px 12px", cursor: "pointer", fontSize: 12,
-                      color: "#C89A34", fontWeight: 600, borderTop: "1px solid #e0d8cc",
-                      background: "#fffdf7" }}
-                    onMouseEnter={e => (e.currentTarget.style.background = "#faf8f4")}
-                    onMouseLeave={e => (e.currentTarget.style.background = "#fffdf7")}>
-                    + Новый поставщик
-                  </div>
-                </div>
-              )}
-
-              {/* Мини-форма нового поставщика */}
-              {showNewSup && (
-                <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 70,
-                  background: "#fff", border: "1px solid #e0d8cc", borderRadius: 10,
-                  boxShadow: "0 4px 20px rgba(0,0,0,.15)", padding: "14px 16px" }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: "#3A2E1E", marginBottom: 10 }}>Новый поставщик</div>
-                  <div className="go-field" style={{ marginBottom: 8 }}>
-                    <label>Название *</label>
-                    <input value={newSupName} onChange={e => setNewSupName(e.target.value)}
-                      placeholder="ООО Поставщик…" autoFocus
-                      style={{ width: "100%", boxSizing: "border-box" }} />
-                  </div>
-                  <div className="go-field" style={{ marginBottom: 10 }}>
-                    <label>Телефон</label>
-                    <input value={newSupPhone} onChange={e => setNewSupPhone(e.target.value)}
-                      placeholder="+7…" style={{ width: "100%", boxSizing: "border-box" }} />
-                  </div>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <button className="go-btn go-btn--gold" style={{ fontSize: 12, padding: "6px 14px" }}
-                      onClick={() => void saveNewSupplier()} disabled={savingNewSup || !newSupName.trim()}>
-                      {savingNewSup ? "…" : "Добавить"}
-                    </button>
-                    <button onClick={() => { setShowNewSup(false); setNewSupName(""); setNewSupPhone(""); }}
-                      style={{ fontSize: 12, padding: "6px 12px", background: "none", border: "1px solid #e0d8cc",
-                        borderRadius: 8, cursor: "pointer", color: "#8B7355" }}>
-                      Отмена
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="go-field">
-              <label>Примечание</label>
-              <input value={fNote} onChange={e => setFNote(e.target.value)} placeholder="Накладная №…" />
-            </div>
-          </div>
-
-          <button className="go-btn go-btn--gold" style={{ marginTop: 12 }}
-            onClick={() => void save()}
-            disabled={saving || !fQty || qtyInvalid || costInvalid || (!fProduct && !fSearch.trim())}>
-            {saving ? "Сохранение…" : "Сохранить приход"}
-          </button>
-        </div>
+        <StockReceiptForm
+          businessId={businessId}
+          currentUser={currentUser}
+          region={region}
+          suppliers={suppliers}
+          onSaved={() => setShowForm(false)}
+          onCancel={() => setShowForm(false)}
+        />
       )}
 
       {/* Поиск по остаткам */}
