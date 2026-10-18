@@ -1,8 +1,7 @@
-import { useState, useEffect, useMemo, useRef } from "react";
-import { collection, onSnapshot, doc, setDoc, query, orderBy } from "firebase/firestore";
+import { useState, useEffect, useMemo } from "react";
+import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
 import { db } from "../../firebase";
-import { fmtRub, loadPricelist } from "../useOrders";
-import { parseQty, rubToKopecks } from "../numInput";
+import { fmtRub } from "../useOrders";
 import { StockReceiptForm } from "./StockReceiptForm";
 
 interface StockEntry {
@@ -30,21 +29,31 @@ interface Balance {
   lastDate: string;
 }
 
-interface Suggestion { productName: string; barcode: string | null }
-
 const TD: React.CSSProperties = { padding: "5px 10px", fontSize: 12, verticalAlign: "middle" };
 const TH: React.CSSProperties = { ...TD, fontWeight: 600, color: "#8B7355", fontSize: 11, whiteSpace: "nowrap" };
 
-function slugify(name: string) {
-  return name.toLowerCase().replace(/[^a-zа-яё0-9]/gi, "_").slice(0, 30);
-}
 
-// Блокируем нечисловые клавиши в поле цены (e, +, -)
-function numericKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-  if (["e", "E", "+", "-"].includes(e.key)) e.preventDefault();
-}
-
-function exportStockCsv(balances: Balance[], regionLabel: string) {
+function exportStockCsv(entries: StockEntry[], regionFilter: "msk" | "spb", regionLabel: string) {
+  // Считаем остатки по нужному складу из сырых записей
+  const filtered = entries.filter(e =>
+    regionFilter === "spb" ? e.region === "spb" : (!e.region || e.region === "msk")
+  );
+  const map = new Map<string, Balance>();
+  for (const e of [...filtered].reverse()) {
+    const key = e.barcode || e.productName;
+    if (!map.has(key)) {
+      map.set(key, { key, productName: e.productName, barcode: e.barcode, qty: 0, unit: e.unit || "шт", lastSupplier: null, lastCostKopecks: 0, lastDate: "" });
+    }
+    const b = map.get(key)!;
+    b.qty += e.qty;
+    if (e.createdAt > b.lastDate) {
+      b.lastDate = e.createdAt;
+      b.lastSupplier = e.supplierName;
+      b.lastCostKopecks = e.costKopecks;
+      if (e.unit) b.unit = e.unit;
+    }
+  }
+  const balances = [...map.values()].filter(b => b.qty > 0).sort((a, b) => b.qty - a.qty);
   const rows = [
     ["Наименование", "Штрихкод", "Остаток", "Ед.", "Цена закупки (руб.)"],
     ...balances.map(b => [
@@ -72,22 +81,6 @@ export function StockTab({ businessId, currentUser, region }: { businessId: stri
   // regionTab — только когда region не задан (директор видит оба склада)
   const [regionTab, setRegionTab] = useState<"msk" | "spb">("msk");
 
-  // оставляем для кнопки "Новый поставщик" в форме накладной
-  const [saving, setSaving]       = useState(false);
-  const [fSearch,   setFSearch]   = useState("");
-  const [fQty,      setFQty]      = useState("");
-  const [fCost,     setFCost]     = useState("");
-  const [fNote,     setFNote]     = useState("");
-  const [fProduct,  setFProduct]  = useState<Suggestion | null>(null);
-  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
-  const [fSupplier,    setFSupplier]    = useState("");
-  const [supOpen,      setSupOpen]      = useState(false);
-  const [showNewSup,   setShowNewSup]   = useState(false);
-  const [newSupName,   setNewSupName]   = useState("");
-  const [newSupPhone,  setNewSupPhone]  = useState("");
-  const [savingNewSup, setSavingNewSup] = useState(false);
-  const supRef = useRef<HTMLDivElement>(null);
-
   useEffect(() => {
     const q = query(collection(db, `tenants/${businessId}/stock`), orderBy("createdAt", "desc"));
     return onSnapshot(q, snap => {
@@ -103,36 +96,6 @@ export function StockTab({ businessId, currentUser, region }: { businessId: stri
       );
     });
   }, [businessId]);
-
-  // Закрываем dropdown поставщика по клику вне
-  useEffect(() => {
-    function onClickOutside(e: MouseEvent) {
-      if (supRef.current && !supRef.current.contains(e.target as Node)) {
-        setSupOpen(false);
-        setShowNewSup(false);
-      }
-    }
-    document.addEventListener("mousedown", onClickOutside);
-    return () => document.removeEventListener("mousedown", onClickOutside);
-  }, []);
-
-  // Поиск товара из прайса
-  useEffect(() => {
-    const q = fSearch.trim().toLowerCase();
-    if (q.length < 2) { setSuggestions([]); return; }
-    loadPricelist().then(pl => {
-      const hits = pl.filter(it =>
-        String(it.name ?? "").toLowerCase().includes(q) || String(it.barcode ?? "").includes(q)
-      ).slice(0, 8).map(it => ({ productName: it.name, barcode: it.barcode == null ? null : String(it.barcode) }));
-      setSuggestions(hits);
-    });
-  }, [fSearch]);
-
-  const filteredSuppliers = useMemo(() => {
-    const q = fSupplier.trim().toLowerCase();
-    if (!q) return suppliers;
-    return suppliers.filter(s => s.toLowerCase().includes(q));
-  }, [suppliers, fSupplier]);
 
   // effectiveRegion: если region задан (спб-менеджер) — фиксирован; иначе — по табу директора
   const effectiveRegion = region ?? regionTab;
@@ -168,67 +131,6 @@ export function StockTab({ businessId, currentUser, region }: { businessId: stri
     );
   }, [balances, balanceSearch]);
 
-  function resetForm() {
-    setFSearch(""); setFQty(""); setFCost(""); setFNote("");
-    setFProduct(null); setSuggestions([]);
-    setFSupplier(""); setSupOpen(false); setShowNewSup(false);
-    setNewSupName(""); setNewSupPhone("");
-  }
-
-  async function saveNewSupplier() {
-    if (!newSupName.trim()) return;
-    setSavingNewSup(true);
-    try {
-      const id = slugify(newSupName.trim());
-      await setDoc(doc(db, `tenants/${businessId}/suppliers`, id), {
-        id, name: newSupName.trim(),
-        phone: newSupPhone.trim() || null,
-        cat: "", icon: "📦", section: "current", hasContract: false,
-      });
-      setFSupplier(newSupName.trim());
-      setNewSupName(""); setNewSupPhone("");
-      setShowNewSup(false); setSupOpen(false);
-    } catch (e) {
-      console.error("Supplier save failed:", e);
-      alert("Ошибка сохранения: " + String(e));
-    } finally {
-      setSavingNewSup(false);
-    }
-  }
-
-  // Количество: дробное (кг/л), точность 0,001, строго > 0
-  const qtyValue   = parseQty(fQty);
-  const qtyInvalid = fQty.trim() !== "" && qtyValue === null;
-  const costValue  = rubToKopecks(fCost, 0);
-  const costInvalid = costValue === null;
-
-  async function save() {
-    const product = fProduct ?? (fSearch.trim() ? { productName: fSearch.trim(), barcode: null } : null);
-    if (!product || !fQty) return;
-    if (qtyValue === null || costValue === null) return;
-    setSaving(true);
-    try {
-      await addDoc(collection(db, `tenants/${businessId}/stock`), {
-        productName:  product.productName,
-        barcode:      product.barcode ?? null,
-        qty:          qtyValue,
-        supplierName: fSupplier.trim() || null,
-        costKopecks:  costValue,
-        note:         fNote || null,
-        region:       region ?? null,
-        createdAt:    new Date().toISOString(),
-        createdBy:    currentUser,
-      });
-      resetForm();
-      setShowForm(false);
-    } catch (e) {
-      console.error("Stock save failed:", e);
-      alert("Ошибка сохранения: " + String(e));
-    } finally {
-      setSaving(false);
-    }
-  }
-
   return (
     <div>
       {/* Переключатель склада — только для директора (region не задан) */}
@@ -252,15 +154,31 @@ export function StockTab({ businessId, currentUser, region }: { businessId: stri
           {balances.length} позиций · {effectiveRegion === "spb" ? "Склад Санкт-Петербург" : "Склад Москва"}
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          {balances.length > 0 && (
+          {entries.length > 0 && !region && (
+            <>
+              <button
+                onClick={() => exportStockCsv(entries, "msk", "Москва")}
+                style={{ padding: "6px 14px", fontSize: 12, borderRadius: 8, cursor: "pointer", whiteSpace: "nowrap",
+                  border: "1px solid rgba(200,154,52,.4)", background: "transparent", color: "#8B6914" }}>
+                ⬇ МСК
+              </button>
+              <button
+                onClick={() => exportStockCsv(entries, "spb", "СПб")}
+                style={{ padding: "6px 14px", fontSize: 12, borderRadius: 8, cursor: "pointer", whiteSpace: "nowrap",
+                  border: "1px solid rgba(21,101,192,.4)", background: "transparent", color: "#1565C0" }}>
+                ⬇ СПб
+              </button>
+            </>
+          )}
+          {entries.length > 0 && region && (
             <button
-              onClick={() => exportStockCsv(filteredBalances, effectiveRegion === "spb" ? "СПб" : "Москва")}
+              onClick={() => exportStockCsv(entries, region as "msk" | "spb", region === "spb" ? "СПб" : "Москва")}
               style={{ padding: "6px 14px", fontSize: 12, borderRadius: 8, cursor: "pointer", whiteSpace: "nowrap",
                 border: "1px solid rgba(200,154,52,.4)", background: "transparent", color: "#8B6914" }}>
               ⬇ Выгрузить CSV
             </button>
           )}
-          <button onClick={() => { resetForm(); setShowForm(v => !v); }}
+          <button onClick={() => setShowForm(v => !v)}
             className="go-btn go-btn--gold">
             {showForm ? "Отмена" : "+ Приход"}
           </button>

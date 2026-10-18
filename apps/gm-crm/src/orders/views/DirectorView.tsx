@@ -1,14 +1,11 @@
-import { useState, useEffect } from "react";
-import { doc, updateDoc } from "firebase/firestore";
+import { useState, useEffect, useMemo } from "react";
+import { doc, updateDoc, collection, onSnapshot } from "firebase/firestore";
 import { db } from "../../firebase";
 import { useOrders, statusLabel, statusColor, fmtRub, deadlineTimer, type Order, type OrderStatus } from "../useOrders";
 import "../orders.css";
 
 interface Props { businessId: string; onGoToPurchasing?: (clientName: string) => void }
 
-const KANBAN_STAGES: OrderStatus[] = ["received", "approved", "sourcing", "ordered", "delivered"];
-
-// Кнопки смены статуса: метка → OrderStatus
 const STATUS_ACTIONS: { label: string; status: OrderStatus; color: string }[] = [
   { label: "Одобрен",  status: "approved",  color: "#E65100" },
   { label: "Оплачен",  status: "invoiced",  color: "#AD1457" },
@@ -17,23 +14,21 @@ const STATUS_ACTIONS: { label: string; status: OrderStatus; color: string }[] = 
   { label: "Отменён",  status: "cancelled", color: "#757575" },
 ];
 
+type Filter = "msk" | "spb" | "in-work" | "overdue" | "today" | null;
+
 function ClientCard({ order, orders, onClose }: { order: Order; orders: Order[]; onClose: () => void }) {
   const clientOrders = orders.filter((o) => o.customerName === order.customerName);
   const totalSpent = clientOrders.reduce((s, o) => s + o.totalKopecks, 0);
 
   return (
     <div
-      style={{
-        position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", zIndex: 1000,
-        display: "flex", alignItems: "center", justifyContent: "center", padding: 20,
-      }}
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", zIndex: 1000,
+        display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
       onClick={onClose}
     >
       <div
-        style={{
-          background: "#FEFCF6", borderRadius: 16, padding: 28, maxWidth: 480, width: "100%",
-          boxShadow: "0 8px 40px rgba(0,0,0,.2)", maxHeight: "80vh", overflowY: "auto",
-        }}
+        style={{ background: "#FEFCF6", borderRadius: 16, padding: 28, maxWidth: 480, width: "100%",
+          boxShadow: "0 8px 40px rgba(0,0,0,.2)", maxHeight: "80vh", overflowY: "auto" }}
         onClick={(e) => e.stopPropagation()}
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
@@ -45,13 +40,13 @@ function ClientCard({ order, orders, onClose }: { order: Order; orders: Order[];
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
-          {[
+          {([
             ["Телефон", order.phone || "—"],
             ["Адрес", order.address || "—"],
-            ["Всего заказов", clientOrders.length],
+            ["Всего заказов", String(clientOrders.length)],
             ["Сумма закупок", fmtRub(totalSpent)],
-          ].map(([l, v]) => (
-            <div key={l as string} style={{ background: "rgba(200,154,52,.06)", borderRadius: 8, padding: "10px 12px" }}>
+          ] as [string, string][]).map(([l, v]) => (
+            <div key={l} style={{ background: "rgba(200,154,52,.06)", borderRadius: 8, padding: "10px 12px" }}>
               <div style={{ fontSize: 10, color: "#8B7355", textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 3 }}>{l}</div>
               <div style={{ fontSize: 13, fontWeight: 600 }}>{v}</div>
             </div>
@@ -63,7 +58,8 @@ function ClientCard({ order, orders, onClose }: { order: Order; orders: Order[];
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {clientOrders.map((o) => (
-            <div key={o.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 10px", background: "#fff", borderRadius: 8, border: "1px solid rgba(200,154,52,.15)" }}>
+            <div key={o.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
+              padding: "8px 10px", background: "#fff", borderRadius: 8, border: "1px solid rgba(200,154,52,.15)" }}>
               <div>
                 <div style={{ fontSize: 12, fontWeight: 600 }}>{new Date(o.createdAt).toLocaleDateString("ru-RU")}</div>
                 <div style={{ fontSize: 11, color: "#8B7355" }}>{o.items.length} поз.</div>
@@ -82,93 +78,185 @@ function ClientCard({ order, orders, onClose }: { order: Order; orders: Order[];
   );
 }
 
+// Одна плашка со своей подписью, суммой и кликом
+function StatCard({ label, value, sub, color, active, onClick }:
+  { label: string; value: string; sub?: string; color?: string; active?: boolean; onClick: () => void }) {
+  return (
+    <div
+      onClick={onClick}
+      style={{
+        flex: "1 1 140px", minWidth: 140, padding: "14px 16px", borderRadius: 12, cursor: "pointer",
+        border: active ? `2px solid ${color ?? "#C8963480"}` : "1px solid rgba(200,154,52,.2)",
+        background: active ? `${color ?? "#C89634"}18` : "rgba(200,154,52,.04)",
+        transition: "border-color .15s, background .15s",
+      }}
+    >
+      <div style={{ fontSize: 10, color: "#8B7355", textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: 19, fontWeight: 700, color: color ?? "#3d2e1a", lineHeight: 1.1 }}>{value}</div>
+      {sub && <div style={{ fontSize: 11, color: "#8B7355", marginTop: 3 }}>{sub}</div>}
+    </div>
+  );
+}
+
 export function DirectorView({ businessId }: Props) {
   const { orders, loading } = useOrders(businessId, "director", "");
+  const [costByOrder, setCostByOrder] = useState<Map<string, number>>(new Map());
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [clientOrder, setClientOrder] = useState<Order | null>(null);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [activeFilter, setActiveFilter] = useState<Filter>(null);
   const [, setTick] = useState(0);
+
   useEffect(() => { const t = setInterval(() => setTick(n => n + 1), 60_000); return () => clearInterval(t); }, []);
+
+  // Загружаем purchase_lines для расчёта себестоимости
+  useEffect(() => {
+    return onSnapshot(collection(db, `tenants/${businessId}/purchase_lines`), snap => {
+      const m = new Map<string, number>();
+      for (const d of snap.docs) {
+        const pl = d.data() as { orderId: string; unitCostKopecks: number; qty: number };
+        const prev = m.get(pl.orderId) ?? 0;
+        m.set(pl.orderId, prev + (pl.unitCostKopecks ?? 0) * (pl.qty ?? 0));
+      }
+      setCostByOrder(m);
+    });
+  }, [businessId]);
 
   async function changeStatus(order: Order, status: OrderStatus) {
     setUpdatingId(order.id);
     await updateDoc(doc(db, `tenants/${businessId}/orders`, order.id), { status });
-    // Уведомление клиентам — временно отключено
-    // if (order.email) {
-    //   void fetch("https://opentgp.ru/food/pay-proxy.php", {
-    //     method: "POST",
-    //     headers: { "Content-Type": "application/json", "X-Proxy-Secret": "grp-proxy-2026", "X-Proxy-Path": "/crm-notify" },
-    //     body: JSON.stringify({ email: order.email, customerName: order.customerName, orderId: order.id, status, statusLabel: statusLabel(status) }),
-    //   });
-    // }
     setUpdatingId(null);
   }
 
-  if (loading) return <div className="go-empty">Загрузка…</div>;
-
   const now = new Date();
-  const monthOrders = orders.filter((o) => {
-    const d = new Date(o.createdAt);
-    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-  });
-  const monthRevenue = monthOrders.filter((o) => o.paid).reduce((s, o) => s + o.totalKopecks, 0);
-  const inWork = orders.filter((o) => o.status === "approved" || o.status === "sourcing" || o.status === "ordered").length;
-  const overdue = orders.filter((o) => {
+  const today = now.toDateString();
+
+  const delivered    = orders.filter(o => o.status === "delivered");
+  const delivMsk     = delivered.filter(o => !o.region || o.region === "msk");
+  const delivSpb     = delivered.filter(o => o.region === "spb");
+
+  const revMsk       = delivMsk.reduce((s, o) => s + o.totalKopecks, 0);
+  const revSpb       = delivSpb.reduce((s, o) => s + o.totalKopecks, 0);
+  const costMsk      = delivMsk.reduce((s, o) => s + (costByOrder.get(o.id) ?? 0), 0);
+  const costSpb      = delivSpb.reduce((s, o) => s + (costByOrder.get(o.id) ?? 0), 0);
+  const profitMsk    = revMsk - costMsk;
+  const profitSpb    = revSpb - costSpb;
+
+  const inWorkCount  = orders.filter(o => ["approved", "sourcing", "ordered"].includes(o.status)).length;
+  const overdueCount = orders.filter(o => {
     if (o.status === "delivered" || o.status === "cancelled") return false;
     return Date.now() - new Date(o.createdAt).getTime() > 3 * 24 * 60 * 60 * 1000;
   }).length;
-  const todayCount = orders.filter((o) => new Date(o.createdAt).toDateString() === now.toDateString()).length;
+  const todayCount   = orders.filter(o => new Date(o.createdAt).toDateString() === today).length;
+
+  const filteredOrders = useMemo(() => {
+    if (!activeFilter) return orders;
+    if (activeFilter === "msk")      return orders.filter(o => !o.region || o.region === "msk");
+    if (activeFilter === "spb")      return orders.filter(o => o.region === "spb");
+    if (activeFilter === "in-work")  return orders.filter(o => ["approved", "sourcing", "ordered"].includes(o.status));
+    if (activeFilter === "overdue")  return orders.filter(o => {
+      if (o.status === "delivered" || o.status === "cancelled") return false;
+      return Date.now() - new Date(o.createdAt).getTime() > 3 * 24 * 60 * 60 * 1000;
+    });
+    if (activeFilter === "today")    return orders.filter(o => new Date(o.createdAt).toDateString() === today);
+    return orders;
+  }, [orders, activeFilter, today]);
+
+  function toggleFilter(f: Filter) { setActiveFilter(prev => prev === f ? null : f); }
+
+  if (loading) return <div className="go-empty">Загрузка…</div>;
+
+  const pct = (profit: number, rev: number) =>
+    rev > 0 ? `${Math.round(profit / rev * 100)} %` : "";
 
   return (
     <div>
-      {clientOrder && (
-        <ClientCard order={clientOrder} orders={orders} onClose={() => setClientOrder(null)} />
-      )}
+      {clientOrder && <ClientCard order={clientOrder} orders={orders} onClose={() => setClientOrder(null)} />}
 
       <div className="go-header">
         <h2 className="go-title">Заказы · Густорико</h2>
         <p className="go-subtitle">Сводная панель руководителя</p>
       </div>
 
-      <div className="go-stats">
-        <div className="go-stat-card go-stat-card--gold">
-          <div className="label">Заказов сегодня</div>
-          <div className="value">{todayCount}</div>
-        </div>
-        <div className="go-stat-card go-stat-card--bronze">
-          <div className="label">Выручка месяца</div>
-          <div className="value" style={{ fontSize: 18 }}>{fmtRub(monthRevenue)}</div>
-        </div>
-        <div className="go-stat-card go-stat-card--silver">
-          <div className="label">В работе</div>
-          <div className="value">{inWork}</div>
-        </div>
-        <div className="go-stat-card" style={{ background: overdue > 0 ? "rgba(198,40,40,.08)" : undefined, borderColor: overdue > 0 ? "rgba(198,40,40,.25)" : undefined }}>
-          <div className="label">Просрочено</div>
-          <div className="value" style={{ color: overdue > 0 ? "#C62828" : "#2E7D32" }}>{overdue}</div>
-        </div>
+      {/* Финансовые плашки — МСК и СПб */}
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+        <StatCard
+          label="Выручка МСК"
+          value={fmtRub(revMsk)}
+          sub={`${delivMsk.length} отгрузок`}
+          color="#C89634"
+          active={activeFilter === "msk"}
+          onClick={() => toggleFilter("msk")}
+        />
+        <StatCard
+          label="Прибыль МСК"
+          value={fmtRub(profitMsk)}
+          sub={pct(profitMsk, revMsk)}
+          color={profitMsk >= 0 ? "#2E7D32" : "#C62828"}
+          active={activeFilter === "msk"}
+          onClick={() => toggleFilter("msk")}
+        />
+        <StatCard
+          label="Выручка СПб"
+          value={fmtRub(revSpb)}
+          sub={`${delivSpb.length} отгрузок`}
+          color="#1565C0"
+          active={activeFilter === "spb"}
+          onClick={() => toggleFilter("spb")}
+        />
+        <StatCard
+          label="Прибыль СПб"
+          value={fmtRub(profitSpb)}
+          sub={pct(profitSpb, revSpb)}
+          color={profitSpb >= 0 ? "#2E7D32" : "#C62828"}
+          active={activeFilter === "spb"}
+          onClick={() => toggleFilter("spb")}
+        />
       </div>
 
-      <div className="go-kanban">
-        {KANBAN_STAGES.map((stage) => {
-          const col = orders.filter((o) => o.status === stage);
-          const total = col.reduce((s, o) => s + o.totalKopecks, 0);
-          return (
-            <div key={stage} className="go-kanban-col">
-              <div className="go-kanban-col-head" style={{ color: statusColor(stage) }}>{statusLabel(stage)}</div>
-              <div className="go-kanban-count">{col.length}</div>
-              <div className="go-kanban-sub">{fmtRub(total)}</div>
-            </div>
-          );
-        })}
+      {/* Оперативные плашки */}
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
+        <StatCard
+          label="Сегодня"
+          value={String(todayCount)}
+          color="#C89634"
+          active={activeFilter === "today"}
+          onClick={() => toggleFilter("today")}
+        />
+        <StatCard
+          label="В работе"
+          value={String(inWorkCount)}
+          color="#E65100"
+          active={activeFilter === "in-work"}
+          onClick={() => toggleFilter("in-work")}
+        />
+        <StatCard
+          label="Просрочено"
+          value={String(overdueCount)}
+          color={overdueCount > 0 ? "#C62828" : "#2E7D32"}
+          active={activeFilter === "overdue"}
+          onClick={() => toggleFilter("overdue")}
+        />
       </div>
 
       <div className="go-section-head">
-        <h2>Все заказы</h2>
+        <h2>
+          Все заказы
+          {activeFilter && (
+            <span style={{ marginLeft: 8, fontSize: 12, fontWeight: 400, color: "#8B7355" }}>
+              · фильтр активен
+              <button onClick={() => setActiveFilter(null)}
+                style={{ marginLeft: 6, background: "none", border: "none", cursor: "pointer",
+                  color: "#C62828", fontSize: 11, padding: 0 }}>
+                сбросить
+              </button>
+            </span>
+          )}
+        </h2>
       </div>
 
-      {orders.length === 0 ? (
-        <div className="go-empty">Заказов пока нет</div>
+      {filteredOrders.length === 0 ? (
+        <div className="go-empty">Заказов нет</div>
       ) : (
         <div className="go-table-wrap">
           <table className="go-table">
@@ -184,7 +272,7 @@ export function DirectorView({ businessId }: Props) {
               </tr>
             </thead>
             <tbody>
-              {orders.map((o) => (
+              {filteredOrders.map((o) => (
                 <>
                   <tr
                     key={o.id}
@@ -226,21 +314,16 @@ export function DirectorView({ businessId }: Props) {
                         <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
                           {STATUS_ACTIONS.filter((a) => {
                             if (a.status === o.status) return false;
-                            // запрет обратных переходов по пайплайну
                             if (o.status === "sourcing"  && a.status === "approved") return false;
                             if (o.status === "ordered"   && (a.status === "approved" || a.status === "sourcing")) return false;
                             if (o.status === "delivered" && (a.status === "approved" || a.status === "sourcing" || a.status === "ordered")) return false;
                             return true;
                           }).map((a) => (
-                            <button
-                              key={a.status}
+                            <button key={a.status}
                               onClick={() => void changeStatus(o, a.status)}
-                              style={{
-                                padding: "3px 8px", fontSize: 10, fontWeight: 600, cursor: "pointer",
+                              style={{ padding: "3px 8px", fontSize: 10, fontWeight: 600, cursor: "pointer",
                                 border: `1px solid ${a.color}33`, borderRadius: 6, background: "transparent",
-                                color: a.color, whiteSpace: "nowrap",
-                              }}
-                            >
+                                color: a.color, whiteSpace: "nowrap" }}>
                               {a.label}
                             </button>
                           ))}
