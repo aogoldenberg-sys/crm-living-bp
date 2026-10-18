@@ -186,7 +186,9 @@ export function StockReceiptForm({ businessId, currentUser, region, suppliers, o
     setImporting(true);
     try {
       const text = await file.text();
-      const sep = text.indexOf(";") !== -1 ? ";" : ",";
+      // Определяем разделитель по заголовку — КИ-коды ЧЗ могут содержать ;
+      const firstLine = text.split(/\r?\n/)[0] ?? "";
+      const sep = firstLine.includes(";") ? ";" : ",";
       const parsed = parseCsv(text, sep);
       if (parsed.length < 2) { alert("Файл пустой или не распознан"); return; }
       const hdr = parsed[0].map(h => h.toLowerCase());
