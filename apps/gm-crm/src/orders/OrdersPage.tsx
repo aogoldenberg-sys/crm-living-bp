@@ -98,8 +98,8 @@ const ALL_SECTIONS: { id: Section; label: string }[] = [
 ];
 
 const HIDDEN_FOR_ROLE: Partial<Record<string, Section[]>> = {
-  sales_manager:  ["finance", "director", "clients", "chat"],
-  marina_manager: ["finance", "director", "chat"],
+  sales_manager:  ["director"],
+  marina_manager: ["finance", "director"],
   spb_manager:    ["suppliers", "director"],
 };
 
