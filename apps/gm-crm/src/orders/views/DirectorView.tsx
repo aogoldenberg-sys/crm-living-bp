@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { collection, onSnapshot } from "firebase/firestore";
 import { db } from "../../firebase";
 import { useOrders, fmtRub, type Order } from "../useOrders";
+import { directorStats, orderCost, toDate, type CostLine, type RegionStats } from "../directorStats";
 import "../orders.css";
 
 interface Props { businessId: string; onGoToPurchasing?: (clientName: string) => void }
@@ -44,6 +45,18 @@ function IngotCard({ label, value, sub, idx }: { label: string; value: string; s
 export function DirectorView({ businessId }: Props) {
   const { orders, loading } = useOrders(businessId, "director", "");
   const [costByOrder, setCostByOrder] = useState<Map<string, number>>(new Map());
+  const [assemblyLines, setAssemblyLines] = useState<Map<string, CostLine[]>>(new Map());
+
+  useEffect(() => {
+    return onSnapshot(collection(db, `tenants/${businessId}/assembly`), snap => {
+      const m = new Map<string, CostLine[]>();
+      for (const d of snap.docs) {
+        const lines = (d.data() as { lines?: CostLine[] }).lines;
+        if (lines) m.set(d.id, lines);
+      }
+      setAssemblyLines(m);
+    });
+  }, [businessId]);
 
   useEffect(() => {
     return onSnapshot(collection(db, `tenants/${businessId}/purchase_lines`), snap => {
@@ -60,34 +73,22 @@ export function DirectorView({ businessId }: Props) {
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
   const monthLabel = now.toLocaleString("ru-RU", { month: "long", year: "numeric" });
 
-  // createdAt может прийти из Firestore как Timestamp-объект или ISO-строка
-  const toDate = (v: unknown): Date => {
-    if (typeof v === "string") return new Date(v);
-    if (v && typeof v === "object" && "toDate" in v) return (v as { toDate(): Date }).toDate();
-    if (v instanceof Date) return v;
-    return new Date(0);
+  const ts = (v: unknown) => toDate(v)?.getTime() ?? 0;
+
+  const stats = directorStats(orders, id => orderCost(assemblyLines.get(id), costByOrder.get(id)), now);
+  const revSub = (r: RegionStats) => `${r.paidCount} оплат · отгружено ${fmtRub(r.shipped)} (${r.shippedCount})`;
+  const profitValue = (r: RegionStats) => r.profit === null ? "нет данных" : fmtRub(r.profit);
+  const profitSub = (r: RegionStats) => {
+    const margin = r.profit !== null && r.costedRevenue > 0 ? `${Math.round(r.profit / r.costedRevenue * 100)}% маржа` : "нет данных";
+    return r.noCostCount ? `${margin} · без себестоимости: ${r.noCostCount}` : margin;
   };
 
-  // Только отгруженные за текущий месяц
-  const delivMonth = orders.filter((o: Order) => o.status === "delivered" && toDate(o.createdAt) >= monthStart);
-  const delivMsk   = delivMonth.filter((o: Order) => !o.region || o.region === "msk");
-  const delivSpb   = delivMonth.filter((o: Order) => o.region === "spb");
-
-  const revMsk    = delivMsk.reduce((s: number, o: Order) => s + o.totalKopecks, 0);
-  const revSpb    = delivSpb.reduce((s: number, o: Order) => s + o.totalKopecks, 0);
-  const costMsk   = delivMsk.reduce((s: number, o: Order) => s + (costByOrder.get(o.id) ?? 0), 0);
-  const costSpb   = delivSpb.reduce((s: number, o: Order) => s + (costByOrder.get(o.id) ?? 0), 0);
-  const profitMsk = revMsk - costMsk;
-  const profitSpb = revSpb - costSpb;
-
-  const pct = (profit: number, rev: number) => rev > 0 ? `${Math.round(profit / rev * 100)}% маржа` : "нет данных";
-
   // Оперативные метрики
-  const monthOrders  = orders.filter((o: Order) => toDate(o.createdAt) >= monthStart);
+  const monthOrders  = orders.filter((o: Order) => ts(o.createdAt) >= monthStart.getTime());
   const awaitShip    = orders.filter((o: Order) => ["approved", "sourcing", "ordered"].includes(o.status));
   const overdueOrders = orders.filter((o: Order) => {
     if (["delivered", "cancelled"].includes(o.status)) return false;
-    return Date.now() - toDate(o.createdAt).getTime() > 3 * 24 * 60 * 60 * 1000;
+    return Date.now() - ts(o.createdAt) > 3 * 24 * 60 * 60 * 1000;
   });
 
   if (loading) return <div className="go-empty">Загрузка…</div>;
@@ -101,10 +102,10 @@ export function DirectorView({ businessId }: Props) {
 
       {/* Финансы — 2×2 */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 14, marginBottom: 14 }}>
-        <IngotCard label="Выручка МСК" value={fmtRub(revMsk)} sub={`${delivMsk.length} отгрузок`} idx={0} />
-        <IngotCard label="Прибыль МСК" value={fmtRub(profitMsk)} sub={pct(profitMsk, revMsk)} idx={1} />
-        <IngotCard label="Выручка СПб" value={fmtRub(revSpb)} sub={`${delivSpb.length} отгрузок`} idx={2} />
-        <IngotCard label="Прибыль СПб" value={fmtRub(profitSpb)} sub={pct(profitSpb, revSpb)} idx={3} />
+        <IngotCard label="Выручка МСК" value={fmtRub(stats.msk.revenue)} sub={revSub(stats.msk)} idx={0} />
+        <IngotCard label="Прибыль МСК" value={profitValue(stats.msk)} sub={profitSub(stats.msk)} idx={1} />
+        <IngotCard label="Выручка СПб" value={fmtRub(stats.spb.revenue)} sub={revSub(stats.spb)} idx={2} />
+        <IngotCard label="Прибыль СПб" value={profitValue(stats.spb)} sub={profitSub(stats.spb)} idx={3} />
       </div>
 
       {/* Операции — 3 в ряд */}

@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from "react";
-import { collection, query, onSnapshot, orderBy } from "firebase/firestore";
+import { useState, useEffect, useRef, useMemo } from "react";
+import { collection, query, onSnapshot, orderBy, limit } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../auth/useAuth";
 import { SalesView } from "./views/SalesView";
@@ -17,62 +17,11 @@ import { ChatView } from "./views/ChatView";
 import { IncomingCallPopup } from "../telephony/IncomingCallPopup";
 import { CallLogView } from "../telephony/CallLogView";
 import { GUSTORIKO_ROLES, useGustorikoRole } from "../auth/useRole";
+import { useOrdersFeed } from "./ordersStore";
+import { Balls, ballsInitiallyOn, saveBallsOn } from "./Balls";
 import "./orders.css";
 
 const BASE_URL = import.meta.env.BASE_URL as string;
-
-// ── Летающие шары (скопировано из Kairos Dashboard) ──────────────────────
-const BALL_INIT = [
-  { size: 52, rx: 0.12, ry: 0.20 },
-  { size: 38, rx: 0.18, ry: 0.72 },
-  { size: 30, rx: 0.88, ry: 0.28 },
-  { size: 44, rx: 0.80, ry: 0.78 },
-  { size: 26, rx: 0.52, ry: 0.08 },
-  { size: 36, rx: 0.92, ry: 0.55 },
-];
-function useBalls() {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const stateRef = useRef(
-    BALL_INIT.map(b => ({
-      x: b.rx * window.innerWidth, y: b.ry * window.innerHeight,
-      vx: (Math.random() - 0.5) * 0.8, vy: (Math.random() - 0.5) * 0.8,
-      size: b.size,
-    }))
-  );
-  const mouseRef = useRef({ x: window.innerWidth * 0.5, y: window.innerHeight * 0.5 });
-  const rafRef = useRef(0);
-  useEffect(() => {
-    const onMouse = (e: MouseEvent) => { mouseRef.current = { x: e.clientX, y: e.clientY }; };
-    window.addEventListener("mousemove", onMouse);
-    const tick = () => {
-      const W = window.innerWidth, H = window.innerHeight;
-      const s = stateRef.current;
-      const el = containerRef.current;
-      if (!el) { rafRef.current = requestAnimationFrame(tick); return; }
-      const children = el.children as HTMLCollectionOf<HTMLImageElement>;
-      for (let i = 0; i < s.length; i++) {
-        const b = s[i];
-        if (i < 5) {
-          b.x += b.vx; b.y += b.vy;
-          if (b.x - b.size/2 < 0)  { b.x = b.size/2; b.vx = Math.abs(b.vx); }
-          if (b.x + b.size/2 > W)  { b.x = W - b.size/2; b.vx = -Math.abs(b.vx); }
-          if (b.y - b.size/2 < 0)  { b.y = b.size/2; b.vy = Math.abs(b.vy); }
-          if (b.y + b.size/2 > H)  { b.y = H - b.size/2; b.vy = -Math.abs(b.vy); }
-        } else {
-          const mx = mouseRef.current.x, my = mouseRef.current.y;
-          b.vx += (mx - b.x) * 0.0016; b.vy += (my - b.y) * 0.0016;
-          b.vx *= 0.94; b.vy *= 0.94;
-          b.x += b.vx; b.y += b.vy;
-        }
-        if (children[i]) children[i].style.transform = `translate(${b.x - b.size/2}px,${b.y - b.size/2}px)`;
-      }
-      rafRef.current = requestAnimationFrame(tick);
-    };
-    rafRef.current = requestAnimationFrame(tick);
-    return () => { cancelAnimationFrame(rafRef.current); window.removeEventListener("mousemove", onMouse); };
-  }, []);
-  return containerRef;
-}
 
 const NAV_ICONS: Record<string, string> = {
   sales: "📋", assembly: "📦", purchasing: "🛒", clients: "👥",
@@ -110,10 +59,9 @@ const DEFAULT_SECTION: Record<string, Section> = {
 };
 
 export function OrdersPage() {
-  const ballsRef = useBalls();
   const { user, logout } = useAuth();
   const bid = "gustoriko";
-  const [ballsOn, setBallsOn] = useState(() => localStorage.getItem('gm_balls') !== 'off');
+  const [ballsOn, setBallsOn] = useState(ballsInitiallyOn);
   const { roleId, displayName, managerName, loading } = useGustorikoRole();
   const [section, setSection] = useState<Section | null>(null);
   const [chatToasts, setChatToasts] = useState<{ id: string; author: string; text: string }[]>([]);
@@ -127,35 +75,25 @@ export function OrdersPage() {
   const [assemblyFocusId, setAssemblyFocusId] = useState<string | null>(null);
   const [badgeCounts, setBadgeCounts] = useState<Record<string, number>>({});
 
-  useEffect(() => {
-    if (!bid) return;
-    const q = query(collection(db, `tenants/${bid}/orders`));
-    return onSnapshot(q, snap => {
-      let received = 0, approved = 0;
-      const clientsTabSeen = localStorage.getItem("gm_clients_tab") ?? "0";
-      const newClientNames = new Set<string>();
-      snap.docs.forEach(d => {
-        const data = d.data() as { status: string; assignedManager?: string; createdAt?: string; customerName?: string };
-        const s = data.status;
-        if (s === "received") received++;
-        // Для sales_manager — считаем только свои заказы
-        if (s === "sourcing") {
-          const isFiltered = (roleId === "sales_manager" || roleId === "marina_manager") && managerName;
-          if (isFiltered) {
-            if (data.assignedManager === managerName) approved++;
-          } else {
-            approved++;
-          }
-        }
-        // Клиенты с новыми заказами
-        if ((data.createdAt ?? "") > clientsTabSeen && data.customerName &&
-            !/^заказ\s*#/i.test(data.customerName.trim())) {
-          newClientNames.add(data.customerName);
-        }
-      });
-      setBadgeCounts(prev => ({ ...prev, sales: received, assembly: approved, clients: newClientNames.size }));
-    });
-  }, [roleId, managerName]);
+  // Пока роль не определена (или нет доступа) — не подписываемся
+  const { orders } = useOrdersFeed(roleId ? bid : "");
+  const orderBadges = useMemo(() => {
+    let received = 0, approved = 0;
+    const clientsTabSeen = localStorage.getItem("gm_clients_tab") ?? "0";
+    const newClientNames = new Set<string>();
+    const onlyMine = (roleId === "sales_manager" || roleId === "marina_manager") && managerName;
+    for (const o of orders) {
+      if (o.status === "received") received++;
+      // Для sales_manager — считаем только свои заказы
+      if (o.status === "sourcing" && (!onlyMine || o.assignedManager === managerName)) approved++;
+      // Клиенты с новыми заказами
+      if ((o.createdAt ?? "") > clientsTabSeen && o.customerName &&
+          !/^заказ\s*#/i.test(o.customerName.trim())) {
+        newClientNames.add(o.customerName);
+      }
+    }
+    return { sales: received, assembly: approved, clients: active === "clients" ? 0 : newClientNames.size };
+  }, [orders, roleId, managerName, active]);
 
   useEffect(() => {
     const q = collection(db, `tenants/${bid}/debts`);
@@ -170,40 +108,39 @@ export function OrdersPage() {
 
   useEffect(() => {
     if (!user?.email) return;
+    const myEmail = user.email;
     const STORAGE_KEY = `gm_chat_seen_${bid}`;
-    let lastSeen = localStorage.getItem(STORAGE_KEY) ?? "0";
     // запрашиваем разрешение на уведомления при первом монтировании
     if (typeof Notification !== "undefined" && Notification.permission === "default") {
       void Notification.requestPermission();
     }
-    const q = query(collection(db, `tenants/${bid}/chat`), orderBy("ts", "asc"));
+    const q = query(collection(db, `tenants/${bid}/chat`), orderBy("ts", "desc"), limit(50));
+    let initial = true;
     return onSnapshot(q, snap => {
-      const myEmail = user.email!;
-      let unread = 0;
-      snap.docs.forEach(d => {
-        const data = d.data() as { ts: string; author: string; text: string };
-        if (data.ts > lastSeen && data.author !== myEmail) {
-          unread++;
-          // push + in-app toast только если чат не открыт
-          if (!chatActiveRef.current) {
-            if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-              new Notification(`Чат — ${data.author}`, {
-                body: data.text.slice(0, 80),
-                icon: "/gm-crm/logo-badge.png",
-                tag: d.id,
-              });
-            }
-            setChatToasts(prev => {
-              if (prev.some(t => t.id === d.id)) return prev;
-              return [...prev, { id: d.id, author: data.author, text: data.text.slice(0, 80) }];
-            });
-            setTimeout(() => setChatToasts(prev => prev.filter(t => t.id !== d.id)), 6000);
-          }
+      if (chatActiveRef.current) localStorage.setItem(STORAGE_KEY, new Date().toISOString());
+      const lastSeen = localStorage.getItem(STORAGE_KEY) ?? "0";
+      const isNew = (m: { ts: string; author: string }) => m.ts > lastSeen && m.author !== myEmail;
+      const unread = snap.docs.filter(d => isNew(d.data() as { ts: string; author: string })).length;
+      // Уведомляем только о сообщениях, пришедших после монтирования, и если чат не открыт
+      if (!initial && !chatActiveRef.current) {
+        for (const ch of snap.docChanges()) {
+          const data = ch.doc.data() as { ts: string; author: string; text: string };
+          if (ch.type === "added" && isNew(data)) notifyChat(ch.doc.id, data);
         }
-      });
+      }
+      initial = false;
       setBadgeCounts(prev => ({ ...prev, chat: unread }));
     });
   }, [user?.email]);
+
+  function notifyChat(id: string, data: { author: string; text: string }) {
+    if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+      new Notification(`Чат — ${data.author}`, { body: data.text.slice(0, 80), icon: "/gm-crm/logo-badge.png", tag: id });
+    }
+    setChatToasts(prev => prev.some(t => t.id === id) ? prev
+      : [...prev, { id, author: data.author, text: data.text.slice(0, 80) }]);
+    setTimeout(() => setChatToasts(prev => prev.filter(t => t.id !== id)), 6000);
+  }
 
   // При переключении в чат — сбрасываем счётчик и сохраняем метку
   useEffect(() => {
@@ -216,7 +153,6 @@ export function OrdersPage() {
   // При переключении в клиенты — сбрасываем счётчик и сохраняем метку
   useEffect(() => {
     if (active === "clients") {
-      setBadgeCounts(prev => ({ ...prev, clients: 0 }));
       localStorage.setItem("gm_clients_tab", new Date().toISOString());
     }
   }, [active]);
@@ -236,6 +172,8 @@ export function OrdersPage() {
     if (s !== "assembly") setAssemblyFocusId(null);
     setSection(s);
   }
+
+  const badges: Record<string, number> = { ...badgeCounts, ...orderBadges };
 
   if (loading) return <div className="loading-screen">Загрузка...</div>;
   if (!user) return null;
@@ -258,12 +196,7 @@ export function OrdersPage() {
       <div className="go-bg" aria-hidden="true" />
 
       {/* Летающие золотые шары */}
-      <div ref={ballsRef} className="go-balls-layer" aria-hidden="true" style={{ visibility: ballsOn ? 'visible' : 'hidden' }}>
-        {BALL_INIT.map((b, i) => (
-          <img key={i} src={BASE_URL + "ball-gold.png"} alt=""
-            className="go-ball" style={{ width: b.size, height: b.size }} />
-        ))}
-      </div>
+      {ballsOn && <Balls />}
 
       <aside className="go-sidebar">
         <div className="go-logo">
@@ -284,14 +217,14 @@ export function OrdersPage() {
             >
               <span className="go-nav-icon">{NAV_ICONS[s.id]}</span>
               {s.label}
-              {(badgeCounts[s.id] ?? 0) > 0 && (
+              {(badges[s.id] ?? 0) > 0 && (
                 <span style={{
                   position: "absolute", top: 4, right: 6,
                   background: "#C62828", color: "#fff",
                   fontSize: 10, fontWeight: 700, lineHeight: 1,
                   padding: "2px 5px", borderRadius: 10, minWidth: 16, textAlign: "center",
                 }}>
-                  {badgeCounts[s.id]}
+                  {badges[s.id]}
                 </span>
               )}
             </button>
@@ -341,7 +274,6 @@ export function OrdersPage() {
                 ? 'linear-gradient(135deg,#c8c8c8 0%,#989898 40%,#b8b8b8 60%,#808080 100%)'
                 : 'linear-gradient(135deg,#f0f0f0 0%,#c8c8c8 35%,#e0e0e0 60%,#a8a8a8 100%)',
               border: '1px solid #909090',
-              backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)',
               boxShadow: '0 3px 14px rgba(0,0,0,.22), inset 0 1px 0 rgba(255,255,255,.65)',
               color: '#2a2a2a', fontSize: 14, fontWeight: 700,
               letterSpacing: '.02em', transition: 'all .15s',
@@ -349,7 +281,7 @@ export function OrdersPage() {
           >
             <span style={{ fontSize: 18, lineHeight: 1 }}>💬</span>
             <span>Чат</span>
-            {(badgeCounts.chat ?? 0) > 0 && (
+            {(badges.chat ?? 0) > 0 && (
               <span style={{
                 position: 'absolute', top: -5, right: -5,
                 background: '#C62828', color: '#fff', borderRadius: '50%',
@@ -357,7 +289,7 @@ export function OrdersPage() {
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 padding: '0 4px', lineHeight: 1, boxShadow: '0 1px 4px rgba(0,0,0,.3)',
               }}>
-                {badgeCounts.chat}
+                {badges.chat}
               </span>
             )}
           </button>
@@ -365,14 +297,13 @@ export function OrdersPage() {
 
         {/* Кнопка шарики */}
         <button
-          onClick={() => { const next = !ballsOn; setBallsOn(next); localStorage.setItem('gm_balls', next ? 'on' : 'off'); }}
+          onClick={() => { const next = !ballsOn; setBallsOn(next); saveBallsOn(next); }}
           title={ballsOn ? 'Скрыть шарики' : 'Показать шарики'}
           style={{
             display: 'flex', alignItems: 'center', gap: 5,
             padding: '6px 13px', borderRadius: 12, cursor: 'pointer',
-            background: ballsOn ? 'rgba(200,154,52,.18)' : 'rgba(255,255,255,.75)',
+            background: ballsOn ? 'rgba(245,237,218,.95)' : 'rgba(255,255,255,.9)',
             border: `1px solid ${ballsOn ? 'rgba(200,154,52,.45)' : 'rgba(200,154,52,.22)'}`,
-            backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)',
             boxShadow: '0 2px 12px rgba(160,110,20,.10)',
             color: '#8B6914', fontSize: 12, fontWeight: 600,
             transition: 'all .15s',

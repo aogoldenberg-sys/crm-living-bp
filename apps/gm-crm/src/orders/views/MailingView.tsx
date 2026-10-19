@@ -1,8 +1,8 @@
-import { useState, useEffect } from "react";
-import { collection, getDocs, addDoc } from "firebase/firestore";
-import { db } from "../../firebase";
+import { useState, useEffect, useRef } from "react";
+import { loadOrdersArchive } from "../ordersStore";
 import "../orders.css";
 import { TEMPLATES, wrapEmail, type Template } from "../mailTemplates";
+import { sendMailing } from "../sendMailing";
 
 interface Client {
   id: string;
@@ -25,15 +25,16 @@ export function MailingView({ businessId }: { businessId: string }) {
 
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
+  // state обновляется после рендера — двойной клик успел бы запустить вторую рассылку
+  const inFlight = useRef(false);
 
   useEffect(() => {
     setLoading(true);
-    getDocs(collection(db, `tenants/${businessId}/orders`))
-      .then((snap) => {
+    loadOrdersArchive(businessId)
+      .then((orders) => {
         const seen = new Map<string, string>();
-        snap.docs.forEach((d) => {
-          const data = d.data() as { email?: string | null; customerName?: string };
-          if (data.email) seen.set(data.email, data.customerName ?? data.email);
+        orders.forEach((o) => {
+          if (o.email) seen.set(o.email, o.customerName ?? o.email);
         });
         setClients(
           [...seen.entries()]
@@ -82,34 +83,28 @@ export function MailingView({ businessId }: { businessId: string }) {
   }
 
   async function send() {
-    if (!subject.trim() || !body.trim() || selected.size === 0) return;
-    const emails = clients.filter(c => selected.has(c.id)).map(c => c.email);
-    const htmlBody = body.trimStart().startsWith("<!DOCTYPE")
+    if (inFlight.current || !subject.trim() || !body.trim() || selected.size === 0) return;
+    inFlight.current = true;
+    const recipients = clients.filter(c => selected.has(c.id));
+    const bodyHtml = body.trimStart().startsWith("<!DOCTYPE")
       ? body
       : wrapEmail(`<p style="font-size:14px;color:#3d2e1a;line-height:1.8;">${body.replace(/\n\n/g, '</p><p style="font-size:14px;color:#3d2e1a;line-height:1.8;">').replace(/\n/g, "<br>")}</p>`);
     setSending(true); setResult(null);
     try {
-      const res = await fetch("https://opentgp.ru/food/pay-proxy.php", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Proxy-Secret": "grp-proxy-2026", "X-Proxy-Path": "/crm-mailing" },
-        body: JSON.stringify({ subject, body_html: htmlBody, emails }),
+      const res = await sendMailing(businessId, {
+        subject, bodyHtml, templateId: activeTpl?.id ?? "custom",
+        recipients: recipients.map(c => ({ email: c.email, customerName: c.customerName })),
       });
-      const data = await res.json();
-      if (res.ok && !data.error) {
-        // Логируем каждое письмо в Firestore для истории в карточке клиента
-        const sentAt = new Date().toISOString();
-        const recipients = clients.filter(c => selected.has(c.id));
-        await Promise.all(recipients.map(c => addDoc(collection(db, `tenants/${businessId}/mailings`), {
-          email: c.email, customerName: c.customerName,
-          subject, templateId: activeTpl?.id ?? "custom", sentAt,
-        })));
-        setResult({ ok: true, message: `Отправлено: ${emails.length} писем` });
+      setResult(res);
+      if (res.ok) {
         setSelected(new Set()); setSubject(""); setBody(""); setActiveTpl(null); setFieldVals({}); setFreeText(false);
-      } else {
-        setResult({ ok: false, message: data.error ?? `Ошибка ${res.status}` });
       }
-    } catch (e) { setResult({ ok: false, message: (e as Error).message }); }
-    finally { setSending(false); }
+    } catch (e) {
+      setResult({ ok: false, message: `Рассылка не отправлена: ${(e as Error).message}` });
+    } finally {
+      inFlight.current = false;
+      setSending(false);
+    }
   }
 
   const canSend = subject.trim() && body.trim() && selected.size > 0 && !sending;

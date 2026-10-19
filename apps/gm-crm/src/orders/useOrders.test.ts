@@ -2,26 +2,31 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, waitFor, act } from "@testing-library/react";
 
 // ── Firestore mock ────────────────────────────────────────────────────────────
-type SnapCb = (snap: { docs: { id: string; data: () => unknown }[] }) => void;
+type MockDoc = { id: string; data: () => unknown };
+type SnapCb = (snap: { docs: MockDoc[]; docChanges: () => { type: string; doc: MockDoc }[] }) => void;
 type ErrCb = (err: { code: string; message: string }) => void;
-const subs: { next: SnapCb; error: ErrCb; unsub: ReturnType<typeof vi.fn> }[] = [];
+const subs: { q: { kind: string }; next: SnapCb; error: ErrCb; unsub: ReturnType<typeof vi.fn> }[] = [];
+let archiveDocs: MockDoc[] = [];
 
 vi.mock("../firebase", () => ({ db: {} }));
 vi.mock("firebase/firestore", () => ({
   collection: vi.fn(() => ({})),
-  query: vi.fn(() => ({})),
+  query: vi.fn((_c: unknown, w?: { kind: string }) => ({ kind: w?.kind ?? "all" })),
   orderBy: vi.fn(() => ({})),
-  onSnapshot: vi.fn((_q: unknown, next: SnapCb, error: ErrCb) => {
+  where: vi.fn((field: string) => ({ kind: field })),
+  getDocs: vi.fn(async () => ({ docs: archiveDocs })),
+  onSnapshot: vi.fn((q: { kind: string }, next: SnapCb, error: ErrCb) => {
     const unsub = vi.fn();
-    subs.push({ next, error, unsub });
+    subs.push({ q, next, error, unsub });
     return unsub;
   }),
 }));
 
 import {
   normalizeBarcode, buildPricelistLookup, loadPricelist, _resetPricelistCache,
-  useOrders, usePricelistLookup, type OrderItem,
+  useOrders, usePricelistLookup, type Order, type OrderItem,
 } from "./useOrders";
+import { _resetOrdersArchive, invalidateOrdersArchive } from "./ordersStore";
 
 type Pl = Awaited<ReturnType<typeof loadPricelist>>[number];
 const pl = (p: Partial<Pl>): Pl => ({
@@ -144,20 +149,85 @@ describe("usePricelistLookup", () => {
   });
 });
 
-// ── useOrders ─────────────────────────────────────────────────────────────────
+// ── useOrders / общий поток ───────────────────────────────────────────────────
+const mk = (id: string, p: Partial<Order>): MockDoc => ({ id, data: () => ({ customerName: id, createdAt: "", ...p }) });
+const added = (docs: MockDoc[]) => ({ docs, docChanges: () => docs.map((doc) => ({ type: "added", doc })) });
+const feed = (kind: string) => subs.filter((x) => x.q.kind === kind).at(-1)!;
+
+describe("useOrders: общий поток", () => {
+  beforeEach(() => { subs.length = 0; archiveDocs = []; _resetOrdersArchive(); });
+
+  it("несколько потребителей — одна пара подписок; отписка с последним", () => {
+    const a = renderHook(() => useOrders("t", "sales", "u"));
+    const b = renderHook(() => useOrders("t", "purchasing", "u"));
+    expect(subs).toHaveLength(2);
+    a.unmount();
+    expect(subs.every((x) => x.unsub.mock.calls.length === 0)).toBe(true);
+    b.unmount();
+    expect(subs.every((x) => x.unsub.mock.calls.length === 1)).toBe(true);
+  });
+
+  it("объединяет активные и недавние по id, сортирует createdAt desc, assembly — только sourcing", () => {
+    const sales = renderHook(() => useOrders("t", "sales", "u"));
+    const asm = renderHook(() => useOrders("t", "assembly", "u"));
+    expect(sales.result.current.loading).toBe(true);
+    act(() => {
+      feed("status").next(added([mk("a", { status: "sourcing", createdAt: "2026-01-01T00:00:00Z" })]));
+      feed("createdAt").next(added([
+        mk("a", { status: "sourcing", createdAt: "2026-01-01T00:00:00Z" }),
+        mk("b", { status: "delivered", createdAt: "2026-02-01T00:00:00Z" }),
+      ]));
+    });
+    expect(sales.result.current.loading).toBe(false);
+    expect(sales.result.current.orders.map((o) => o.id)).toEqual(["b", "a"]);
+    expect(asm.result.current.orders.map((o) => o.id)).toEqual(["a"]);
+    sales.unmount(); asm.unmount();
+  });
+
+  it("archive: true подмешивает архив, живая версия главнее", async () => {
+    archiveDocs = [mk("old", { status: "delivered", createdAt: "2025-01-01T00:00:00Z" }), mk("a", { status: "received" })];
+    const { result, unmount } = renderHook(() => useOrders("t", "sales", "u", { archive: true }));
+    act(() => {
+      feed("status").next(added([mk("a", { status: "approved", createdAt: "2026-01-01T00:00:00Z" })]));
+      feed("createdAt").next(added([]));
+    });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.orders.map((o) => [o.id, o.status])).toEqual([["a", "approved"], ["old", "delivered"]]);
+    unmount();
+  });
+
+  it("invalidateOrdersArchive: правка старого заказа перечитывает архив, живого — нет", async () => {
+    archiveDocs = [mk("old", { status: "delivered", paid: false, createdAt: "2025-01-01T00:00:00Z" })];
+    const { result, unmount } = renderHook(() => useOrders("t", "finance", "u"));
+    act(() => {
+      feed("status").next(added([mk("a", { status: "approved", createdAt: "2026-01-01T00:00:00Z" })]));
+      feed("createdAt").next(added([]));
+    });
+    await waitFor(() => expect(result.current.orders.find((o) => o.id === "old")).toBeTruthy());
+    archiveDocs = [mk("old", { status: "delivered", paid: true, createdAt: "2025-01-01T00:00:00Z" })];
+    act(() => invalidateOrdersArchive("t", ["a"]));
+    expect(result.current.orders.find((o) => o.id === "old")?.paid).toBe(false);
+    act(() => invalidateOrdersArchive("t", ["old"]));
+    await waitFor(() => expect(result.current.orders.find((o) => o.id === "old")?.paid).toBe(true));
+    unmount();
+  });
+});
+
 describe("useOrders reconnect", () => {
   beforeEach(() => { subs.length = 0; vi.useFakeTimers(); vi.spyOn(console, "error").mockImplementation(() => {}); });
   afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
   it("cleanup закрывает актуальную подписку после переподключения", () => {
-    const { unmount } = renderHook(() => useOrders("t", "sales", "u"));
-    expect(subs).toHaveLength(1);
-    act(() => { subs[0].error({ code: "unavailable", message: "x" }); });
-    act(() => { vi.advanceTimersByTime(5000); });
+    const { result, unmount } = renderHook(() => useOrders("t", "sales", "u"));
     expect(subs).toHaveLength(2);
-    expect(subs[0].unsub).toHaveBeenCalledTimes(1);
+    const first = feed("status");
+    act(() => { first.error({ code: "unavailable", message: "x" }); });
+    expect(result.current.error).toMatch(/unavailable/);
+    act(() => { vi.advanceTimersByTime(5000); });
+    expect(subs).toHaveLength(3);
+    expect(first.unsub).toHaveBeenCalledTimes(1);
     unmount();
-    expect(subs[1].unsub).toHaveBeenCalledTimes(1);
+    expect(subs.every((x) => x.unsub.mock.calls.length === 1)).toBe(true);
   });
 
   it("после размонтирования повторная подписка не создаётся", () => {
@@ -165,7 +235,7 @@ describe("useOrders reconnect", () => {
     act(() => { subs[0].error({ code: "unavailable", message: "x" }); });
     unmount();
     act(() => { vi.advanceTimersByTime(60000); });
-    expect(subs).toHaveLength(1);
-    expect(subs[0].unsub).toHaveBeenCalled();
+    expect(subs).toHaveLength(2);
+    expect(subs.every((x) => x.unsub.mock.calls.length === 1)).toBe(true);
   });
 });

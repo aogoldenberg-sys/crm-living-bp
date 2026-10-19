@@ -2,37 +2,18 @@ import { useState, useEffect, useRef } from "react";
 import type { CSSProperties } from "react";
 import { doc, setDoc, onSnapshot, addDoc, collection, updateDoc, getDocs, query, where, deleteDoc } from "firebase/firestore";
 import { db } from "../../firebase";
-import { type Order, type PricelistMatch, fmtRub, deadlineTimer, addWorkDays } from "../useOrders";
+import { type Order, type PricelistMatch, fmtRub, deadlineTimer } from "../useOrders";
 import { computePlMatches, type PlIndex } from "../plIndex";
 import { UpdModal } from "./UpdModal";
 import type { UpdItem } from "./UpdModal";
 import { parseQty, rubToKopecks, useNumDrafts } from "../numInput";
+import { normalizeRegion } from "../region";
+import { type ALine, type SavedLine, type StockIndex, STOCK, avgCost, buildLine, itemQty, mergeLine, addWorkDaysMsk } from "../stockOps";
+import { shipOrder, ensureDeliveryDate } from "../shipment";
+import { itemTotalKopecks } from "../money";
+import { useMinuteTick } from "../useMinuteTick";
 
-interface ALine {
-  idx: number;
-  productName: string;
-  barcode: string | null;
-  qtyOrdered: number;
-  qtyPacked: number;
-  unitSellKopecks: number;
-  supplierName: string;
-  supplierId: string;
-  unitCostKopecks: number;
-  sentToPurchase: boolean;
-  replaced?: boolean;   // позиция заменена на другой товар — долг не пишется
-  matches: PricelistMatch[];
-}
-
-interface Props { order: Order; businessId: string; uid: string; allSupplierNames: string[]; plIndex: PlIndex; showManagerAssign?: boolean; isFocused?: boolean; stockMap?: Map<string, number> }
-
-// Возвращает остаток на складе по штрихкоду или названию
-function getStockQty(map: Map<string, number>, item: { barcode?: string | null; productName: string }): number {
-  if (item.barcode) {
-    const v = map.get(String(item.barcode));
-    if (v !== undefined) return v;
-  }
-  return map.get(item.productName.toLowerCase()) ?? 0;
-}
+interface Props { order: Order; businessId: string; uid: string; allSupplierNames: string[]; plIndex: PlIndex; showManagerAssign?: boolean; isFocused?: boolean; stockMap: StockIndex | null }
 
 const MANAGERS = ["Марина", "Ольга", "Анна"];
 
@@ -52,24 +33,23 @@ function dedup(matches: PricelistMatch[]): PricelistMatch[] {
   return Array.from(map.values()).sort((a, b) => (a.priceKopecks ?? 0) - (b.priceKopecks ?? 0));
 }
 
-export function AssemblyCard({ order, businessId, uid, allSupplierNames, plIndex, showManagerAssign = false, isFocused = false, stockMap = new Map() }: Props) {
+export function AssemblyCard({ order, businessId, uid, allSupplierNames, plIndex, showManagerAssign = false, isFocused = false, stockMap }: Props) {
   const [lines, setLines] = useState<ALine[] | null>(null);
+  // undefined — документ сборки ещё не прочитан; null — сохранённых строк нет
+  const [saved, setSaved] = useState<SavedLine[] | null | undefined>(undefined);
   const [saving, setSaving] = useState(false);
+  const [shipping, setShipping] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
   const [editing, setEditing] = useState<{ idx: number; name: string; barcode: string } | null>(null);
   const [showUpd, setShowUpd] = useState(false);
-  const [, setTick] = useState(0);
+  useMinuteTick(); // дедлайн перерисовывается раз в минуту
   const cardRef      = useRef<HTMLDivElement>(null);
   const linesRef     = useRef<ALine[]>([]);
   const lastEditRef  = useRef(0);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const dirtyRef     = useRef(false);
   const drafts       = useNumDrafts();
-  const stockMapRef  = useRef(stockMap);
-  stockMapRef.current = stockMap;
-
-  // Обновляем дедлайн раз в минуту
-  useEffect(() => { const t = setInterval(() => setTick(n => n + 1), 60_000); return () => clearInterval(t); }, []);
+  const region       = normalizeRegion(order.region, order.address);
 
   // Скролл к карточке при фокусе из заказов
   useEffect(() => {
@@ -78,18 +58,11 @@ export function AssemblyCard({ order, businessId, uid, allSupplierNames, plIndex
     }
   }, [isFocused]);
 
-  // Авто-установка deliveryDate = paidAt + 3 рабочих дня при поступлении оплаты
+  // deliveryDate = paidAt + 3 рабочих дня — только если дата пустая (ручную дату менеджера не трогаем)
   useEffect(() => {
-    if (!order.paid || !order.paidAt) return;
-    const expected = addWorkDays(new Date(order.paidAt), 3).toISOString().slice(0, 10);
-    const current  = order.deliveryDate?.slice(0, 10) ?? "";
-    if (current !== expected) {
-      void updateDoc(doc(db, `tenants/${businessId}/orders/${order.id}`), {
-        deliveryDate: expected,
-        updatedAt: new Date().toISOString(),
-      });
-    }
-  }, [order.paid, order.paidAt]); // eslint-disable-line
+    if (!order.paid || !order.paidAt || order.deliveryDate) return;
+    ensureDeliveryDate(businessId, order.id, addWorkDaysMsk(order.paidAt, 3)).catch(console.error);
+  }, [businessId, order.id, order.paid, order.paidAt, order.deliveryDate]);
 
   // Вынесено из useEffect чтобы переиспользовать при замене позиции
   // Подбор по нормализованному штрихкоду/артикулу → по словам названия (см. ../plIndex)
@@ -98,52 +71,32 @@ export function AssemblyCard({ order, businessId, uid, allSupplierNames, plIndex
   }
 
   useEffect(() => {
-    function buildLine(item: Order["items"][number], idx: number, m: PricelistMatch[]): ALine {
-      const qty = item.quantity || item.qty || 1;
-      // unitPrice из НаПолке-заказов может быть в рублях — деривируем из totalKopecks
-      const unitSell = item.totalKopecks && qty > 0
-        ? Math.round(item.totalKopecks / qty)
-        : (item.unitPrice ?? 0);
-      // Приоритет: сначала склад, если есть остаток
-      if (getStockQty(stockMapRef.current, item) > 0) {
-        return { idx, productName: item.productName, barcode: item.barcode ?? null,
-          qtyOrdered: qty, qtyPacked: 0, unitSellKopecks: unitSell,
-          supplierName: "Склад", supplierId: "stock", unitCostKopecks: 0,
-          sentToPurchase: false, replaced: false, matches: m };
-      }
-      const isStock = item.supplierId === "СКЛАД";
-      const preByOrder = item.supplierId ? m.find(x => x.supplierName === item.supplierId) : undefined;
-      const chosen = preByOrder ?? m[0];
-      return { idx, productName: item.productName, barcode: item.barcode ?? null,
-        qtyOrdered: qty, qtyPacked: 0, unitSellKopecks: unitSell,
-        supplierName: isStock ? "Склад" : (chosen?.supplierName ?? ""),
-        supplierId:   isStock ? "stock" : (chosen?.supplierId ?? ""),
-        unitCostKopecks: chosen?.priceKopecks ?? 0,
-        sentToPurchase: false, replaced: false, matches: m };
-    }
-
-    const matchMap = new Map(order.items.map((item, idx) => [idx, computeMatches(item)]));
-
     const ref = doc(db, `tenants/${businessId}/assembly/${order.id}`);
     const unsub = onSnapshot(ref, (snap) => {
       if (Date.now() - lastEditRef.current < 3000) return;
-      const saved = snap.exists() ? (snap.data().lines as Omit<ALine, "matches">[]) : null;
-      const built = order.items.map((item, idx) => {
-        const m = matchMap.get(idx) ?? [];
-        const ex = saved?.find(l => l.idx === idx);
-        if (ex) return { ...ex, matches: m };
-        return buildLine(item, idx, m);
-      });
-      setLines(built);
-      linesRef.current = built;
+      setSaved(snap.exists() ? ((snap.data().lines as SavedLine[] | undefined) ?? null) : null);
     });
-
     return () => {
       unsub();
       clearTimeout(saveTimerRef.current);
       if (dirtyRef.current && linesRef.current.length) void persist(linesRef.current);
     };
   }, [order.id]); // eslint-disable-line
+
+  // Перестраиваем при смене состава заказа и после загрузки остатков/прайса.
+  // Приоритет: несохранённые правки → сохранённые строки → построенные заново.
+  const itemsKey = order.items.map(it => `${it.barcode ?? ""}|${it.productName}|${itemQty(it)}|${it.supplierId ?? ""}`).join(";");
+  useEffect(() => {
+    if (saved === undefined || !stockMap) return;
+    const base: SavedLine[] = dirtyRef.current ? linesRef.current : (saved ?? []);
+    const built = order.items.map((item, idx) => {
+      const l = mergeLine(base.find(x => x.idx === idx), item, buildLine(item, idx, computeMatches(item), stockMap, region));
+      // старые строки «Склад» сохранены с себестоимостью 0 — подставляем среднюю цену прихода
+      return l.supplierName === STOCK && !l.unitCostKopecks ? { ...l, unitCostKopecks: avgCost(stockMap, region, l) } : l;
+    });
+    setLines(built);
+    linesRef.current = built;
+  }, [saved, itemsKey, stockMap, plIndex, region]); // eslint-disable-line
 
   function patch(idx: number, p: Partial<ALine>) {
     setLines(prev => {
@@ -179,11 +132,13 @@ export function AssemblyCard({ order, businessId, uid, allSupplierNames, plIndex
     if (!ls.length) return;
     setSaving(true);
     try {
+      const toSave = ls.map(({ matches: _m, ...l }) => l);
       await setDoc(
         doc(db, `tenants/${businessId}/assembly/${order.id}`),
-        { lines: ls.map(({ matches: _m, ...l }) => l), assembler: uid, updatedAt: new Date().toISOString() },
+        { lines: toSave, assembler: uid, updatedAt: new Date().toISOString() },
         { merge: true },
       );
+      setSaved(toSave); // свой снимок в окне 3 с игнорируется — иначе saved останется старым
       dirtyRef.current = false;
       setIsDirty(false);
     } catch (e) {
@@ -258,55 +213,17 @@ export function AssemblyCard({ order, businessId, uid, allSupplierNames, plIndex
   }
 
   async function deliver() {
+    if (shipping) return;
+    setShipping(true);
+    clearTimeout(saveTimerRef.current);
     try {
-      const ls = linesRef.current;
-      // Долг только по незаменённым позициям с неполной упаковкой
-      const debtItems = ls
-        .filter(l => !l.replaced && l.qtyOrdered > l.qtyPacked)
-        .map(l => ({
-          productName: l.productName,
-          barcode: l.barcode,
-          qtyOrdered: l.qtyOrdered,
-          qtyShipped: l.qtyPacked,
-          qtyDebt: Math.round((l.qtyOrdered - l.qtyPacked) * 1000) / 1000,
-          unitSellKopecks: l.unitSellKopecks,
-        }));
-
-      await updateDoc(doc(db, `tenants/${businessId}/orders/${order.id}`), {
-        status: "delivered", updatedAt: new Date().toISOString(),
-      });
-
-      if (debtItems.length > 0) {
-        await setDoc(doc(db, `tenants/${businessId}/debts`, order.id), {
-          orderId: order.id,
-          customerName: order.customerName,
-          assignedManager: order.assignedManager ?? null,
-          deliveryDate: order.deliveryDate,
-          items: debtItems,
-          createdAt: new Date().toISOString(),
-        });
-      }
-
-      // Списание со склада для позиций с поставщиком "Склад"
-      const stockLines = ls.filter(l => l.supplierName === "Склад" && l.qtyPacked > 0);
-      if (stockLines.length > 0) {
-        await Promise.all(stockLines.map(l =>
-          addDoc(collection(db, `tenants/${businessId}/stock`), {
-            productName: l.productName,
-            barcode: l.barcode ?? null,
-            qty: -l.qtyPacked,
-            supplierName: null,
-            costKopecks: 0,
-            note: `Списание: ${order.customerName}`,
-            region: order.region ?? null,
-            createdAt: new Date().toISOString(),
-            createdBy: uid,
-          }),
-        ));
-      }
+      await shipOrder(businessId, order, linesRef.current.map(({ matches: _m, ...l }) => l), uid);
+      dirtyRef.current = false;
     } catch (e) {
       console.error("Deliver failed:", e);
       alert("Ошибка при отгрузке: " + String(e));
+    } finally {
+      setShipping(false);
     }
   }
 
@@ -502,7 +419,7 @@ export function AssemblyCard({ order, businessId, uid, allSupplierNames, plIndex
                           </button>
                         );
                       })}
-                      <button onClick={() => patch(l.idx, { supplierName:"Склад", supplierId:"stock" })}
+                      <button onClick={() => { drafts.clear(`cost-${l.idx}`); patch(l.idx, { supplierName:"Склад", supplierId:"stock", unitCostKopecks: stockMap ? avgCost(stockMap, region, l) : 0 }); }}
                         style={{ fontSize:11, padding:"3px 9px", borderRadius:5, cursor:"pointer",
                           border: isStock?"1.5px solid #2E7D32":"1px solid #ddd",
                           background: isStock?"rgba(46,125,50,.1)":"transparent", color:isStock?"#2E7D32":"#888" }}>
@@ -600,7 +517,7 @@ export function AssemblyCard({ order, businessId, uid, allSupplierNames, plIndex
                   style={{ fontSize: 11, color: "#8B6914", borderColor: "rgba(200,154,52,.5)" }}>
                   УПД
                 </button>
-                <button className="go-btn go-btn--green" onClick={() => void deliver()}>Отгрузить ✓</button>
+                <button className="go-btn go-btn--green" onClick={() => void deliver()} disabled={shipping}>Отгрузить ✓</button>
               </>
             )}
           </div>
@@ -614,13 +531,17 @@ export function AssemblyCard({ order, businessId, uid, allSupplierNames, plIndex
         customerName={order.customerName}
         customerInn={(order as typeof order & { customerInn?: string }).customerInn}
         customerAddr={order.address}
-        items={lines.map(l => ({
-          name:     l.productName,
-          qty:      l.qtyPacked > 0 ? l.qtyPacked : l.qtyOrdered,
-          unit:     "шт",
-          price:    l.unitSellKopecks / 100,
-          selected: l.qtyPacked > 0 || l.qtyOrdered > 0,
-        } as UpdItem))}
+        items={lines.map(l => {
+          const qty = l.qtyPacked > 0 ? l.qtyPacked : l.qtyOrdered;
+          const it = order.items[l.idx];
+          // Полная позиция — итог строки из заказа до копейки (цена за ед. округлена)
+          const full = it && !l.replaced && qty === itemQty(it);
+          return {
+            name: l.productName, qty, unit: "шт", price: l.unitSellKopecks / 100,
+            totalKopecks: full ? itemTotalKopecks(it) : undefined,
+            selected: l.qtyPacked > 0 || l.qtyOrdered > 0,
+          } as UpdItem;
+        })}
         onClose={() => setShowUpd(false)}
         onShip={() => { setShowUpd(false); void deliver(); }}
       />

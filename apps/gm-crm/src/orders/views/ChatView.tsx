@@ -58,11 +58,10 @@ export function ChatView({ businessId, currentUser }: { businessId: string; curr
             <div key={m.id} style={{ display: "flex", justifyContent: mine ? "flex-end" : "flex-start" }}>
               <div style={{
                 maxWidth: "65%",
-                background: mine ? "rgba(200,154,52,.18)" : "rgba(255,255,255,.75)",
+                background: mine ? "rgba(200,154,52,.18)" : "rgba(255,255,255,.86)",
                 border: `1px solid ${mine ? "rgba(200,154,52,.35)" : "rgba(200,154,52,.15)"}`,
                 borderRadius: mine ? "14px 14px 4px 14px" : "14px 14px 14px 4px",
                 padding: "8px 12px",
-                backdropFilter: "blur(6px)",
               }}>
                 <div style={{ fontSize: 11, color: "#8B7355", marginBottom: 3 }}>
                   <strong style={{ color: "#1A1814" }}>{m.author}</strong>

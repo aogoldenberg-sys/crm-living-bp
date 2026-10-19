@@ -8,6 +8,11 @@ compatibility_flags = ["nodejs_compat_v2"]
 #   MATRIX_TOKEN    — API-токен из ЛК Matrix (раздел CRM-интеграция)
 #   MATRIX_CRM_TOKEN — токен валидации входящих вебхуков (придумываем сами)
 
+[vars]
+FIREBASE_PROJECT_ID = "crm-living-bp"
+# "1" — отклонять запросы фронта без ID token. Включить, когда IncomingCallPopup/CallLogView/PhoneButton шлют токен.
+AUTH_REQUIRED = "0"
+
 [[kv_namespaces]]
 binding = "CALL_EVENTS"
 id = "48c96ed6642441d589bc7483d21a9ec7"

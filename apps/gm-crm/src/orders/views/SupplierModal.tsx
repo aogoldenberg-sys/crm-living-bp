@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from "react";
-import { doc, setDoc } from "firebase/firestore";
+import { collection, doc, runTransaction, setDoc } from "firebase/firestore";
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, storage } from "../../firebase";
 import { ClientEmailSection } from "./ClientEmailSection";
 import { PhoneButton } from "../../telephony/PhoneButton";
 import { MATRIX_WORKER_URL } from "../../telephony/config";
+import { authHeader } from "../idToken";
 
 export interface Sup {
   id: string; name: string; cat: string; icon: string;
@@ -57,7 +58,8 @@ function SupplierCalls({ phone }: { phone: string }) {
     if (!phone) { setLoading(false); return; }
     const norm = normPhone(phone);
     setLoading(true);
-    fetch(`${MATRIX_WORKER_URL}/history?period=this_month&type=all`)
+    authHeader()
+      .then(headers => fetch(`${MATRIX_WORKER_URL}/history?period=this_month&type=all`, { headers }))
       .then(r => r.ok ? r.json() as Promise<CallRecord[]> : [])
       .then(data => setCalls(data.filter(c => normPhone(c.client) === norm)))
       .catch(() => setCalls([]))
@@ -106,22 +108,24 @@ function SupplierCalls({ phone }: { phone: string }) {
 }
 
 // ── FileUploader ───────────────────────────────────────────────────────────────
-function FileRow({ label, url, fileName, accept, onUploaded }:
-  { label: string; url?: string | null; fileName?: string | null; accept: string; onUploaded: (url: string, name: string) => void }) {
+function FileRow({ label, url, fileName, accept, supId, onUploaded }: {
+  label: string; url?: string | null; fileName?: string | null; accept: string;
+  supId?: string; onUploaded: (url: string, name: string) => Promise<void>;
+}) {
   const [uploading, setUploading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   async function upload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file || !supId) return;
     setUploading(true); setErr(null);
     try {
-      const path = `uploads/${Date.now()}_${file.name.replace(/[^a-zA-Zа-яёА-ЯЁ0-9._-]/g, "_")}`;
+      const path = `suppliers/${supId}/${Date.now()}_${file.name.replace(/[^a-zA-Zа-яёА-ЯЁ0-9._-]/g, "_")}`;
       const sRef = storageRef(storage, path);
       await uploadBytes(sRef, file);
       const downloadUrl = await getDownloadURL(sRef);
-      onUploaded(downloadUrl, file.name);
+      await onUploaded(downloadUrl, file.name);
     } catch (ex) {
       setErr("Ошибка загрузки: " + String(ex));
     } finally {
@@ -145,7 +149,8 @@ function FileRow({ label, url, fileName, accept, onUploaded }:
       <input ref={inputRef} type="file" accept={accept} style={{ display: "none" }} onChange={upload} />
       <button
         onClick={() => inputRef.current?.click()}
-        disabled={uploading}
+        disabled={uploading || !supId}
+        title={supId ? undefined : "Сначала сохраните поставщика"}
         style={{ padding: "5px 12px", fontSize: 11, borderRadius: 7, cursor: "pointer",
           border: "1px solid rgba(200,154,52,.4)", background: "transparent", color: "#8B6914", whiteSpace: "nowrap" }}>
         {uploading ? "…" : url ? "Заменить" : "Загрузить"}
@@ -168,18 +173,35 @@ export function SupplierModal({ sup, businessId, onClose }: Props) {
 
   const f = (k: keyof Sup, v: string | boolean | null) => setForm(p => ({ ...p, [k]: v }));
 
+  const col = `tenants/${businessId}/suppliers`;
+
   async function save() {
     setSaving(true);
     try {
-      const id = form.id ?? slugify(form.name ?? "supplier");
-      await setDoc(doc(db, `tenants/${businessId}/suppliers`, id), { ...form, id });
+      if (form.id) await setDoc(doc(db, col, form.id), form, { merge: true });
+      else await createSupplier();
       onClose();
     } catch (e) {
       console.error("save supplier:", e);
-      alert("Ошибка сохранения. Проверьте подключение.");
+      alert("Ошибка сохранения поставщика: " + String(e));
     } finally {
       setSaving(false);
     }
+  }
+
+  // Транзакция: slug от первых 30 символов может совпасть у разных поставщиков — чужую карточку не затираем.
+  // РЕШЕНИЕ: при занятом slug беру авто-id, а не ошибку — иначе второго «ООО Торговый дом ...» не завести.
+  async function createSupplier() {
+    const slugRef = doc(db, col, slugify(form.name ?? "supplier"));
+    await runTransaction(db, async (tx) => {
+      const ref = (await tx.get(slugRef)).exists() ? doc(collection(db, col)) : slugRef;
+      tx.set(ref, { ...form, id: ref.id });
+    });
+  }
+
+  async function attach(fields: Partial<Sup>) {
+    setForm(p => ({ ...p, ...fields }));
+    await setDoc(doc(db, col, form.id!), fields, { merge: true });
   }
 
   const sheetUrl = form.sheetUrl || (form.sheetName ? `${SHEET_URL}#gid=0&sheet=${encodeURIComponent(form.sheetName)}` : null);
@@ -328,29 +350,25 @@ export function SupplierModal({ sup, businessId, onClose }: Props) {
         {tab === "docs" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             <div style={{ fontSize: 12, color: "#8B7355", marginBottom: 4 }}>
-              Файлы загружаются в Firebase Storage и сохраняются в карточке поставщика.
+              {isNew
+                ? "Сначала сохраните поставщика на вкладке «Данные» — после этого можно загружать файлы."
+                : "Файлы загружаются в Firebase Storage и сохраняются в карточке поставщика."}
             </div>
             <FileRow
               label="📃 Договор"
               url={form.contractUrl}
               fileName={form.contractName}
               accept=".pdf,.doc,.docx"
-              onUploaded={(url, name) => {
-                f("contractUrl", url); f("contractName", name); f("hasContract", true);
-                void setDoc(doc(db, `tenants/${businessId}/suppliers`, form.id ?? slugify(form.name ?? "")),
-                  { contractUrl: url, contractName: name, hasContract: true }, { merge: true });
-              }}
+              supId={form.id}
+              onUploaded={(url, name) => attach({ contractUrl: url, contractName: name, hasContract: true })}
             />
             <FileRow
               label="📊 Прайс-лист"
               url={form.pricelistFileUrl}
               fileName={form.pricelistFileName}
               accept=".pdf,.xls,.xlsx,.csv"
-              onUploaded={(url, name) => {
-                f("pricelistFileUrl", url); f("pricelistFileName", name);
-                void setDoc(doc(db, `tenants/${businessId}/suppliers`, form.id ?? slugify(form.name ?? "")),
-                  { pricelistFileUrl: url, pricelistFileName: name }, { merge: true });
-              }}
+              supId={form.id}
+              onUploaded={(url, name) => attach({ pricelistFileUrl: url, pricelistFileName: name })}
             />
             <div style={{ marginTop: 8, padding: "10px 14px", background: "rgba(200,154,52,.06)",
               borderRadius: 8, border: "1px solid rgba(200,154,52,.2)", fontSize: 12, color: "#8B6914" }}>

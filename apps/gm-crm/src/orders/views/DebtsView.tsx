@@ -3,6 +3,7 @@ import { collection, onSnapshot, query, orderBy, updateDoc, deleteDoc, doc } fro
 import { db } from "../../firebase";
 import { fmtRub } from "../useOrders";
 import { ReconciliationModal } from "./ReconciliationModal";
+import { matchesRegion } from "../region";
 import "../orders.css";
 
 interface DebtItem {
@@ -20,6 +21,7 @@ interface Debt {
   customerName: string;
   assignedManager?: string;
   region?: string;
+  address?: string | null;
   createdAt: string;
   deliveryDate?: string;
   items: DebtItem[];
@@ -61,15 +63,9 @@ export function DebtsView({ businessId, managerFilter, regionFilter }: {
     return () => { unsub(); if (timerRef.current) clearTimeout(timerRef.current); };
   }, [businessId]);
 
-  const SPB_RE = /санкт.петербург|спб|ленинградская\s*обл/i;
-
   const displayed = debts
     .filter(d => !managerFilter || d.assignedManager === managerFilter)
-    .filter(d => {
-      if (!regionFilter) return true;
-      if (regionFilter === "spb") return SPB_RE.test(d.region ?? "");
-      return d.region === regionFilter;
-    });
+    .filter(d => matchesRegion(d, regionFilter));
 
   const totalKopecks = displayed.reduce((sum, debt) =>
     sum + debt.items.reduce((s, it) => s + it.qtyDebt * it.unitSellKopecks, 0), 0);

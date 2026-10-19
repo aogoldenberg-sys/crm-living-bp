@@ -1,12 +1,15 @@
 import { useState } from "react";
 import "../orders.css";
 import { parseQty, parseRub, useNumDrafts } from "../numInput";
+import { splitVat, fmtKop } from "../money";
+import { authHeader } from "../idToken";
 
 export interface UpdItem {
   name: string;
   qty: number;
   unit: string;
-  price: number;  // рублей
+  price: number;  // рублей, с НДС
+  totalKopecks?: number;  // итог строки с НДС из заказа; сбрасывается при правке кол-ва/цены
   selected: boolean;
 }
 
@@ -21,10 +24,20 @@ interface Props {
 }
 
 const PROXY_URL = "https://opentgp.ru/food/pay-proxy.php";
-const VAT = 0.22;
+
+// Итог строки берём из исходной цены до округления: вызывающие передают totalKopecks/(qty*100),
+// и так строка совпадает с заказом до копейки, а цена показывается без хвоста 3.3333333333333335.
+function normalize(it: UpdItem): UpdItem {
+  const totalKopecks = it.totalKopecks ?? Math.round(it.qty * it.price * 100);
+  return { ...it, price: Math.round(it.price * 100) / 100, totalKopecks };
+}
+
+function lineTotal(it: UpdItem): number {
+  return it.totalKopecks ?? Math.round(it.qty * Math.round(it.price * 100));
+}
 
 export function UpdModal({ orderNum, customerName, customerInn, customerAddr, items: initItems, onClose, onShip }: Props) {
-  const [items, setItems] = useState<UpdItem[]>(initItems);
+  const [items, setItems] = useState<UpdItem[]>(() => initItems.map(normalize));
   const [stamp, setStamp] = useState(true);
   const [toEmail, setToEmail] = useState("");
   const [downloading, setDownloading] = useState(false);
@@ -32,18 +45,17 @@ export function UpdModal({ orderNum, customerName, customerInn, customerAddr, it
   const [result, setResult] = useState<{ ok: boolean; num?: number; error?: string } | null>(null);
 
   const drafts = useNumDrafts();
-  const fmt = (n: number) => n.toLocaleString("ru-RU", { maximumFractionDigits: 2 });
 
   const selected = items.filter(it => it.selected);
-  const subtotal = selected.reduce((s, it) => s + it.qty * it.price, 0);
-  const vat      = subtotal * VAT;
-  const total    = subtotal + vat;
+  // Сумма заказа уже с НДС 22% — выделяем НДС изнутри
+  const sums = splitVat(selected.map(lineTotal));
 
   function toggle(i: number) {
     setItems(p => p.map((it, idx) => idx === i ? { ...it, selected: !it.selected } : it));
   }
   function updateItem(i: number, patch: Partial<UpdItem>) {
-    setItems(p => p.map((it, idx) => idx === i ? { ...it, ...patch } : it));
+    const repriced = "qty" in patch || "price" in patch;
+    setItems(p => p.map((it, idx) => idx === i ? { ...it, ...patch, ...(repriced ? { totalKopecks: undefined } : {}) } : it));
   }
   function toggleAll() {
     const allSel = items.every(it => it.selected);
@@ -57,7 +69,13 @@ export function UpdModal({ orderNum, customerName, customerInn, customerAddr, it
       buyer_addr: customerAddr ?? "",
       stamp,
       email: email ?? "",
-      items: selected.map(it => ({ name: it.name, qty: it.qty, unit: it.unit, price: it.price })),
+      vat_included: true,
+      total: sums.total / 100,
+      vat:   sums.vat / 100,
+      items: selected.map((it, i) => ({
+        name: it.name, qty: it.qty, unit: it.unit, price: it.price,
+        sum: sums.lines[i].total / 100, vat: sums.lines[i].vat / 100,
+      })),
     };
   }
 
@@ -67,7 +85,7 @@ export function UpdModal({ orderNum, customerName, customerInn, customerAddr, it
     try {
       const res = await fetch(PROXY_URL, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "X-Proxy-Secret": "grp-proxy-2026", "X-Proxy-Path": "/crm-upd" },
+        headers: { "Content-Type": "application/json", "X-Proxy-Secret": "grp-proxy-2026", "X-Proxy-Path": "/crm-upd", ...(await authHeader()) },
         body: JSON.stringify(buildPayload()),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -94,7 +112,7 @@ export function UpdModal({ orderNum, customerName, customerInn, customerAddr, it
     try {
       const res = await fetch(PROXY_URL, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "X-Proxy-Secret": "grp-proxy-2026", "X-Proxy-Path": "/crm-upd" },
+        headers: { "Content-Type": "application/json", "X-Proxy-Secret": "grp-proxy-2026", "X-Proxy-Path": "/crm-upd", ...(await authHeader()) },
         body: JSON.stringify(buildPayload(toEmail.trim())),
       });
       const data = await res.json() as { ok: boolean; num?: number; error?: string };
@@ -160,7 +178,7 @@ export function UpdModal({ orderNum, customerName, customerInn, customerAddr, it
               <th style={{ textAlign: "right", padding: "4px 8px", color: "#8B7355", fontSize: 11, fontWeight: 600, width: 70 }}>Кол-во</th>
               <th style={{ textAlign: "center", padding: "4px 8px", color: "#8B7355", fontSize: 11, fontWeight: 600, width: 60 }}>Ед.</th>
               <th style={{ textAlign: "right", padding: "4px 8px", color: "#8B7355", fontSize: 11, fontWeight: 600, width: 110 }}>Цена, ₽</th>
-              <th style={{ textAlign: "right", padding: "4px 8px", color: "#8B7355", fontSize: 11, fontWeight: 600, width: 110 }}>Сумма без НДС</th>
+              <th style={{ textAlign: "right", padding: "4px 8px", color: "#8B7355", fontSize: 11, fontWeight: 600, width: 110 }}>Сумма с НДС</th>
             </tr>
           </thead>
           <tbody>
@@ -207,7 +225,7 @@ export function UpdModal({ orderNum, customerName, customerInn, customerAddr, it
                       background: "transparent", fontSize: 13 }} />
                 </td>
                 <td style={{ padding: "4px 8px", textAlign: "right", fontWeight: 500, color: "#8B7355" }}>
-                  {fmt(it.qty * it.price)}
+                  {fmtKop(lineTotal(it))}
                 </td>
               </tr>
             ))}
@@ -220,15 +238,15 @@ export function UpdModal({ orderNum, customerName, customerInn, customerAddr, it
             <tbody>
               <tr>
                 <td style={{ padding: "3px 20px", color: "#8B7355", textAlign: "right" }}>Без НДС:</td>
-                <td style={{ padding: "3px 0", textAlign: "right", minWidth: 130, fontWeight: 500 }}>{fmt(subtotal)} ₽</td>
+                <td style={{ padding: "3px 0", textAlign: "right", minWidth: 130, fontWeight: 500 }}>{fmtKop(sums.net)} ₽</td>
               </tr>
               <tr>
-                <td style={{ padding: "3px 20px", color: "#8B7355", textAlign: "right" }}>НДС 22%:</td>
-                <td style={{ padding: "3px 0", textAlign: "right", color: "#8B7355" }}>{fmt(vat)} ₽</td>
+                <td style={{ padding: "3px 20px", color: "#8B7355", textAlign: "right" }}>в т.ч. НДС 22%:</td>
+                <td style={{ padding: "3px 0", textAlign: "right", color: "#8B7355" }}>{fmtKop(sums.vat)} ₽</td>
               </tr>
               <tr style={{ borderTop: "2px solid #e0d8cc" }}>
-                <td style={{ padding: "6px 20px", fontWeight: 700, textAlign: "right" }}>Итого с НДС:</td>
-                <td style={{ padding: "6px 0", textAlign: "right", fontWeight: 700, fontSize: 16 }}>{fmt(total)} ₽</td>
+                <td style={{ padding: "6px 20px", fontWeight: 700, textAlign: "right" }}>Итого к оплате:</td>
+                <td style={{ padding: "6px 0", textAlign: "right", fontWeight: 700, fontSize: 16 }}>{fmtKop(sums.total)} ₽</td>
               </tr>
             </tbody>
           </table>

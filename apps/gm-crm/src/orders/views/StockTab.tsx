@@ -3,6 +3,8 @@ import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
 import { db } from "../../firebase";
 import { fmtRub } from "../useOrders";
 import { StockReceiptForm } from "./StockReceiptForm";
+import { matchesRegion, normalizeRegion } from "../region";
+import { round3 } from "../stockOps";
 
 interface StockEntry {
   id: string;
@@ -33,27 +35,29 @@ const TD: React.CSSProperties = { padding: "5px 10px", fontSize: 12, verticalAli
 const TH: React.CSSProperties = { ...TD, fontWeight: 600, color: "#8B7355", fontSize: 11, whiteSpace: "nowrap" };
 
 
-function exportStockCsv(entries: StockEntry[], regionFilter: "msk" | "spb", regionLabel: string) {
-  // Считаем остатки по нужному складу из сырых записей
-  const filtered = entries.filter(e =>
-    regionFilter === "spb" ? e.region === "spb" : (!e.region || e.region === "msk")
-  );
+// Остатки из сырых записей. «Последний приход» — только по приходам (qty > 0), не по списаниям.
+function computeBalances(entries: StockEntry[]): Balance[] {
   const map = new Map<string, Balance>();
-  for (const e of [...filtered].reverse()) {
-    const key = e.barcode || e.productName;
+  for (const e of [...entries].reverse()) {
+    // тот же ключ, что у остатков сборки (stockOps): штрихкод, иначе название без учёта регистра
+    const key = e.barcode ? String(e.barcode) : String(e.productName ?? "").toLowerCase();
     if (!map.has(key)) {
       map.set(key, { key, productName: e.productName, barcode: e.barcode, qty: 0, unit: e.unit || "шт", lastSupplier: null, lastCostKopecks: 0, lastDate: "" });
     }
     const b = map.get(key)!;
-    b.qty += e.qty;
-    if (e.createdAt > b.lastDate) {
+    b.qty = round3(b.qty + (Number(e.qty) || 0));
+    if (e.qty > 0 && e.createdAt > b.lastDate) {
       b.lastDate = e.createdAt;
       b.lastSupplier = e.supplierName;
       b.lastCostKopecks = e.costKopecks;
       if (e.unit) b.unit = e.unit;
     }
   }
-  const balances = [...map.values()].filter(b => b.qty > 0).sort((a, b) => b.qty - a.qty);
+  return [...map.values()].sort((a, b) => b.qty - a.qty);
+}
+
+function exportStockCsv(entries: StockEntry[], regionFilter: "msk" | "spb", regionLabel: string) {
+  const balances = computeBalances(entries.filter(e => matchesRegion(e, regionFilter))).filter(b => b.qty > 0);
   const rows = [
     ["Наименование", "Штрихкод", "Остаток", "Ед.", "Цена закупки (руб.)"],
     ...balances.map(b => [
@@ -98,30 +102,12 @@ export function StockTab({ businessId, currentUser, region }: { businessId: stri
   }, [businessId]);
 
   // effectiveRegion: если region задан (спб-менеджер) — фиксирован; иначе — по табу директора
-  const effectiveRegion = region ?? regionTab;
-  const regionEntries = entries.filter(e =>
-    effectiveRegion === "spb" ? e.region === "spb" : (!e.region || e.region === "msk")
+  const effectiveRegion = normalizeRegion(region ?? regionTab);
+  const regionEntries = useMemo(
+    () => entries.filter(e => matchesRegion(e, effectiveRegion)),
+    [entries, effectiveRegion],
   );
-
-  const balances = useMemo(() => {
-    const map = new Map<string, Balance>();
-    for (const e of [...regionEntries].reverse()) {
-      const key = e.barcode || e.productName;
-      if (!map.has(key)) {
-        map.set(key, { key, productName: e.productName, barcode: e.barcode, qty: 0, unit: e.unit || "шт", lastSupplier: null, lastCostKopecks: 0, lastDate: "" });
-      }
-      const b = map.get(key)!;
-      b.qty += e.qty;
-      if (e.createdAt > b.lastDate) {
-        b.lastDate         = e.createdAt;
-        b.lastSupplier     = e.supplierName;
-        b.lastCostKopecks  = e.costKopecks;
-        if (e.unit) b.unit = e.unit;
-      }
-    }
-    return [...map.values()].sort((a, b) => b.qty - a.qty);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [regionEntries]);
+  const balances = useMemo(() => computeBalances(regionEntries), [regionEntries]);
 
   const filteredBalances = useMemo(() => {
     const q = balanceSearch.toLowerCase();
@@ -172,7 +158,7 @@ export function StockTab({ businessId, currentUser, region }: { businessId: stri
           )}
           {entries.length > 0 && region && (
             <button
-              onClick={() => exportStockCsv(entries, region as "msk" | "spb", region === "spb" ? "СПб" : "Москва")}
+              onClick={() => exportStockCsv(entries, effectiveRegion, effectiveRegion === "spb" ? "СПб" : "Москва")}
               style={{ padding: "6px 14px", fontSize: 12, borderRadius: 8, cursor: "pointer", whiteSpace: "nowrap",
                 border: "1px solid rgba(200,154,52,.4)", background: "transparent", color: "#8B6914" }}>
               ⬇ Выгрузить CSV
@@ -281,7 +267,7 @@ export function StockTab({ businessId, currentUser, region }: { businessId: stri
                   </td>
                   <td style={{ ...TD, textAlign: "right", fontWeight: 600,
                     color: e.qty >= 0 ? "#2E7D32" : "#C62828" }}>
-                    {e.qty >= 0 ? "+" : ""}{e.qty}
+                    {e.qty >= 0 ? "+" : ""}{round3(e.qty)}
                   </td>
                   <td style={{ ...TD, textAlign: "right", color: "#555" }}>
                     {e.costKopecks > 0 ? fmtRub(e.costKopecks) : "—"}

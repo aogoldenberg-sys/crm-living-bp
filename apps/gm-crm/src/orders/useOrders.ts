@@ -1,6 +1,7 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
 import { db } from "../firebase";
+import { useOrdersArchive, useOrdersFeed, withArchive } from "./ordersStore";
 
 export type OrderStatus =
   | "received"
@@ -133,64 +134,19 @@ type RoleId = "sales" | "assembly" | "purchasing" | "finance" | "director";
 export function useOrders(
   businessId: string,
   roleId: RoleId,
-  _userId: string
+  _userId: string,
+  opts?: { archive?: boolean },
 ): { orders: Order[]; loading: boolean; error: string | null } {
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const attemptRef = useRef(0);
-
-  useEffect(() => {
-    if (!businessId) return;
-    attemptRef.current = 0;
-    // Актуальная подписка (меняется при переподключении) и флаг размонтирования —
-    // cleanup должен закрывать именно текущую подписку, а не первую.
-    let currentUnsub: (() => void) | null = null;
-    let disposed = false;
-
-    function subscribe() {
-      if (disposed) return;
-      const col = collection(db, `tenants/${businessId}/orders`);
-      const q = query(col, orderBy("createdAt", "desc"));
-
-      const unsub = onSnapshot(q, (snap) => {
-        if (disposed) return;
-        attemptRef.current = 0;
-        setError(null);
-        let list = snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Order, "id">) }));
-        if (roleId === "assembly") {
-          list = list.filter((o) => o.status === "sourcing");
-        }
-        setOrders(list);
-        setLoading(false);
-      }, (err) => {
-        console.error("useOrders onSnapshot error:", err.code, err.message);
-        if (disposed) return;
-        setLoading(false);
-        attemptRef.current += 1;
-        const delay = Math.min(5000 * attemptRef.current, 30000);
-        setError(`Ошибка соединения (${err.code}). Повтор через ${delay / 1000}с…`);
-        if (retryRef.current) clearTimeout(retryRef.current);
-        retryRef.current = setTimeout(() => {
-          retryRef.current = null;
-          if (currentUnsub === unsub) currentUnsub = null;
-          unsub();
-          subscribe();
-        }, delay);
-      });
-      currentUnsub = unsub;
-    }
-
-    subscribe();
-    return () => {
-      disposed = true;
-      if (retryRef.current) { clearTimeout(retryRef.current); retryRef.current = null; }
-      if (currentUnsub) { currentUnsub(); currentUnsub = null; }
-    };
-  }, [businessId, roleId]);
-
-  return { orders, loading, error };
+  // РЕШЕНИЕ: «Сводная» и «Финансы» считают выручку по истории (paidAt старых заказов),
+  // поэтому по умолчанию получают архив. Остальным — только живое окно. Скажи если не так.
+  const archive = opts?.archive ?? (roleId === "director" || roleId === "finance");
+  const feed = useOrdersFeed(businessId);
+  const arch = useOrdersArchive(businessId, archive, feed.archiveRev);
+  const orders = useMemo(() => {
+    const list = arch ? withArchive(feed.orders, arch) : feed.orders;
+    return roleId === "assembly" ? list.filter((o) => o.status === "sourcing") : list;
+  }, [feed.orders, arch, roleId]);
+  return { orders, loading: feed.loading || (archive && !arch), error: feed.error };
 }
 
 export interface PricelistMatch {

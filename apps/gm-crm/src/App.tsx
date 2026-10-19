@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
 import { onAuthStateChanged, sendEmailVerification, signInWithCustomToken, updateProfile } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
@@ -6,15 +6,19 @@ import { auth, db } from "./firebase";
 import { useAuth } from "./auth/useAuth";
 import type { UserRole } from "./auth/useAuth";
 import { LoginPage } from "./auth/LoginPage";
-import { LandingPage } from "./landing/LandingPage";
-import { Dashboard } from "./dashboard/Dashboard";
-import { PlanSectionPage } from "./plan/PlanSectionPage";
-import { OnboardingFlow } from "./onboarding/OnboardingFlow";
 import { usePlanExists } from "./onboarding/usePlanExists";
 import { useGustorikoRole } from "./auth/useRole";
-import { ServicesPage } from "./services/ServicesPage";
-import { BusinessPage } from "./features/revision/BusinessPage";
-import { OrdersPage } from "./orders/OrdersPage";
+
+// Тяжёлые разделы грузятся по требованию: сотрудники Густорико не тянут весь Кайрос.
+const LandingPage = lazy(() => import("./landing/LandingPage").then((m) => ({ default: m.LandingPage })));
+const Dashboard = lazy(() => import("./dashboard/Dashboard").then((m) => ({ default: m.Dashboard })));
+const PlanSectionPage = lazy(() => import("./plan/PlanSectionPage").then((m) => ({ default: m.PlanSectionPage })));
+const OnboardingFlow = lazy(() => import("./onboarding/OnboardingFlow").then((m) => ({ default: m.OnboardingFlow })));
+const ServicesPage = lazy(() => import("./services/ServicesPage").then((m) => ({ default: m.ServicesPage })));
+const BusinessPage = lazy(() => import("./features/revision/BusinessPage").then((m) => ({ default: m.BusinessPage })));
+const OrdersPage = lazy(() => import("./orders/OrdersPage").then((m) => ({ default: m.OrdersPage })));
+
+const loadingScreen = <div className="loading-screen">Загрузка...</div>;
 
 // Обрабатывает #yandex_token= на ЛЮБОМ роуте — Worker редиректит на /kairos/
 function YandexAuthHandler() {
@@ -201,6 +205,7 @@ export default function App() {
     <BrowserRouter basename={import.meta.env.BASE_URL.slice(0, -1)}>
       <YandexAuthHandler />
       <EmailVerifyBanner />
+      <Suspense fallback={loadingScreen}>
       <Routes>
         {/* Лендинг — главная страница */}
         <Route path="/" element={user ? <Navigate to="/dashboard" replace /> : <LandingPage />} />
@@ -258,6 +263,7 @@ export default function App() {
         {/* Fallback */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      </Suspense>
     </BrowserRouter>
   );
 }

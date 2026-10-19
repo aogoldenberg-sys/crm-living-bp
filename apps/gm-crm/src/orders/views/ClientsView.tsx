@@ -1,8 +1,11 @@
-import { useState, useEffect } from "react";
-import { collection, onSnapshot, query, orderBy, where, getDocs, doc, getDoc, setDoc } from "firebase/firestore";
+import { useState, useEffect, useMemo } from "react";
+import { collection, query, orderBy, where, getDocs, doc, getDoc, setDoc } from "firebase/firestore";
 import { db } from "../../firebase";
-import { fmtRub, statusLabel, statusColor, type Order, type OrderItem } from "../useOrders";
+import { fmtRub, statusLabel, statusColor, useOrders, type Order, type OrderItem } from "../useOrders";
 import { MATRIX_WORKER_URL } from "../../telephony/config";
+import { authHeader } from "../idToken";
+import { matchesRegion } from "../region";
+import { orderItemToUpd } from "../money";
 import { PhoneButton } from "../../telephony/PhoneButton";
 import { ClientEmailSection } from "./ClientEmailSection";
 import { ReconciliationModal } from "./ReconciliationModal";
@@ -21,14 +24,9 @@ function getNewCount(c: { name: string; orders: { createdAt?: string }[] }): num
   return c.orders.filter(o => (o.createdAt ?? "") > seen).length;
 }
 
+// unitPrice в заказах НаПолке бывает в рублях — цена и итог строки берутся из totalKopecks
 function toUpdItems(items: OrderItem[]): UpdItem[] {
-  return items.map(it => ({
-    name: it.productName,
-    qty: it.qty ?? it.quantity,
-    unit: it.unit ?? "шт",
-    price: (it.unitPrice ?? 0) / 100,
-    selected: true,
-  }));
+  return items.map(orderItemToUpd);
 }
 
 interface ContactOverride {
@@ -87,7 +85,8 @@ function ClientCalls({ phone }: { phone: string }) {
     if (!phone) { setLoading(false); return; }
     const norm = normPhone(phone);
     setLoading(true);
-    fetch(`${MATRIX_WORKER_URL}/history?period=this_month&type=all`)
+    authHeader()
+      .then(headers => fetch(`${MATRIX_WORKER_URL}/history?period=this_month&type=all`, { headers }))
       .then(r => r.ok ? r.json() as Promise<CallRecord[]> : [])
       .then(data => setCalls(data.filter(c => normPhone(c.client) === norm)))
       .catch(() => setCalls([]))
@@ -220,8 +219,6 @@ function isRealClient(name: string) {
 }
 
 export function ClientsView({ businessId, regionFilter }: { businessId: string; regionFilter?: string }) {
-  const [clients, setClients]   = useState<ClientCard[]>([]);
-  const [loading, setLoading]   = useState(true);
   const [selected, setSelected] = useState<string | null>(null);
   const [search, setSearch]     = useState("");
   const [cityFilter, setCityFilter] = useState("");
@@ -234,48 +231,39 @@ export function ClientsView({ businessId, regionFilter }: { businessId: string; 
   const [updOrder, setUpdOrder]   = useState<Order | null>(null);
   const [subTab, setSubTab]       = useState<"clients" | "mailing">("clients");
 
-  useEffect(() => {
-    const q = query(
-      collection(db, `tenants/${businessId}/orders`),
-      orderBy("createdAt", "desc"),
-    );
-    return onSnapshot(q, snap => {
-      const orders = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<Order, "id">) }));
-
-      // Группируем по customerName, пропускаем "Заказ #..."
-      const map = new Map<string, ClientCard>();
-      for (const o of orders) {
-        const key = o.customerName || "—";
-        if (!isRealClient(key)) continue;
-        if (!map.has(key)) {
-          map.set(key, {
-            name: key,
-            phone:   o.phone   ?? "",
-            email:   o.email   ?? "",
-            inn:     o.customerInn ?? "",
-            address: o.address ?? "",
-            region:  o.region  ?? "",
-            orders: [],
-            totalKopecks: 0,
-            lastOrderDate: o.createdAt ?? "",
-          });
-        }
-        const c = map.get(key)!;
-        c.orders.push(o);
-        c.totalKopecks += o.totalKopecks ?? 0;
-        // Обновляем контакт из последних данных если пришло новое
-        if (o.phone   && !c.phone)   c.phone   = o.phone;
-        if (o.email   && !c.email)   c.email   = o.email;
-        if (o.address && !c.address) c.address = o.address;
-        if (o.customerInn && !c.inn) c.inn     = o.customerInn;
+  // История клиента нужна полностью: живые заказы + архив однократно (без живой подписки на всю коллекцию)
+  const { orders, loading } = useOrders(businessId, "director", "", { archive: true });
+  const clients = useMemo(() => {
+    // Группируем по customerName, пропускаем "Заказ #..."
+    const map = new Map<string, ClientCard>();
+    for (const o of orders) {
+      const key = o.customerName || "—";
+      if (!isRealClient(key)) continue;
+      if (!map.has(key)) {
+        map.set(key, {
+          name: key,
+          phone:   o.phone   ?? "",
+          email:   o.email   ?? "",
+          inn:     o.customerInn ?? "",
+          address: o.address ?? "",
+          region:  o.region  ?? "",
+          orders: [],
+          totalKopecks: 0,
+          lastOrderDate: o.createdAt ?? "",
+        });
       }
+      const c = map.get(key)!;
+      c.orders.push(o);
+      c.totalKopecks += o.totalKopecks ?? 0;
+      // Обновляем контакт из последних данных если пришло новое
+      if (o.phone   && !c.phone)   c.phone   = o.phone;
+      if (o.email   && !c.email)   c.email   = o.email;
+      if (o.address && !c.address) c.address = o.address;
+      if (o.customerInn && !c.inn) c.inn     = o.customerInn;
+    }
 
-      setClients(
-        [...map.values()].sort((a, b) => b.lastOrderDate.localeCompare(a.lastOrderDate)),
-      );
-      setLoading(false);
-    }, () => setLoading(false));
-  }, [businessId]);
+    return [...map.values()].sort((a, b) => b.lastOrderDate.localeCompare(a.lastOrderDate));
+  }, [orders]);
 
   // Отмечаем вкладку "Клиенты" просмотренной при монтировании
   useEffect(() => {
@@ -315,7 +303,8 @@ export function ClientsView({ businessId, regionFilter }: { businessId: string; 
       c.inn.includes(search)
     )) return false;
     if (cityFilter && getClientCity(c) !== cityFilter) return false;
-    if (regionFilter === "spb" && !SPB_RE_CLI.test(getClientCity(c))) return false;
+    // region "spb" (латиница) регулярка не ловит — добавляем общий matchesRegion
+    if (regionFilter === "spb" && !SPB_RE_CLI.test(getClientCity(c)) && !matchesRegion(c, "spb")) return false;
     return true;
   });
 

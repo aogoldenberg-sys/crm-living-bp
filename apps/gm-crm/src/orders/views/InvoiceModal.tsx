@@ -3,13 +3,21 @@ import { addDoc, collection, updateDoc, doc } from "firebase/firestore";
 import { db } from "../../firebase";
 import { type Order } from "../useOrders";
 import { parseQty, parseRub, useNumDrafts } from "../numInput";
+import { itemQty, itemTotalKopecks, itemUnitKopecks, splitVat, fmtKop } from "../money";
+import { esc } from "../htmlEscape";
+import { authHeader } from "../idToken";
 import "../orders.css";
 
 interface InvoiceRow {
   name: string;
   qty: number;
-  price: number;    // рублей
+  priceKopecks: number;         // за единицу, с НДС
+  totalKopecks: number | null;  // итог строки из заказа; null после правки кол-ва/цены
   confirmed: boolean;
+}
+
+function rowTotal(r: InvoiceRow): number {
+  return r.totalKopecks ?? Math.round(r.qty * r.priceKopecks);
 }
 
 interface Props {
@@ -24,8 +32,9 @@ export function InvoiceModal({ order, businessId, onClose }: Props) {
   const [rows, setRows] = useState<InvoiceRow[]>(
     order.items.map((it) => ({
       name: it.productName,
-      qty: it.quantity,
-      price: it.unitPrice / 100,
+      qty: itemQty(it),
+      priceKopecks: itemUnitKopecks(it),
+      totalKopecks: itemTotalKopecks(it),
       confirmed: true,          // цена из заказа — уже реальная
     }))
   );
@@ -35,22 +44,29 @@ export function InvoiceModal({ order, businessId, onClose }: Props) {
   const [result, setResult] = useState<{ ok: boolean; num?: number; error?: string } | null>(null);
   const drafts = useNumDrafts();
 
-  const subtotal = rows.reduce((s, r) => s + r.qty * r.price, 0);
-  const vat      = subtotal * 0.22;
-  const total    = subtotal + vat;
-  const fmt = (n: number) => n.toLocaleString("ru-RU", { maximumFractionDigits: 2 });
+  // Сумма заказа уже с НДС 22% — выделяем НДС изнутри; в Firestore — рубли, как раньше
+  const sums = splitVat(rows.map(rowTotal));
+  const subtotal = sums.net / 100;
+  const vat      = sums.vat / 100;
+  const total    = sums.total / 100;
 
   function updateRow(i: number, patch: Partial<InvoiceRow>) {
-    setRows((prev) => prev.map((r, idx) => idx === i ? { ...r, ...patch } : r));
+    const repriced = "qty" in patch || "priceKopecks" in patch;
+    setRows((prev) => prev.map((r, idx) => idx === i ? { ...r, ...patch, ...(repriced ? { totalKopecks: null } : {}) } : r));
   }
+
+  const rowsOut = () => rows.map((r, i) => ({
+    name: r.name, qty: r.qty, price: r.priceKopecks / 100,
+    sum: sums.lines[i].total / 100, vat: sums.lines[i].vat / 100,
+  }));
 
   function printVersion() {
     const date = new Date().toLocaleDateString("ru-RU");
     const rowsHtml = rows.map((r, i) =>
-      `<tr><td>${i + 1}</td><td>${r.name}</td><td style="text-align:right">${r.qty}</td>` +
-      `<td style="text-align:right">${fmt(r.price)}</td><td style="text-align:right;font-weight:600">${fmt(r.qty * r.price)}</td></tr>`
+      `<tr><td>${i + 1}</td><td>${esc(r.name)}</td><td style="text-align:right">${esc(r.qty)}</td>` +
+      `<td style="text-align:right">${fmtKop(r.priceKopecks)}</td><td style="text-align:right;font-weight:600">${fmtKop(rowTotal(r))}</td></tr>`
     ).join("");
-    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Счёт — ${order.customerName}</title>
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Счёт — ${esc(order.customerName)}</title>
 <style>
   body{font-family:Arial,sans-serif;padding:40px;font-size:13px;color:#1a1a1a}
   h2{margin:0 0 4px}
@@ -64,16 +80,16 @@ export function InvoiceModal({ order, businessId, onClose }: Props) {
   @media print{body{padding:20px}}
 </style></head><body>
 <h2>СЧЁТ НА ОПЛАТУ</h2>
-<div class="meta">Дата: ${date} · Покупатель: <strong>${order.customerName}</strong>${order.customerInn ? " · ИНН " + order.customerInn : ""}</div>
-${order.address ? `<div class="meta">Адрес: ${order.address}</div>` : ""}
+<div class="meta">Дата: ${date} · Покупатель: <strong>${esc(order.customerName)}</strong>${order.customerInn ? " · ИНН " + esc(order.customerInn) : ""}</div>
+${order.address ? `<div class="meta">Адрес: ${esc(order.address)}</div>` : ""}
 <table>
   <thead><tr><th>№</th><th>Наименование</th><th>Кол-во</th><th>Цена, ₽</th><th>Сумма, ₽</th></tr></thead>
   <tbody>${rowsHtml}</tbody>
 </table>
 <div class="totals">
-  Без НДС: ${fmt(subtotal)} ₽<br>
-  НДС 22%: ${fmt(vat)} ₽<br>
-  <span class="total-big">Итого с НДС: ${fmt(total)} ₽</span>
+  Без НДС: ${fmtKop(sums.net)} ₽<br>
+  в т.ч. НДС 22%: ${fmtKop(sums.vat)} ₽<br>
+  <span class="total-big">Итого к оплате: ${fmtKop(sums.total)} ₽</span>
 </div>
 <p style="margin-top:32px;font-size:12px;color:#666">Поставщик: ООО «ОпенТрейдГрупп» · ИНН 9703235411<br>
 trade@opentgp.ru · +7 (495) 205-35-00</p>
@@ -92,7 +108,7 @@ trade@opentgp.ru · +7 (495) 205-35-00</p>
         customerInn: order.customerInn ?? null,
         address: order.address ?? null,
         email: toEmail || null,
-        rows: rows.map((r) => ({ name: r.name, qty: r.qty, price: r.price })),
+        rows: rows.map((r) => ({ name: r.name, qty: r.qty, price: r.priceKopecks / 100 })),
         subtotal, vat, total,
         createdAt: new Date().toISOString(),
       };
@@ -119,13 +135,14 @@ trade@opentgp.ru · +7 (495) 205-35-00</p>
         headers: {
           "Content-Type": "application/json",
           "X-Proxy-Secret": "grp-proxy-2026",
-          "X-Proxy-Path": "/crm-invoice-pdf",
+          "X-Proxy-Path": "/crm-invoice-pdf", ...(await authHeader()),
         },
         body: JSON.stringify({
           buyer:      order.customerName,
           buyer_inn:  order.customerInn  ?? "",
           buyer_addr: order.address      ?? "",
-          items: rows.map((r) => ({ name: r.name, qty: r.qty, price: r.price })),
+          vat_included: true, total, vat,
+          items: rowsOut(),
         }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -153,7 +170,7 @@ trade@opentgp.ru · +7 (495) 205-35-00</p>
         headers: {
           "Content-Type": "application/json",
           "X-Proxy-Secret": "grp-proxy-2026",
-          "X-Proxy-Path": "/crm-invoice",
+          "X-Proxy-Path": "/crm-invoice", ...(await authHeader()),
         },
         body: JSON.stringify({
           buyer:      order.customerName,
@@ -162,7 +179,8 @@ trade@opentgp.ru · +7 (495) 205-35-00</p>
           phone:      order.phone        ?? "",
           email:      toEmail.trim(),
           comment:    order.comment      ?? "",
-          items: rows.map((r) => ({ name: r.name, qty: r.qty, price: r.price })),
+          vat_included: true, total, vat,
+          items: rowsOut(),
         }),
       });
       const data = await res.json() as { ok: boolean; num?: number; error?: string };
@@ -174,7 +192,7 @@ trade@opentgp.ru · +7 (495) 205-35-00</p>
           await addDoc(collection(db, `tenants/${businessId}/invoices`), {
             orderId: order.id, customerName: order.customerName,
             customerInn: order.customerInn ?? null, email: toEmail,
-            rows: rows.map((r) => ({ name: r.name, qty: r.qty, price: r.price })),
+            rows: rows.map((r) => ({ name: r.name, qty: r.qty, price: r.priceKopecks / 100 })),
             subtotal, vat, total, num: data.num,
             createdAt: new Date().toISOString(),
           });
@@ -254,11 +272,11 @@ trade@opentgp.ru · +7 (495) 205-35-00</p>
                       background: "transparent", fontSize: 13 }} />
                 </td>
                 <td style={{ padding: "4px 8px" }}>
-                  <input type="text" inputMode="decimal" value={drafts.value(`price-${i}`, String(r.price))}
+                  <input type="text" inputMode="decimal" value={drafts.value(`price-${i}`, String(r.priceKopecks / 100))}
                     onChange={(e) => {
                       const p = parseRub(e.target.value, 0);
                       drafts.set(`price-${i}`, e.target.value, p !== null);
-                      if (p !== null) updateRow(i, { price: p, confirmed: true });
+                      if (p !== null) updateRow(i, { priceKopecks: Math.round(p * 100), confirmed: true });
                     }}
                     onBlur={() => { if (!drafts.invalid(`price-${i}`)) drafts.clear(`price-${i}`); }}
                     style={{ width: 90, textAlign: "right", border: "none",
@@ -268,7 +286,7 @@ trade@opentgp.ru · +7 (495) 205-35-00</p>
                       fontWeight: r.confirmed ? 400 : 600 }} />
                 </td>
                 <td style={{ padding: "4px 8px", textAlign: "right", fontWeight: 500 }}>
-                  {fmt(r.qty * r.price)}
+                  {fmtKop(rowTotal(r))}
                 </td>
                 <td>
                   <button onClick={() => { drafts.clearAll(); setRows((p) => p.filter((_, idx) => idx !== i)); }}
@@ -279,7 +297,7 @@ trade@opentgp.ru · +7 (495) 205-35-00</p>
           </tbody>
         </table>
 
-        <button onClick={() => setRows((p) => [...p, { name: "", qty: 1, price: 0, confirmed: true }])}
+        <button onClick={() => setRows((p) => [...p, { name: "", qty: 1, priceKopecks: 0, totalKopecks: null, confirmed: true }])}
           style={{ fontSize: 12, color: "#8B6914", background: "transparent",
             border: "1px dashed rgba(200,154,52,.4)", borderRadius: 6,
             padding: "4px 12px", cursor: "pointer", marginBottom: 18 }}>
@@ -292,15 +310,15 @@ trade@opentgp.ru · +7 (495) 205-35-00</p>
             <tbody>
               <tr>
                 <td style={{ padding: "3px 20px", color: "#8B7355", textAlign: "right" }}>Без НДС:</td>
-                <td style={{ padding: "3px 0", textAlign: "right", minWidth: 120, fontWeight: 500 }}>{fmt(subtotal)} ₽</td>
+                <td style={{ padding: "3px 0", textAlign: "right", minWidth: 120, fontWeight: 500 }}>{fmtKop(sums.net)} ₽</td>
               </tr>
               <tr>
-                <td style={{ padding: "3px 20px", color: "#8B7355", textAlign: "right" }}>НДС 22%:</td>
-                <td style={{ padding: "3px 0", textAlign: "right", color: "#8B7355" }}>{fmt(vat)} ₽</td>
+                <td style={{ padding: "3px 20px", color: "#8B7355", textAlign: "right" }}>в т.ч. НДС 22%:</td>
+                <td style={{ padding: "3px 0", textAlign: "right", color: "#8B7355" }}>{fmtKop(sums.vat)} ₽</td>
               </tr>
               <tr style={{ borderTop: "2px solid #e0d8cc" }}>
-                <td style={{ padding: "6px 20px", fontWeight: 700, textAlign: "right" }}>Итого с НДС:</td>
-                <td style={{ padding: "6px 0", textAlign: "right", fontWeight: 700, fontSize: 16 }}>{fmt(total)} ₽</td>
+                <td style={{ padding: "6px 20px", fontWeight: 700, textAlign: "right" }}>Итого к оплате:</td>
+                <td style={{ padding: "6px 0", textAlign: "right", fontWeight: 700, fontSize: 16 }}>{fmtKop(sums.total)} ₽</td>
               </tr>
             </tbody>
           </table>

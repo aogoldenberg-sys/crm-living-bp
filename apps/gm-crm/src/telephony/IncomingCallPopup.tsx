@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import { MATRIX_WORKER_URL } from "./config";
+import { authHeader } from "../orders/idToken";
 import { useClientPhoneMap, normPhone } from "../orders/useClientPhoneMap";
 
 interface CallEvent {
@@ -19,7 +20,7 @@ export function IncomingCallPopup() {
   useEffect(() => {
     async function poll() {
       try {
-        const r = await fetch(`${MATRIX_WORKER_URL}/events`);
+        const r = await fetch(`${MATRIX_WORKER_URL}/events`, { headers: await authHeader() });
         if (r.ok) setCalls(await r.json() as CallEvent[]);
       } catch { /* сеть недоступна — молчим */ }
     }

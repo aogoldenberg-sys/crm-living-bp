@@ -1,8 +1,8 @@
-import { useState, useEffect, useMemo } from "react";
-import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
-import { db } from "../../firebase";
-import { fmtRub, type Order } from "../useOrders";
+import { useState, useMemo } from "react";
+import { fmtRub, useOrders } from "../useOrders";
 import { StockTab } from "./StockTab";
+import { matchesRegion } from "../region";
+import { itemQty, itemTotalKopecks } from "../money";
 import { useAuth } from "../../auth/useAuth";
 
 interface ItemStat {
@@ -30,55 +30,47 @@ type Tab = "top" | "stock";
 export function ItemsView({ businessId, regionFilter }: { businessId: string; regionFilter?: string }) {
   const { user } = useAuth();
   const [tab, setTab] = useState<Tab>("top");
-  const [items, setItems]     = useState<ItemStat[]>([]);
-  const [loading, setLoading] = useState(true);
   const [search, setSearch]   = useState("");
   const [sort, setSort]       = useState<Sort>("orders");
   const [selected, setSelected] = useState<ItemStat | null>(null);
 
-  useEffect(() => {
-    const q = query(
-      collection(db, `tenants/${businessId}/orders`),
-      orderBy("createdAt", "desc"),
-    );
-    return onSnapshot(q, snap => {
-      const map = new Map<string, ItemStat>();
+  // Статистика по всей истории: живые заказы + архив однократно (без живой подписки на всю коллекцию)
+  const { orders, loading } = useOrders(businessId, "director", "", { archive: true });
+  const items = useMemo(() => {
+    const map = new Map<string, ItemStat>();
 
-      snap.docs.forEach(d => {
-        const o = { id: d.id, ...(d.data() as Omit<Order, "id">) };
-        if (!o.items?.length) return;
-        if (regionFilter && o.region !== regionFilter) return;
-        const date = o.deliveryDate ?? o.createdAt?.slice(0, 10) ?? "";
+    orders.forEach(o => {
+      if (!o.items?.length) return;
+      if (!matchesRegion(o, regionFilter)) return;
+      const date = o.deliveryDate ?? o.createdAt?.slice(0, 10) ?? "";
 
-        o.items.forEach(item => {
-          const key = item.barcode || item.productName;
-          if (!map.has(key)) {
-            map.set(key, {
-              key, productName: item.productName,
-              barcode: item.barcode ?? null,
-              orderCount: 0, totalQty: 0, totalRevKopecks: 0,
-              customers: new Set(), lastDate: date, orders: [],
-            });
-          }
-          const s = map.get(key)!;
-          s.orderCount++;
-          s.totalQty += item.quantity ?? 0;
-          s.totalRevKopecks += (item.unitPrice ?? 0) * (item.quantity ?? 0);
-          s.customers.add(o.customerName);
-          if (date > s.lastDate) s.lastDate = date;
-          s.orders.push({
-            orderId: o.id,
-            customerName: o.customerName,
-            qty: item.quantity ?? 0,
-            date,
+      o.items.forEach(item => {
+        const key = item.barcode || item.productName;
+        if (!map.has(key)) {
+          map.set(key, {
+            key, productName: item.productName,
+            barcode: item.barcode ?? null,
+            orderCount: 0, totalQty: 0, totalRevKopecks: 0,
+            customers: new Set(), lastDate: date, orders: [],
           });
+        }
+        const s = map.get(key)!;
+        s.orderCount++;
+        s.totalQty += itemQty(item);
+        s.totalRevKopecks += itemTotalKopecks(item);
+        s.customers.add(o.customerName);
+        if (date > s.lastDate) s.lastDate = date;
+        s.orders.push({
+          orderId: o.id,
+          customerName: o.customerName,
+          qty: itemQty(item),
+          date,
         });
       });
+    });
 
-      setItems([...map.values()]);
-      setLoading(false);
-    }, () => setLoading(false));
-  }, [businessId, regionFilter]);
+    return [...map.values()];
+  }, [orders, regionFilter]);
 
   const sorted = useMemo(() => {
     const q = search.toLowerCase();

@@ -36,7 +36,6 @@
   position: absolute;
   top: 0; left: 0;
   will-change: transform;
-  filter: drop-shadow(0 8px 24px rgba(160,110,20,.35));
   pointer-events: none;
 }
 
@@ -44,9 +43,8 @@
 .go-sidebar {
   width: 220px;
   flex-shrink: 0;
-  background: rgba(255,255,255,.55);
-  backdrop-filter: blur(20px) saturate(1.4);
-  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  /* без backdrop-filter: фон под панелью — ровный градиент, размытие не видно, а GPU грузит */
+  background: rgba(255,255,255,.72);
   border: 1px solid rgba(255,255,255,.9);
   border-radius: 22px;
   display: flex;
@@ -80,6 +78,7 @@
   height: 106px;
   opacity: .65;
   animation: go-spin 34s linear infinite;
+  will-change: transform;
 }
 
 .go-logo {
@@ -193,9 +192,7 @@
   flex: 1;
   min-width: 0;
   padding: 28px 32px;
-  background: rgba(255,255,255,.14);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
+  background: rgba(255,255,255,.22);
   border-radius: 20px;
   box-shadow: 0 8px 40px rgba(160,110,20,.08);
   border: 1px solid rgba(255,255,255,.5);
@@ -252,10 +249,9 @@
   flex: 1;
   min-width: 140px;
   padding: 16px 20px;
-  background: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.82);
   border: 1px solid rgba(200, 154, 52, 0.2);
   border-radius: 12px;
-  backdrop-filter: blur(8px);
 }
 
 /* Градиентные карточки — золото/бронза/серебро */
@@ -413,10 +409,9 @@
 }
 
 .go-card {
-  background: rgba(255, 255, 255, 0.75);
+  background: rgba(255, 255, 255, 0.86);
   border: 1px solid rgba(200, 154, 52, 0.2);
   border-radius: 14px;
-  backdrop-filter: blur(8px);
   padding: 18px 20px;
 }
 
@@ -442,12 +437,11 @@
 
 /* Form */
 .go-form {
-  background: rgba(255, 255, 255, 0.75);
+  background: rgba(255, 255, 255, 0.86);
   border: 1px solid rgba(200, 154, 52, 0.2);
   border-radius: 14px;
   padding: 20px 24px;
   margin-bottom: 24px;
-  backdrop-filter: blur(8px);
 }
 
 .go-form h3 {
@@ -560,11 +554,10 @@
 }
 
 .go-kanban-col {
-  background: rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.74);
   border: 1px solid rgba(200, 154, 52, 0.15);
   border-radius: 12px;
   padding: 14px 16px;
-  backdrop-filter: blur(6px);
 }
 
 .go-kanban-col-head {

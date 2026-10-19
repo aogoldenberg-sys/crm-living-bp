@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { collection, onSnapshot, query, where, writeBatch, doc } from "firebase/firestore";
 import { db } from "../../firebase";
 import { fmtRub } from "../useOrders";
+import { esc } from "../htmlEscape";
 
 interface PL {
   id: string; productName: string; barcode: string | null;
@@ -27,11 +28,11 @@ const BTN: React.CSSProperties = { fontSize: 11, padding: "4px 10px", borderRadi
 function printOrder(g: Group, vis: MergedLine[]) {
   const date = new Date().toLocaleDateString("ru-RU");
   const rows = vis.map((l, i) =>
-    `<tr><td>${i+1}</td><td>${l.productName}</td><td>${l.barcode ?? "—"}</td>` +
-    `<td align="right">${l.qty}</td>` +
+    `<tr><td>${i+1}</td><td>${esc(l.productName)}</td><td>${esc(l.barcode ?? "—")}</td>` +
+    `<td align="right">${esc(l.qty)}</td>` +
     `<td align="right">${(l.unitCostKopecks/100).toFixed(2)}</td>` +
     `<td align="right"><b>${(l.unitCostKopecks*l.qty/100).toFixed(2)}</b></td>` +
-    `<td>${l.customers.join(", ")}</td></tr>`
+    `<td>${esc(l.customers.join(", "))}</td></tr>`
   ).join("");
   const total = vis.reduce((s, l) => s + l.unitCostKopecks * l.qty, 0);
   const w = window.open("", "_blank");
@@ -41,7 +42,7 @@ body{font-family:Arial,sans-serif;padding:32px;font-size:13px}
 table{width:100%;border-collapse:collapse}th{background:#f5f5f5;padding:6px;border:1px solid #ddd;text-align:left;font-size:11px}
 td{padding:5px 6px;border:1px solid #eee}.tot{margin-top:14px;text-align:right;font-weight:700}
 @media print{body{padding:16px}}</style></head><body>
-<h2 style="margin:0 0 4px">ЗАКАЗ ПОСТАВЩИКУ: ${g.supplierName}</h2>
+<h2 style="margin:0 0 4px">ЗАКАЗ ПОСТАВЩИКУ: ${esc(g.supplierName)}</h2>
 <p style="color:#666;font-size:12px;margin:0 0 16px">Дата: ${date}</p>
 <table><thead><tr><th>№</th><th>Наименование</th><th>Штрихкод</th><th>Кол-во</th><th>Цена, ₽</th><th>Сумма, ₽</th><th>Для кого</th></tr></thead>
 <tbody>${rows}</tbody></table>

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useOrders, type Order } from "../useOrders";
+import { esc } from "../htmlEscape";
 import "../orders.css";
 
 interface Props { businessId: string }
@@ -41,7 +42,7 @@ const DAY_TABS = [
 ] as const;
 
 export function LogisticsView({ businessId }: Props) {
-  const { orders, loading } = useOrders(businessId, "director", "");
+  const { orders, loading } = useOrders(businessId, "director", "", { archive: false });
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const ymapRef = useRef<any>(null);
   const routeRef = useRef<any>(null);
@@ -168,9 +169,9 @@ export function LogisticsView({ businessId }: Props) {
     const rows = picks.map((o: Order, i) => `
       <tr>
         <td>${i + 1}</td>
-        <td>${o.customerName}</td>
-        <td>${o.address ?? "—"}</td>
-        <td>${o.phone ?? "—"}</td>
+        <td>${esc(o.customerName)}</td>
+        <td>${esc(o.address ?? "—")}</td>
+        <td>${esc(o.phone ?? "—")}</td>
         <td>${o.items.length} поз.</td>
         <td style="width:80px"></td>
       </tr>`).join("");
@@ -189,8 +190,8 @@ export function LogisticsView({ businessId }: Props) {
       </style></head><body>
       <h2>Путевой лист — Густорико</h2>
       <div class="meta">Дата: ${date} &nbsp;|&nbsp;
-        Склад: ${wh.label} (${wh.address}) &nbsp;|&nbsp;
-        Маршрут: ${routeInfo?.distance ?? "не построен"} / ${routeInfo?.duration ?? "—"} &nbsp;|&nbsp;
+        Склад: ${esc(wh.label)} (${esc(wh.address)}) &nbsp;|&nbsp;
+        Маршрут: ${esc(routeInfo?.distance ?? "не построен")} / ${esc(routeInfo?.duration ?? "—")} &nbsp;|&nbsp;
         Точек: ${picks.length}
       </div>
       <table>

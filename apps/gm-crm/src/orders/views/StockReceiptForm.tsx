@@ -95,6 +95,11 @@ function parseTemplate(rows: string[][]): ReceiptRow[] {
     ));
 }
 
+const isFilled = (r: ReceiptRow) => Boolean(r.productName.trim() || r.barcode.trim());
+// Пустое/ошибочное/нулевое кол-во — ошибка, а не «1»; пустая цена допустима (0)
+const qtyBad  = (r: ReceiptRow) => isFilled(r) && parseQty(r.qty) === null;
+const costBad = (r: ReceiptRow) => isFilled(r) && rubToKopecks(r.costRub, 0) === null;
+
 function newRowFrom(name = "", barcode = "", qty = "", unit = "шт", costRub = ""): ReceiptRow {
   return { _id: String(++_rid), productName: name, barcode, qty, unit, costRub };
 }
@@ -149,7 +154,7 @@ function ItemRow({ row, num, onUpdate, onRemove }: {
           onChange={e => onUpdate({ barcode: e.target.value })} placeholder="—" />
       </td>
       <td style={{ ...TD, width: 65 }}>
-        <input style={{ ...inp, textAlign: "right" }} inputMode="decimal" value={row.qty}
+        <input style={{ ...inp, textAlign: "right", ...(qtyBad(row) ? { borderBottom: "1px solid #C62828" } : {}) }} inputMode="decimal" value={row.qty}
           onChange={e => onUpdate({ qty: e.target.value })} placeholder="0" />
       </td>
       <td style={{ ...TD, width: 46 }}>
@@ -157,7 +162,7 @@ function ItemRow({ row, num, onUpdate, onRemove }: {
           onChange={e => onUpdate({ unit: e.target.value })} />
       </td>
       <td style={{ ...TD, width: 90 }}>
-        <input style={{ ...inp, textAlign: "right" }} inputMode="decimal" value={row.costRub}
+        <input style={{ ...inp, textAlign: "right", ...(costBad(row) ? { borderBottom: "1px solid #C62828" } : {}) }} inputMode="decimal" value={row.costRub}
           onChange={e => onUpdate({ costRub: e.target.value })} placeholder="0" />
       </td>
       <td style={{ ...TD, width: 24 }}>
@@ -206,15 +211,15 @@ export function StockReceiptForm({ businessId, currentUser, region, suppliers, o
   }
 
   async function save() {
-    const valid = rows.filter(r => r.productName.trim() || r.barcode.trim());
-    if (!valid.length) return;
+    const valid = rows.filter(isFilled);
+    if (!valid.length || valid.some(r => qtyBad(r) || costBad(r))) return;
     setSaving(true);
     try {
       const now = new Date().toISOString();
       const batch = writeBatch(db);
       for (const r of valid) {
-        const qty = parseQty(r.qty, true) ?? 1;
-        const costKopecks = rubToKopecks(r.costRub, 0) ?? 0;
+        const qty = parseQty(r.qty)!;
+        const costKopecks = rubToKopecks(r.costRub, 0)!;
         batch.set(doc(collection(db, `tenants/${businessId}/stock`)), {
           productName:  r.productName.trim() || r.barcode,
           barcode:      r.barcode.trim() || null,
@@ -237,7 +242,8 @@ export function StockReceiptForm({ businessId, currentUser, region, suppliers, o
     }
   }
 
-  const validCount = rows.filter(r => r.productName.trim() || r.barcode.trim()).length;
+  const validCount = rows.filter(isFilled).length;
+  const badCount = rows.filter(r => qtyBad(r) || costBad(r)).length;
 
   return (
     <div className="go-form" style={{ marginBottom: 20 }}>
@@ -326,7 +332,8 @@ export function StockReceiptForm({ businessId, currentUser, region, suppliers, o
 
       <div style={{ display: "flex", gap: 10 }}>
         <button className="go-btn go-btn--gold" onClick={() => void save()}
-          disabled={saving || validCount === 0}>
+          disabled={saving || validCount === 0 || badCount > 0}
+          title={badCount > 0 ? "Исправьте количество/цену в подсвеченных строках" : undefined}>
           {saving ? "Сохранение…" : `Сохранить накладную (${validCount} поз.)`}
         </button>
         <button className="go-btn go-btn--outline" onClick={onCancel}>Отмена</button>

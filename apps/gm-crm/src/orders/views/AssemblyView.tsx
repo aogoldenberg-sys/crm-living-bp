@@ -5,6 +5,8 @@ import { useAuth } from "../../auth/useAuth";
 import { useOrders, loadPricelist } from "../useOrders";
 import { buildPlIndex, type PlIndex } from "../plIndex";
 import { AssemblyCard } from "./AssemblyCard";
+import { matchesRegion } from "../region";
+import { buildStockIndex, itemQty, type StockIndex, type StockRow } from "../stockOps";
 import catalog from "../suppliersCatalog.json";
 import "../orders.css";
 
@@ -44,16 +46,10 @@ export function AssemblyView({ businessId, managerFilter, showManagerAssign = fa
     loadPricelist().then(pl => setPlIndex(buildPlIndex(pl)));
   }, []);
 
-  // Подписка на остатки склада — для приоритетного выбора при сборке
+  // Подписка на остатки склада (по регионам) — для приоритетного выбора при сборке
   useEffect(() => {
     return onSnapshot(collection(db, `tenants/${businessId}/stock`), snap => {
-      const map = new Map<string, number>();
-      for (const d of snap.docs) {
-        const e = d.data() as { barcode?: string | null; productName: string; qty: number };
-        const key = e.barcode ? String(e.barcode) : e.productName.toLowerCase();
-        map.set(key, (map.get(key) ?? 0) + e.qty);
-      }
-      setStockMap(map);
+      setStockMap(buildStockIndex(snap.docs.map(d => d.data() as StockRow)));
     });
   }, [businessId]);
 
@@ -76,12 +72,13 @@ export function AssemblyView({ businessId, managerFilter, showManagerAssign = fa
     });
   }, [businessId]);
 
-  const [stockMap, setStockMap] = useState<Map<string, number>>(new Map());
+  // null — остатки ещё не пришли: карточки ждут, иначе выберут поставщика без учёта склада
+  const [stockMap, setStockMap] = useState<StockIndex | null>(null);
   const [search, setSearch] = useState("");
 
   const filtered = orders
     .filter(o => !managerFilter || o.assignedManager === managerFilter)
-    .filter(o => !regionFilter || o.region === regionFilter);
+    .filter(o => matchesRegion(o, regionFilter));
 
   const searched = search.trim()
     ? filtered.filter(o => {
@@ -113,7 +110,7 @@ export function AssemblyView({ businessId, managerFilter, showManagerAssign = fa
         if (!nameMatch && !barcodeMatch) continue;
         rows.push({
           productName: it.productName ?? it.productId ?? "—",
-          qty: it.quantity ?? it.qty ?? 0,
+          qty: itemQty(it),
           unit: it.unit ?? "шт",
           customerName: o.customerName ?? o.id,
           orderId: o.id,

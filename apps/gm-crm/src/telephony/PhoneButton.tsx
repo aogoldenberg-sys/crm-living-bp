@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { MATRIX_WORKER_URL } from "./config";
+import { authHeader } from "../orders/idToken";
 
 interface Props {
   phone: string;
@@ -23,7 +24,7 @@ export function PhoneButton({ phone, extension, size = 14 }: Props) {
     try {
       const r = await fetch(`${MATRIX_WORKER_URL}/call`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(await authHeader()) },
         body: JSON.stringify({ phone, user: extension }),
       });
       setResult(r.ok ? "ok" : "err");

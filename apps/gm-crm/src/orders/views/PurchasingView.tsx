@@ -7,6 +7,8 @@ import {
   type Order, type OrderItem,
 } from "../useOrders";
 import { PurchaseLinesSection } from "./PurchaseLinesSection";
+import { matchesRegion } from "../region";
+import { itemQty } from "../stockOps";
 import "../orders.css";
 
 interface Props { businessId: string; clientFilter?: string | null; regionFilter?: string; }
@@ -63,7 +65,7 @@ function ItemsTable({ items, businessId }: { items: OrderItem[]; businessId: str
           return (
             <tr key={i} style={{ borderBottom: "1px solid #f0ece5" }}>
               <td style={{ padding: "3px 6px" }}>{item.productName}</td>
-              <td style={{ padding: "3px 6px", textAlign: "right" }}>{item.quantity}</td>
+              <td style={{ padding: "3px 6px", textAlign: "right" }}>{itemQty(item)}</td>
               <td style={{ padding: "3px 6px", textAlign: "right" }}>{fmtRub(item.unitPrice)}</td>
               <td style={{ padding: "3px 6px", color: first ? "#2E7D32" : "#aaa" }}>
                 {first ? first.supplierName : (item.supplierId ? (SUPPLIER_NAMES[item.supplierId] ?? item.supplierId) : "не найден")}
@@ -115,7 +117,7 @@ export function PurchasingView({ businessId, clientFilter, regionFilter }: Props
   const newOrders = orders.filter((o) => {
     if (o.status !== "received" && o.status !== "approved") return false;
     if (clientFilter && o.customerName !== clientFilter) return false;
-    if (effectiveRegion === "spb" ? o.region !== "spb" : (o.region === "spb")) return false;
+    if (!matchesRegion(o, effectiveRegion)) return false;
     return true;
   });
 

@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef } from "react";
-import { updateDoc, doc, collection, onSnapshot, query, orderBy, limit, setDoc, getDoc, getDocs, where } from "firebase/firestore";
+import { updateDoc, doc, collection, onSnapshot, query, orderBy, limit, getDoc, getDocs, where, writeBatch } from "firebase/firestore";
 import { db } from "../../firebase";
 import { useAuth } from "../../auth/useAuth";
 import { useOrders, statusLabel, statusColor, fmtRub } from "../useOrders";
 import "../orders.css";
+import { matchesRegion } from "../region";
+import { invalidateOrdersArchive } from "../ordersStore";
 import {
   parseTBankCsv, assignTxIds, legacyTxId, safeDocId, findMatchingOrder, fmtRuDate, txDateSortKey,
 } from "../bankCsv";
@@ -80,9 +82,14 @@ export function FinanceView({ businessId, regionFilter }: Props) {
   async function handleCsvImport(file: File) {
     setImporting(true);
     setImportResult(null);
+    let total = 0;
+    let matchedCount = 0;
+    let newCount = 0;
+    const paidIds: string[] = [];
     try {
       const text = await file.text();
       const rows = assignTxIds(parseTBankCsv(text));
+      total = rows.length;
       const paymentsCol = `tenants/${businessId}/payments`;
 
       // Заказы, которые уже не могут получить платёж: имеют привязанный платёж (из загруженных)
@@ -90,9 +97,6 @@ export function FinanceView({ businessId, regionFilter }: Props) {
       // Отменённые НЕ исключаются — привязка нужна для акта сверки.
       const taken = new Set<string>();
       for (const p of payments) if (p.orderId) taken.add(p.orderId);
-
-      let matchedCount = 0;
-      let newCount = 0;
 
       for (const row of rows) {
         const txId = row.txId;
@@ -122,7 +126,11 @@ export function FinanceView({ businessId, regionFilter }: Props) {
         }
         const status: "matched" | "unmatched" = exactMatch ? "matched" : "unmatched";
 
-        await setDoc(paymentRef, {
+        // Платёж и отметка оплаты — одним батчем: при отказе в правах не остаётся
+        // «сопоставленного» платежа при неоплаченном заказе. Повторный импорт пропустит записанное.
+        const now = new Date().toISOString();
+        const batch = writeBatch(db);
+        batch.set(paymentRef, {
           txId,
           amount:    row.credit,
           payerName: row.payerName,
@@ -131,30 +139,39 @@ export function FinanceView({ businessId, regionFilter }: Props) {
           txDate:    row.date,
           orderId:   exactMatch?.id ?? null,
           status,
-          createdAt: new Date().toISOString(),
+          createdAt: now,
         });
+        if (exactMatch) {
+          batch.update(doc(db, `tenants/${businessId}/orders`, exactMatch.id), {
+            paid: true, paidAt: now, updatedAt: now,
+          });
+        }
+        await batch.commit();
         newCount++;
-
         if (exactMatch) {
           taken.add(exactMatch.id);
+          paidIds.push(exactMatch.id);
           matchedCount++;
-          await updateDoc(doc(db, `tenants/${businessId}/orders`, exactMatch.id), {
-            paid: true, paidAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-          });
         }
       }
 
-      setImportResult({ matched: matchedCount, new: newCount, total: rows.length });
+      setImportResult({ matched: matchedCount, new: newCount, total });
       setTab("payments");
     } catch (e) {
-      alert("Ошибка разбора файла: " + String(e));
+      if ((e as { code?: string }).code === "permission-denied") {
+        alert(`Нет прав на запись платежей. Импорт остановлен: записано ${newCount} из ${total}.`);
+        if (newCount > 0) setImportResult({ matched: matchedCount, new: newCount, total });
+      } else {
+        alert("Ошибка импорта выписки: " + String(e));
+      }
     } finally {
+      if (paidIds.length) invalidateOrdersArchive(businessId, paidIds);
       setImporting(false);
     }
   }
 
   // regionFilter: если задан — показываем только заказы и платежи этого региона
-  const regionOrders = regionFilter ? orders.filter((o) => o.region === regionFilter) : orders;
+  const regionOrders = regionFilter ? orders.filter((o) => matchesRegion(o, regionFilter)) : orders;
   const active = regionOrders.filter((o) => o.status !== "cancelled");
   const now    = new Date();
 
@@ -195,12 +212,23 @@ export function FinanceView({ businessId, regionFilter }: Props) {
     await updateDoc(doc(db, `tenants/${businessId}/orders`, orderId), {
       paid: true, paidAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     });
+    invalidateOrdersArchive(businessId, [orderId]);
+  }
+
+  async function linkPayment(paymentId: string, orderId: string) {
+    const now = new Date().toISOString();
+    const batch = writeBatch(db);
+    batch.update(doc(db, `tenants/${businessId}/payments`, paymentId), { orderId, status: "matched" });
+    batch.update(doc(db, `tenants/${businessId}/orders`, orderId), { paid: true, paidAt: now, updatedAt: now });
+    await batch.commit();
+    invalidateOrdersArchive(businessId, [orderId]);
   }
 
   async function markUnpaid(orderId: string) {
     await updateDoc(doc(db, `tenants/${businessId}/orders`, orderId), {
       paid: false, updatedAt: new Date().toISOString(),
     });
+    invalidateOrdersArchive(businessId, [orderId]);
   }
 
   return (
@@ -410,19 +438,17 @@ export function FinanceView({ businessId, regionFilter }: Props) {
                         {p.status === "unmatched" ? (
                           <select
                             defaultValue=""
-                            onChange={async (e) => {
+                            onChange={(e) => {
                               const orderId = e.target.value;
-                              if (!orderId) return;
-                              const order = active.find(o => o.id === orderId);
-                              if (!order) return;
-                              await Promise.all([
-                                updateDoc(doc(db, `tenants/${businessId}/payments`, p.id), {
-                                  orderId, status: "matched",
-                                }),
-                                updateDoc(doc(db, `tenants/${businessId}/orders`, orderId), {
-                                  paid: true, paidAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-                                }),
-                              ]);
+                              if (!active.some(o => o.id === orderId)) return;
+                              const select = e.target;
+                              void linkPayment(p.id, orderId).catch((err: unknown) => {
+                                console.error("Manual payment match failed:", err);
+                                alert((err as { code?: string }).code === "permission-denied"
+                                  ? "Нет прав на запись платежей"
+                                  : "Ошибка привязки платежа: " + String(err));
+                                select.value = "";
+                              });
                             }}
                             style={{ fontSize:11,padding:"3px 6px",borderRadius:6,
                               border:"1px solid #e0d8cc",background:"#faf8f4",

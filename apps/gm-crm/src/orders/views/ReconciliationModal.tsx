@@ -3,12 +3,14 @@ import { collection, query, where, getDocs } from "firebase/firestore";
 import { db } from "../../firebase";
 import "../orders.css";
 import { parseRub, useNumDrafts } from "../numInput";
+import { itemTotalKopecks, itemUnitKopecks, type PricedItem } from "../money";
 import { paymentBelongsTo, paymentDisplayDate, sortReconRows, type PaymentDocLike } from "../reconcile";
+import { authHeader } from "../idToken";
 
 interface ReconRow {
   date: string;
   doc: string;
-  debit: number;   // отгрузка (рублей)
+  debit: number;   // отгрузка (рублей, с НДС — как сумма заказа)
   credit: number;  // оплата (рублей)
 }
 
@@ -54,7 +56,7 @@ export function ReconciliationModal({ businessId, customerName, customerInn, cus
         const o = d.data() as {
           createdAt?: string; deliveryDate?: string; status?: string;
           totalKopecks?: number; externalId?: string; orderId?: string;
-          items?: { unitPrice: number; quantity: number }[];
+          items?: PricedItem[];
           assembledQtys?: number[];
         };
 
@@ -65,11 +67,11 @@ export function ReconciliationModal({ businessId, customerName, customerInn, cus
         let shippedKopecks: number;
         if (isDelivered) {
           shippedKopecks = o.totalKopecks
-            ?? (o.items ?? []).reduce((s, it) => s + it.unitPrice * it.quantity, 0);
+            ?? (o.items ?? []).reduce((s, it) => s + itemTotalKopecks(it), 0);
         } else {
           // частичная отгрузка по assembledQtys
           shippedKopecks = (o.items ?? []).reduce((s, it, i) => {
-            return s + it.unitPrice * (o.assembledQtys?.[i] ?? 0);
+            return s + Math.round(itemUnitKopecks(it) * (o.assembledQtys?.[i] ?? 0));
           }, 0);
         }
         if (shippedKopecks <= 0) return;
@@ -152,9 +154,10 @@ export function ReconciliationModal({ businessId, customerName, customerInn, cus
     setRows(p => p.map((r, idx) => idx === i ? { ...r, ...patch } : r));
   }
 
-  const debitTotal  = rows.reduce((s, r) => s + r.debit, 0);
-  const creditTotal = rows.reduce((s, r) => s + r.credit, 0);
-  const balance     = debitTotal - creditTotal;
+  // Суммируем в копейках — сумма float-рублей даёт хвосты
+  const debitTotal  = rows.reduce((s, r) => s + Math.round(r.debit * 100), 0) / 100;
+  const creditTotal = rows.reduce((s, r) => s + Math.round(r.credit * 100), 0) / 100;
+  const balance     = Math.round((debitTotal - creditTotal) * 100) / 100;
 
   function buildPayload(email?: string) {
     return {
@@ -175,7 +178,7 @@ export function ReconciliationModal({ businessId, customerName, customerInn, cus
     try {
       const res = await fetch(PROXY_URL, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "X-Proxy-Secret": "grp-proxy-2026", "X-Proxy-Path": "/crm-reconciliation" },
+        headers: { "Content-Type": "application/json", "X-Proxy-Secret": "grp-proxy-2026", "X-Proxy-Path": "/crm-reconciliation", ...(await authHeader()) },
         body: JSON.stringify(buildPayload()),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -200,7 +203,7 @@ export function ReconciliationModal({ businessId, customerName, customerInn, cus
     try {
       const res = await fetch(PROXY_URL, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "X-Proxy-Secret": "grp-proxy-2026", "X-Proxy-Path": "/crm-reconciliation" },
+        headers: { "Content-Type": "application/json", "X-Proxy-Secret": "grp-proxy-2026", "X-Proxy-Path": "/crm-reconciliation", ...(await authHeader()) },
         body: JSON.stringify(buildPayload(toEmail.trim())),
       });
       const data = await res.json() as { ok: boolean; error?: string };

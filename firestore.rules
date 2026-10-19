@@ -95,10 +95,32 @@ service cloud.firestore {
     }
     match /tenants/gustoriko/payments/{payId} {
       allow read: if isGustorikoEmployee();
-      // Создаёт VPS; сотрудник может обновить orderId/status для ручного сопоставления
-      allow create: if false;
+      // Создаёт импорт банковской выписки в FinanceView (id = детерминированный txId) или VPS.
+      // Сотрудник может обновить orderId/status для ручного сопоставления. Удаление — нет.
+      allow create: if isGustorikoEmployee() && isValidPayment(request.resource.data);
       allow update: if isGustorikoEmployee()
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["orderId", "status"]);
+      allow delete: if false;
+    }
+    function isValidPayment(d) {
+      return d.keys().hasOnly(["txId", "amount", "payerName", "payerInn", "purpose", "txDate", "orderId", "status", "createdAt"])
+          && d.keys().hasAll(["txId", "amount", "payerName", "payerInn", "purpose", "txDate", "orderId", "status", "createdAt"])
+          && d.txId is string
+          && d.amount is int && d.amount > 0
+          && d.payerName is string
+          && d.payerInn is string
+          && d.purpose is string
+          && d.txDate is string
+          && (d.orderId == null || d.orderId is string)
+          && d.status in ["matched", "unmatched"]
+          && d.createdAt is string;
+    }
+    // Рассылки: {id} — запись-журнал (status sending → sent/failed), {id}_{n} — письмо получателю.
+    match /tenants/gustoriko/mailings/{docId} {
+      allow read, create: if isGustorikoEmployee();
+      allow update: if isGustorikoEmployee()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "error", "finishedAt"]);
+      allow delete: if false;
     }
     match /tenants/gustoriko/assembly/{docId} {
       allow read: if isGustorikoEmployee();

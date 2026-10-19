@@ -12,19 +12,27 @@
  *   MATRIX_DOMAIN       e.g. "company.matrixtelecom.ru"
  *   MATRIX_TOKEN        API-токен из ЛК
  *   MATRIX_CRM_TOKEN    токен валидации входящих вебхуков
+ *
+ * Vars (wrangler.toml):
+ *   FIREBASE_PROJECT_ID   проект, чьи ID token принимаются на /call, /history, /events
+ *   AUTH_REQUIRED         "1" — запросы без Bearer-токена отклоняются; иначе пропускаются с логом (переходный режим)
  */
+
+import { checkEmployee } from "./auth";
 
 interface Env {
   MATRIX_DOMAIN: string;
   MATRIX_TOKEN: string;
   MATRIX_CRM_TOKEN: string;
   CALL_EVENTS: KVNamespace;
+  FIREBASE_PROJECT_ID: string;
+  AUTH_REQUIRED?: string;
 }
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
 
 function json(data: unknown, status = 200): Response {
@@ -149,10 +157,22 @@ async function handleContact(req: Request, env: Env): Promise<Response> {
 
 // ── Router ────────────────────────────────────────────────────────────────────
 
+// Маршруты, которые дёргает фронт CRM. /webhook и /contact — от АТС, у них свой crm_token.
+const CRM_ROUTES = new Set(["/call", "/history", "/events"]);
+
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     if (req.method === "OPTIONS") return new Response(null, { headers: CORS_HEADERS });
     const { pathname } = new URL(req.url);
+
+    if (CRM_ROUTES.has(pathname)) {
+      const verdict = await checkEmployee(req, env.FIREBASE_PROJECT_ID);
+      if (verdict === "denied") return json({ error: "forbidden" }, 403);
+      if (verdict === "anonymous") {
+        if (env.AUTH_REQUIRED === "1") return json({ error: "unauthorized" }, 401);
+        console.warn(`crm-matrix: ${pathname} без токена — пропущено (переходный режим)`);
+      }
+    }
 
     if (pathname === "/call"    && req.method === "POST") return handleCall(req, env);
     if (pathname === "/history" && req.method === "GET")  return handleHistory(req, env);

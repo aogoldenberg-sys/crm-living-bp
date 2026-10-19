@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from "react";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import { db } from "../../firebase";
 import { TEMPLATES, wrapEmail, type Template } from "../mailTemplates";
+import { sanitizeEmailHtml } from "../sanitize";
+import { authHeader } from "../idToken";
 
 const EMAIL_API = "https://crm-email.aogoldenberg.workers.dev";
 
@@ -77,7 +79,8 @@ export function ClientEmailSection({ email: emailFromOrder, clientName, business
     if (!activeEmail) return;
     setLoading(true); setMsgs([]);
     setTo(activeEmail);
-    fetch(`${EMAIL_API}/inbox?email=${encodeURIComponent(activeEmail)}`)
+    authHeader()
+      .then(headers => fetch(`${EMAIL_API}/inbox?email=${encodeURIComponent(activeEmail)}`, { headers }))
       .then(r => r.json() as Promise<EmailMsg[]>)
       .then(data => setMsgs(Array.isArray(data) ? data : []))
       .catch(() => setMsgs([]))
@@ -88,13 +91,29 @@ export function ClientEmailSection({ email: emailFromOrder, clientName, business
     const e = emailInput.trim();
     if (!e || !e.includes("@")) return;
     setSavingEmail(true);
-    await setDoc(contactRef, { email: e, clientName, updatedAt: new Date().toISOString() }, { merge: true });
-    setSavedEmail(e); setEmailInput(""); setSavingEmail(false);
+    try {
+      await setDoc(contactRef, { email: e, clientName, updatedAt: new Date().toISOString() }, { merge: true });
+      setSavedEmail(e); setEmailInput("");
+    } catch (ex) {
+      alert("Не удалось сохранить email: " + String(ex));
+    } finally {
+      setSavingEmail(false);
+    }
   }
 
   async function sendEmail() {
-    if (!to || !subj) return;
+    if (!to || !subj || sending) return;
     setSending(true); setSent(null);
+    try {
+      await postEmail();
+    } catch (ex) {
+      setSent("Ошибка: " + String(ex));
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function postEmail() {
     const fd = new FormData();
     fd.append("to", to); fd.append("subject", subj);
     // Если это не HTML-шаблон — оборачиваем в фирменный шаблон письма
@@ -103,10 +122,9 @@ export function ClientEmailSection({ email: emailFromOrder, clientName, business
       : wrapEmail(`<p style="font-size:14px;color:#3d2e1a;line-height:1.8;">${body.replace(/\n\n/g, '</p><p style="font-size:14px;color:#3d2e1a;line-height:1.8;">').replace(/\n/g, "<br>")}</p>`);
     fd.append("body", htmlBody);
     files.forEach(f => fd.append("attachments", f));
-    const resp = await fetch(`${EMAIL_API}/send`, { method: "POST", body: fd });
+    const resp = await fetch(`${EMAIL_API}/send`, { method: "POST", body: fd, headers: await authHeader() });
     const data = await resp.json() as { ok?: boolean; error?: string };
-    setSending(false);
-    if (data.ok) {
+    if (resp.ok && data.ok) {
       setSent("✓ Отправлено");
       setSubj(""); setBody(""); setFiles([]);
       setTimeout(() => { setCompose(false); setSent(null); }, 2000);
@@ -257,7 +275,7 @@ export function ClientEmailSection({ email: emailFromOrder, clientName, business
           </div>
           <div style={{ fontSize: 12, lineHeight: 1.6, maxHeight: 320, overflowY: "auto",
             borderTop: "1px solid #f0ece5", paddingTop: 10 }}
-            dangerouslySetInnerHTML={{ __html: openMsg.bodyHtml }} />
+            dangerouslySetInnerHTML={{ __html: sanitizeEmailHtml(openMsg.bodyHtml ?? "") }} />
           {openMsg.attachments.length > 0 && (
             <div style={{ marginTop: 10, paddingTop: 8, borderTop: "1px solid #f0ece5" }}>
               {openMsg.attachments.map((a, i) => (

@@ -9,9 +9,13 @@ import {
 import catalog from "../suppliersCatalog.json";
 import { InvoiceModal } from "./InvoiceModal";
 import { ItemPickerModal, type PickedItem } from "./ItemPickerModal";
-import { UpdModal, type UpdItem } from "./UpdModal";
+import { UpdModal } from "./UpdModal";
 import { PhoneButton } from "../../telephony/PhoneButton";
 import { findExtension } from "../../telephony/config";
+import { matchesRegion } from "../region";
+import { itemQty, itemUnitKopecks, orderItemToUpd } from "../money";
+import { linesForShipment, shipOrder, unshipOrder } from "../shipment";
+import { useMinuteTick } from "../useMinuteTick";
 import "../orders.css";
 
 interface Props {
@@ -85,9 +89,9 @@ function extractCity(address?: string | null, region?: string | null): string {
 }
 
 function calcProgress(items: Order["items"], actuals: number[]): number {
-  const total = items.reduce((s, it) => s + it.quantity, 0);
+  const total = items.reduce((s, it) => s + itemQty(it), 0);
   if (total === 0) return 0;
-  return Math.round(items.reduce((s, it, i) => s + Math.min(actuals[i] ?? 0, it.quantity), 0) / total * 100);
+  return Math.round(items.reduce((s, it, i) => s + Math.min(actuals[i] ?? 0, itemQty(it)), 0) / total * 100);
 }
 
 
@@ -126,9 +130,7 @@ export function SalesView({ businessId, onGoToPurchasing: _onGoToPurchasing, onG
   const actualQtysRef = useRef<Record<string, number[]>>({});
   actualQtysRef.current = actualQtys;
   const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
-  // Тик каждую минуту — обновляет таймеры дедлайна
-  const [, setTick] = useState(0);
-  useEffect(() => { const t = setInterval(() => setTick(n => n + 1), 60_000); return () => clearInterval(t); }, []);
+  useMinuteTick(); // таймеры дедлайна перерисовываются раз в минуту
 
   // Realtime: факт + поставщиков из assembly-коллекции
   useEffect(() => {
@@ -178,15 +180,7 @@ export function SalesView({ businessId, onGoToPurchasing: _onGoToPurchasing, onG
   }
 
   const now = new Date();
-  // regionFilter: если задан — показываем заказы с region-тегом ИЛИ с СПб в адресе
-  const regionOrders = regionFilter ? orders.filter((o) => {
-    if (o.region === regionFilter) return true;
-    if (regionFilter === "spb") {
-      const a = (o.address ?? "").toLowerCase();
-      return a.includes("санкт-петербург") || a.includes("петербург") || a.includes("с.-петербург") || a.includes("спб") || a.includes("ленинградская");
-    }
-    return false;
-  }) : orders;
+  const regionOrders = orders.filter((o) => matchesRegion(o, regionFilter));
   const monthOrders = regionOrders.filter((o) => {
     if (o.status === "cancelled") return false;
     const d = new Date(o.createdAt);
@@ -234,10 +228,17 @@ export function SalesView({ businessId, onGoToPurchasing: _onGoToPurchasing, onG
     });
 
   async function changeStatus(order: Order, status: OrderStatus) {
+    if (status === "delivered") return deliverFromSales(order);
+    if (updatingId) return;
     setUpdatingId(order.id);
     try {
+      if (order.status === "delivered" && status === "sourcing") {
+        // ↩ Не отгружен: вернуть остаток на склад и снять долг отгрузки
+        await unshipOrder(businessId, order.id);
+        return;
+      }
       await updateDoc(doc(db, `tenants/${businessId}/orders`, order.id), { status, updatedAt: new Date().toISOString() });
-      if (status === "cancelled" || status === "delivered") {
+      if (status === "cancelled") {
         const plCol = collection(db, `tenants/${businessId}/purchase_lines`);
         const snap = await getDocs(query(plCol, where("orderId", "==", order.id)));
         await Promise.all(snap.docs.map(d => deleteDoc(d.ref)));
@@ -252,63 +253,22 @@ export function SalesView({ businessId, onGoToPurchasing: _onGoToPurchasing, onG
       // }
     } catch (e) {
       alert("Ошибка смены статуса: " + String(e));
+    } finally {
+      setUpdatingId(null);
     }
-    setUpdatingId(null);
   }
 
   async function deliverFromSales(order: Order) {
+    if (updatingId) return;
     setUpdatingId(order.id);
     try {
-      const qtys = actualQtysRef.current[order.id] ?? [];
-      const debtItems = order.items
-        .map((it, i) => ({ it, shipped: Math.min(qtys[i] ?? 0, it.quantity) }))
-        .filter(({ it, shipped }) => shipped < it.quantity)
-        .map(({ it, shipped }) => ({
-          productName: it.productName, barcode: it.barcode ?? null,
-          qtyOrdered: it.quantity, qtyShipped: shipped,
-          qtyDebt: it.quantity - shipped, unitSellKopecks: it.unitPrice,
-        }));
-      await updateDoc(doc(db, `tenants/${businessId}/orders`, order.id), {
-        status: "delivered", updatedAt: new Date().toISOString(),
-      });
-      // Удаляем purchase_lines этого заказа
-      const plCol = collection(db, `tenants/${businessId}/purchase_lines`);
-      const plSnap = await getDocs(query(plCol, where("orderId", "==", order.id)));
-      await Promise.all(plSnap.docs.map(d => deleteDoc(d.ref)));
-      if (debtItems.length > 0) {
-        await setDoc(doc(db, `tenants/${businessId}/debts`, order.id), {
-          orderId: order.id, customerName: order.customerName,
-          assignedManager: order.assignedManager ?? null,
-          deliveryDate: order.deliveryDate ?? null,
-          ...(order.region ? { region: order.region } : {}),
-          items: debtItems, createdAt: new Date().toISOString(),
-        });
-      }
-
-      // Списание со склада для позиций с поставщиком "Склад"
-      const suppliers = assemblySuppliers[order.id] ?? [];
-      const stockToDeduct = order.items
-        .map((it, i) => ({ it, shipped: Math.min(qtys[i] ?? 0, it.quantity), supplier: suppliers[i] }))
-        .filter(({ shipped, supplier }) => supplier === "Склад" && shipped > 0);
-      if (stockToDeduct.length > 0) {
-        await Promise.all(stockToDeduct.map(({ it, shipped }) =>
-          addDoc(collection(db, `tenants/${businessId}/stock`), {
-            productName: it.productName,
-            barcode: it.barcode ?? null,
-            qty: -shipped,
-            supplierName: null,
-            costKopecks: 0,
-            note: `Списание: ${order.customerName}`,
-            ...(order.region ? { region: order.region } : {}),
-            createdAt: new Date().toISOString(),
-            createdBy: uid,
-          }),
-        ));
-      }
+      const lines = await linesForShipment(businessId, order, actualQtysRef.current[order.id] ?? []);
+      await shipOrder(businessId, order, lines, uid);
     } catch (e) {
       alert("Ошибка при отгрузке: " + String(e));
+    } finally {
+      setUpdatingId(null);
     }
-    setUpdatingId(null);
   }
 
   async function updateField(orderId: string, field: string, value: string) {
@@ -388,7 +348,8 @@ export function SalesView({ businessId, onGoToPurchasing: _onGoToPurchasing, onG
       const qtys = (actualQtysRef.current[orderId] ?? []).map(v => v ?? 0);
       // Пишем в assembly/{orderId} — sync НаПолке эту коллекцию не трогает
       void setDoc(doc(db, `tenants/${businessId}/assembly`, orderId), { qtys, updatedAt: new Date().toISOString() }, { merge: true })
-        .then(() => setDirtyOrders(prev => { const s = new Set(prev); s.delete(orderId); return s; }));
+        .then(() => setDirtyOrders(prev => { const s = new Set(prev); s.delete(orderId); return s; }))
+        .catch((e) => alert("Ошибка сохранения факта: " + String(e)));
     }, 1500);
   }
 
@@ -396,7 +357,8 @@ export function SalesView({ businessId, onGoToPurchasing: _onGoToPurchasing, onG
     clearTimeout(saveTimers.current[orderId]);
     const qtys = (actualQtysRef.current[orderId] ?? []).map(v => v ?? 0);
     void setDoc(doc(db, `tenants/${businessId}/assembly`, orderId), { qtys, updatedAt: new Date().toISOString() }, { merge: true })
-      .then(() => setDirtyOrders(prev => { const s = new Set(prev); s.delete(orderId); return s; }));
+      .then(() => setDirtyOrders(prev => { const s = new Set(prev); s.delete(orderId); return s; }))
+      .catch((e) => alert("Ошибка сохранения факта: " + String(e)));
   }
 
   const COLS = 11; // total columns
@@ -727,7 +689,7 @@ export function SalesView({ businessId, onGoToPurchasing: _onGoToPurchasing, onG
                                 <tbody>
                                   {o.items.map((item, i) => {
                                     const actual = actuals[i] ?? 0;
-                                    const done = actual >= item.quantity;
+                                    const done = actual >= itemQty(item);
                                     const partial = actual > 0 && !done;
                                     return (
                                       <tr key={i} style={{ borderBottom: "1px solid #f0ece5" }}>
@@ -737,7 +699,7 @@ export function SalesView({ businessId, onGoToPurchasing: _onGoToPurchasing, onG
                                           overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                                           {item.barcode || item.productId || "—"}
                                         </td>
-                                        <td style={{ padding: "3px 6px", textAlign: "right", fontSize: 12 }}>{item.quantity}</td>
+                                        <td style={{ padding: "3px 6px", textAlign: "right", fontSize: 12 }}>{itemQty(item)}</td>
                                         <td style={{ padding: "3px 6px", textAlign: "right" }}>
                                           <input type="number" min={0} value={actual || ""}
                                             onClick={(e) => e.stopPropagation()}
@@ -793,7 +755,7 @@ export function SalesView({ businessId, onGoToPurchasing: _onGoToPurchasing, onG
                                     <td colSpan={2} style={{ padding: "5px 6px", textAlign: "right" }}>{fmtRub(o.totalKopecks)}</td>
                                     <td colSpan={2} style={{ padding: "5px 6px", fontSize: 11, color: progress === 100 ? "#1565C0" : "#D97706" }}>
                                       {actuals.some((v) => v > 0) ? (() => {
-                                        const assembledKopecks = o.items.reduce((s, it, i) => s + Math.min(actuals[i] ?? 0, it.quantity) * it.unitPrice, 0);
+                                        const assembledKopecks = o.items.reduce((s, it, i) => s + Math.min(actuals[i] ?? 0, itemQty(it)) * itemUnitKopecks(it), 0);
                                         return `${progress}% · ${fmtRub(assembledKopecks)}`;
                                       })() : ""}
                                     </td>
@@ -855,14 +817,7 @@ export function SalesView({ businessId, onGoToPurchasing: _onGoToPurchasing, onG
           customerName={updOrder.customerName}
           customerInn={(updOrder as typeof updOrder & { customerInn?: string }).customerInn}
           customerAddr={updOrder.address}
-          items={(updOrder.items ?? []).map(it => {
-            const qty = it.quantity || it.qty || 1;
-            // totalKopecks надёжнее unitPrice (unitPrice в НаПолке-заказах может быть в руб)
-            const priceRub = it.totalKopecks && qty > 0
-              ? it.totalKopecks / (qty * 100)
-              : (it.unitPrice ?? 0) / 100;
-            return { name: it.productName, qty, unit: it.unit || "шт", price: priceRub, selected: true } as UpdItem;
-          })}
+          items={(updOrder.items ?? []).map(orderItemToUpd)}
           onClose={() => setUpdOrder(null)}
         />
       )}
@@ -878,7 +833,7 @@ export function SalesView({ businessId, onGoToPurchasing: _onGoToPurchasing, onG
       {editItem && (
         <ItemPickerModal
           title={editItem.idx === null ? "Добавить позицию в заказ" : "Заменить позицию"}
-          defaultQty={editItem.idx !== null ? (editItem.order.items[editItem.idx]?.quantity ?? 1) : 1}
+          defaultQty={editItem.idx !== null ? (itemQty(editItem.order.items[editItem.idx] ?? {}) || 1) : 1}
           onSelect={async (item) => {
             if (editItem.idx === null) await addItem(editItem.order, item);
             else await replaceItem(editItem.order, editItem.idx, item);

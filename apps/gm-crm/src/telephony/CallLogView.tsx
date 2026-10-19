@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { MATRIX_WORKER_URL } from "./config";
+import { authHeader } from "../orders/idToken";
 import { useClientPhoneMap, normPhone } from "../orders/useClientPhoneMap";
 
 interface CallRecord {
@@ -49,7 +50,8 @@ export function CallLogView() {
   useEffect(() => {
     setLoading(true);
     setError(null);
-    fetch(`${MATRIX_WORKER_URL}/history?period=${period}&type=${type}`)
+    authHeader()
+      .then(headers => fetch(`${MATRIX_WORKER_URL}/history?period=${period}&type=${type}`, { headers }))
       .then(r => { if (!r.ok) throw new Error(String(r.status)); return r.json() as Promise<CallRecord[]>; })
       .then(data => setCalls(data))
       .catch(e => setError(String(e)))
