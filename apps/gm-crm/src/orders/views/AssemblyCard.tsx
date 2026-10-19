@@ -99,10 +99,15 @@ export function AssemblyCard({ order, businessId, uid, allSupplierNames, plIndex
 
   useEffect(() => {
     function buildLine(item: Order["items"][number], idx: number, m: PricelistMatch[]): ALine {
+      const qty = item.quantity || item.qty || 1;
+      // unitPrice из НаПолке-заказов может быть в рублях — деривируем из totalKopecks
+      const unitSell = item.totalKopecks && qty > 0
+        ? Math.round(item.totalKopecks / qty)
+        : (item.unitPrice ?? 0);
       // Приоритет: сначала склад, если есть остаток
       if (getStockQty(stockMapRef.current, item) > 0) {
         return { idx, productName: item.productName, barcode: item.barcode ?? null,
-          qtyOrdered: item.quantity, qtyPacked: 0, unitSellKopecks: item.unitPrice,
+          qtyOrdered: qty, qtyPacked: 0, unitSellKopecks: unitSell,
           supplierName: "Склад", supplierId: "stock", unitCostKopecks: 0,
           sentToPurchase: false, replaced: false, matches: m };
       }
@@ -110,7 +115,7 @@ export function AssemblyCard({ order, businessId, uid, allSupplierNames, plIndex
       const preByOrder = item.supplierId ? m.find(x => x.supplierName === item.supplierId) : undefined;
       const chosen = preByOrder ?? m[0];
       return { idx, productName: item.productName, barcode: item.barcode ?? null,
-        qtyOrdered: item.quantity, qtyPacked: 0, unitSellKopecks: item.unitPrice,
+        qtyOrdered: qty, qtyPacked: 0, unitSellKopecks: unitSell,
         supplierName: isStock ? "Склад" : (chosen?.supplierName ?? ""),
         supplierId:   isStock ? "stock" : (chosen?.supplierId ?? ""),
         unitCostKopecks: chosen?.priceKopecks ?? 0,

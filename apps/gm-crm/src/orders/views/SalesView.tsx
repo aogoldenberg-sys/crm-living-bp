@@ -855,13 +855,14 @@ export function SalesView({ businessId, onGoToPurchasing: _onGoToPurchasing, onG
           customerName={updOrder.customerName}
           customerInn={(updOrder as typeof updOrder & { customerInn?: string }).customerInn}
           customerAddr={updOrder.address}
-          items={(updOrder.items ?? []).map(it => ({
-            name: it.productName,
-            qty: it.quantity ?? 1,
-            unit: "шт",
-            price: (it.unitPrice ?? 0) / 100,
-            selected: true,
-          } as UpdItem))}
+          items={(updOrder.items ?? []).map(it => {
+            const qty = it.quantity || it.qty || 1;
+            // totalKopecks надёжнее unitPrice (unitPrice в НаПолке-заказах может быть в руб)
+            const priceRub = it.totalKopecks && qty > 0
+              ? it.totalKopecks / (qty * 100)
+              : (it.unitPrice ?? 0) / 100;
+            return { name: it.productName, qty, unit: it.unit || "шт", price: priceRub, selected: true } as UpdItem;
+          })}
           onClose={() => setUpdOrder(null)}
         />
       )}

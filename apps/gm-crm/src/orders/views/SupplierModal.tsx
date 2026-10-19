@@ -3,6 +3,7 @@ import { doc, setDoc } from "firebase/firestore";
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, storage } from "../../firebase";
 import { ClientEmailSection } from "./ClientEmailSection";
+import { PhoneButton } from "../../telephony/PhoneButton";
 import { MATRIX_WORKER_URL } from "../../telephony/config";
 
 export interface Sup {
@@ -289,7 +290,21 @@ export function SupplierModal({ sup, businessId, onClose }: Props) {
         {tab === "comms" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
             <div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: "#3A2E1E", marginBottom: 10 }}>📞 Звонки</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: "#3A2E1E" }}>📞 Звонки</span>
+                {form.phone && (
+                  <PhoneButton phone={form.phone} extension={null} size={13} />
+                )}
+                {form.phone && (
+                  <a href={`https://wa.me/${form.phone.replace(/\D/g, "")}`}
+                    target="_blank" rel="noreferrer"
+                    style={{ fontSize: 12, padding: "2px 10px", borderRadius: 6, textDecoration: "none",
+                      background: "rgba(37,211,102,.12)", color: "#128C7E",
+                      border: "1px solid rgba(37,211,102,.35)", whiteSpace: "nowrap" }}>
+                    WhatsApp
+                  </a>
+                )}
+              </div>
               <SupplierCalls phone={form.phone ?? ""} />
             </div>
             <div>

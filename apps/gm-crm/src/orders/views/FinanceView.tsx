@@ -71,6 +71,7 @@ export function FinanceView({ businessId, regionFilter }: Props) {
 
   const [tab, setTab]       = useState<MainTab>("orders");
   const [filter, setFilter] = useState<PayFilter>("all");
+  const [search, setSearch] = useState("");
 
   const fileRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
@@ -177,9 +178,18 @@ export function FinanceView({ businessId, regionFilter }: Props) {
     : payments;
   const unmatched  = visiblePayments.filter((p) => p.status === "unmatched").length;
 
-  const filteredOrders = active.filter((o) =>
-    filter === "paid" ? o.paid : filter === "unpaid" ? !o.paid : true
-  );
+  const searchLow = search.trim().toLowerCase();
+  const filteredOrders = active.filter((o) => {
+    if (filter === "paid" && !o.paid) return false;
+    if (filter === "unpaid" && o.paid) return false;
+    if (!searchLow) return true;
+    const amtStr = (o.totalKopecks / 100).toFixed(0);
+    return (
+      o.customerName?.toLowerCase().startsWith(searchLow) ||
+      o.customerName?.toLowerCase().includes(searchLow) ||
+      amtStr.includes(searchLow)
+    );
+  });
 
   async function markPaid(orderId: string) {
     await updateDoc(doc(db, `tenants/${businessId}/orders`, orderId), {
@@ -280,6 +290,19 @@ export function FinanceView({ businessId, regionFilter }: Props) {
               </button>
             ))}
           </div>
+
+          <input
+            type="search"
+            placeholder="Поиск по клиенту или сумме…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            style={{
+              width: "100%", boxSizing: "border-box",
+              margin: "8px 0 4px", padding: "8px 14px", borderRadius: 8,
+              border: "1px solid #e0d8cc", background: "#faf8f4",
+              fontSize: 13, color: "#3A2E1E", outline: "none",
+            }}
+          />
 
           {ordersLoading ? <div className="go-empty">Загрузка…</div>
           : filteredOrders.length === 0 ? <div className="go-empty">Нет заказов</div>
