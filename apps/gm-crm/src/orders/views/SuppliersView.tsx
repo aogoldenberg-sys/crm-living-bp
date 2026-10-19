@@ -3,6 +3,7 @@ import { collection, onSnapshot, doc, setDoc } from "firebase/firestore";
 import { db } from "../../firebase";
 import { loadPricelist } from "../useOrders";
 import { buildPlIndex, plLookupCode, type PlIndex } from "../plIndex";
+import { SupplierModal, type Sup } from "./SupplierModal";
 import catalog from "../suppliersCatalog.json";
 import "../orders.css";
 
@@ -60,119 +61,12 @@ const SUPPLIER_META: Record<string, { icon: string; assortment: string }> = {
   "Торговый Дом Восток":   { icon: "🌏🍱", assortment: "Восточные товары" },
 };
 
-interface Sup {
-  id: string; name: string; cat: string; icon: string;
-  contact?: string; phone?: string; email?: string;
-  conditions?: string; paymentTerms?: string; hasContract?: boolean;
-  status?: string; section?: string; assortment?: string;
-  sheetName?: string; sheetUrl?: string | null; notes?: string;
-}
-
 function slugify(name: string) {
   return name.toLowerCase().replace(/[^a-zа-яё0-9]/gi, "_").slice(0, 30);
 }
 
 function sheetLink(sheetName: string) {
   return `${SHEET_URL}#gid=0&sheet=${encodeURIComponent(sheetName)}`;
-}
-
-// ── SupplierModal ─────────────────────────────────────────────────────────────
-function SupplierModal({ sup, businessId, onClose }: { sup: Sup | null; businessId: string; onClose: () => void }) {
-  const isNew = !sup?.id;
-  const [form, setForm] = useState<Partial<Sup>>(sup ?? { section: "current", hasContract: false });
-  const [saving, setSaving] = useState(false);
-
-  if (!form) return null;
-  const f = (k: keyof Sup, v: string | boolean) => setForm((p) => ({ ...p, [k]: v }));
-
-  async function save() {
-    setSaving(true);
-    try {
-      const id = form.id ?? slugify(form.name ?? "supplier");
-      await setDoc(doc(db, `tenants/${businessId}/suppliers`, id), { ...form, id });
-      onClose();
-    } catch (e) {
-      console.error("save supplier:", e);
-      alert("Ошибка сохранения. Проверьте подключение.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  const sheetUrl = form.sheetUrl
-    || (form.sheetName ? sheetLink(form.sheetName) : null);
-
-  const textFields: [keyof Sup, string, boolean][] = [
-    ["name","Название", false], ["cat","Категория", false],
-    ["contact","Контакт (ФИО)", false], ["phone","Телефон", false],
-    ["email","Email", false], ["conditions","Условия поставки", true],
-    ["paymentTerms","Оплата / отсрочка", false], ["assortment","Ассортимент", true],
-    ["notes","Примечания", true],
-  ];
-
-  return (
-    <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,.45)",zIndex:1000,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"32px 16px",overflowY:"auto" }}
-      onClick={onClose}>
-      <div style={{ background:"#fff",borderRadius:14,padding:28,maxWidth:600,width:"100%",boxShadow:"0 8px 40px rgba(0,0,0,.2)" }} onClick={(e)=>e.stopPropagation()}>
-        <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4 }}>
-          <h2 style={{ margin:0,fontSize:17,fontWeight:700 }}>{isNew ? "Новый поставщик" : form.name}</h2>
-          <button onClick={onClose} style={{ background:"none",border:"none",fontSize:22,cursor:"pointer",color:"#8B7355" }}>✕</button>
-        </div>
-
-        {/* Ссылка на прайс-лист */}
-        {sheetUrl && (
-          <a href={sheetUrl} target="_blank" rel="noreferrer"
-            style={{ fontSize:12,color:"#8B6914",textDecoration:"none",display:"inline-flex",alignItems:"center",gap:6,
-              padding:"4px 10px",background:"rgba(200,154,52,.08)",borderRadius:8,border:"1px solid rgba(200,154,52,.25)",marginBottom:18 }}>
-            📊 Прайс-лист → Google Sheets {form.sheetName ? `· ${form.sheetName.split(" — ")[0]}` : ""}
-          </a>
-        )}
-
-        <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10 }}>
-          {textFields.map(([k,label,wide]) => (
-            <div key={k} className="go-field" style={{ marginBottom:0, gridColumn: wide ? "1/-1" : undefined }}>
-              <label>{label}</label>
-              <input value={(form[k] as string) ?? ""} onChange={(e)=>f(k,e.target.value)} />
-            </div>
-          ))}
-          {/* sheetName — скрытое служебное поле */}
-          <div className="go-field" style={{ marginBottom:0, gridColumn:"1/-1" }}>
-            <label>Лист Google Sheets (служебное)</label>
-            <input value={(form.sheetName as string) ?? ""} onChange={(e)=>f("sheetName",e.target.value)} style={{ fontSize:11,color:"#8B7355" }} />
-          </div>
-          <div className="go-field" style={{ marginBottom:0 }}>
-            <label>Договор</label>
-            <select value={form.hasContract ? "yes" : "no"} onChange={(e)=>f("hasContract", e.target.value==="yes")}>
-              <option value="no">❌ Нет</option>
-              <option value="yes">✅ Есть</option>
-            </select>
-          </div>
-          <div className="go-field" style={{ marginBottom:0 }}>
-            <label>Статус работы</label>
-            <select value={form.section ?? "current"} onChange={(e)=>f("section",e.target.value)}>
-              <option value="current">Работаем</option>
-              <option value="new">Новый</option>
-              <option value="paused">Пауза</option>
-            </select>
-          </div>
-        </div>
-        {isNew && (
-          <div style={{ marginTop:16,padding:"10px 14px",background:"rgba(200,154,52,.07)",
-            border:"1px solid rgba(200,154,52,.25)",borderRadius:8,fontSize:12,color:"#8B6914",lineHeight:1.6 }}>
-            ℹ️ <b>Прайс в поиске заказов:</b> карточка сохранится сразу, но товары этого поставщика появятся
-            в поиске только после добавления листа в Google Sheets и обновления прайс-файла
-            (import_pricelist.py → pricelist.json → FTP).
-          </div>
-        )}
-        <div style={{ display:"flex",gap:10,marginTop:16 }}>
-          <button className="go-btn go-btn--gold" onClick={()=>void save()} disabled={saving||!form.name}>
-            {saving?"…":"Сохранить"}
-          </button>
-          <button className="go-btn go-btn--outline" onClick={onClose}>Отмена</button>
-        </div>
-      </div>
-    </div>
-  );
 }
 
 // ── SupplierTile ──────────────────────────────────────────────────────────────
@@ -198,8 +92,10 @@ function SupplierTile({ s, onClick }: { s: Sup; onClick: () => void }) {
           overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{s.name}</span>
         {sub && <span style={{ fontSize:10,color:"#8B6914",maxWidth:138,lineHeight:1.3,
           display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden" }}>{sub}</span>}
+        {s.phone && <span style={{ fontSize:10,color:"#1565C0",marginTop:2 }}>📞 {s.phone}</span>}
         <span style={{ position:"absolute",top:9,right:9,width:8,height:8,borderRadius:"50%",background:dot }} title={s.section} />
         {s.hasContract && <span style={{ position:"absolute",top:8,left:9,fontSize:11 }}>📃</span>}
+        {(s.contractUrl || s.pricelistFileUrl) && <span style={{ position:"absolute",bottom:30,right:9,fontSize:10 }}>📎</span>}
       </button>
       {priceUrl && (
         <a href={priceUrl} target="_blank" rel="noreferrer" onClick={(e)=>e.stopPropagation()}
