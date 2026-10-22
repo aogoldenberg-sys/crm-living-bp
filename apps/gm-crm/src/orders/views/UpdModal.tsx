@@ -63,19 +63,17 @@ export function UpdModal({ orderNum, customerName, customerInn, customerAddr, it
   }
 
   function buildPayload(email?: string) {
+    // Сервер (upd_gen_v2.py): price_rub = item['price'] / 100  →  нужны копейки без НДС
+    // НДС сервер считает сам: subtotal * VAT_RATE (22%). Поля sum/total/vat на уровне запроса игнорирует.
     return {
       buyer:      customerName,
       buyer_inn:  customerInn  ?? "",
       buyer_addr: customerAddr ?? "",
       stamp,
       email: email ?? "",
-      total: sums.net / 100,           // без НДС — сервер добавит 22% сам
-      vat:   sums.vat / 100,
       items: selected.map((it, i) => ({
         name: it.name, qty: it.qty, unit: it.unit,
-        price: sums.lines[i].net / (it.qty * 100), // цена без НДС за единицу
-        sum:   sums.lines[i].net / 100,             // сумма строки без НДС
-        vat:   sums.lines[i].vat / 100,
+        price: Math.round(sums.lines[i].net / it.qty), // копейки без НДС за единицу
       })),
     };
   }

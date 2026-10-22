@@ -45,13 +45,14 @@ export function ItemPickerModal({ title, defaultQty = 1, onSelect, onClose }: Pr
 
   const q = search.trim().toLowerCase();
   const words = q.split(/\s+/).filter(Boolean);
-  const filtered = q.length < 2 ? [] :
-    items.filter(it => {
-      const name = it.name.toLowerCase();
-      return words.every(w =>
-        name.includes(w) || it.barcode.includes(w) || it.article.toLowerCase().includes(w)
-      );
-    }).slice(0, 40);
+  const filtered = words.length === 0
+    ? items.slice(0, 40)
+    : items.filter(it => {
+        const name = it.name.toLowerCase();
+        return words.every(w =>
+          name.includes(w) || it.barcode.includes(w) || it.article.toLowerCase().includes(w)
+        );
+      }).slice(0, 40);
 
   function confirm() {
     if (!picked) return;
@@ -81,11 +82,8 @@ export function ItemPickerModal({ title, defaultQty = 1, onSelect, onClose }: Pr
           value={search} onChange={e => setSearch(e.target.value)}
           style={{ fontSize:13,padding:"8px 12px",border:"1px solid #e0d8cc",borderRadius:8,marginBottom:8,outline:"none" }} />
         {loading && <div style={{ color:"#aaa",fontSize:12,padding:8 }}>Загрузка прайса…</div>}
-        {!loading && q.length >= 2 && filtered.length === 0 && (
+        {!loading && q.length > 0 && filtered.length === 0 && (
           <div style={{ color:"#aaa",fontSize:12,padding:8 }}>Ничего не найдено по «{q}»</div>
-        )}
-        {!loading && q.length < 2 && (
-          <div style={{ color:"#aaa",fontSize:12,padding:8 }}>Введите минимум 2 символа</div>
         )}
         <div style={{ flex:1,overflowY:"auto",marginBottom:8 }}>
           {filtered.map((it) => (

@@ -178,6 +178,8 @@ export function StockReceiptForm({ businessId, currentUser, region, suppliers, o
   const [receiptNum, setReceiptNum] = useState("");
   const [receiptDate, setReceiptDate] = useState(new Date().toLocaleDateString("ru-RU"));
   const [rows, setRows]             = useState<ReceiptRow[]>([newRow()]);
+  // batchId — один на всю форму, группирует строки в одну накладную
+  const [batchId]                   = useState(() => crypto.randomUUID());
   const [showImport, setShowImport] = useState(false);
   const [importing, setImporting]   = useState(false);
   const [saving, setSaving]         = useState(false);
@@ -227,6 +229,7 @@ export function StockReceiptForm({ businessId, currentUser, region, suppliers, o
           supplierName: supplier.trim() || null,
           costKopecks,
           note: receiptNum ? `Накладная №${receiptNum}` : null,
+          batchId,
           region: region ?? null,
           createdAt: now,
           createdBy: currentUser,

@@ -515,7 +515,7 @@ export function SalesView({ businessId, onGoToPurchasing: _onGoToPurchasing, onG
               </tr>
             </thead>
             <tbody>
-              {filtered.map((o) => {
+              {filtered.map((o, i) => {
                 const actuals = actualQtys[o.id] ?? [];
                 const progress = calcProgress(o.items, actuals);
                 const actions = NEXT_ACTIONS[o.status] ?? [];
@@ -539,7 +539,7 @@ export function SalesView({ businessId, onGoToPurchasing: _onGoToPurchasing, onG
                       }}
                     >
                       <td style={{ fontSize: 11, color: "#8B7355", whiteSpace: "nowrap", fontFamily: "monospace" }}>
-                        {o.externalId || o.orderId?.slice(0, 8) || "—"}
+                        {o.externalId || `#${i + 1}`}
                       </td>
                       <td style={{ fontSize: 11, whiteSpace: "nowrap" }}>{new Date(o.createdAt).toLocaleDateString("ru-RU")}</td>
 
@@ -710,7 +710,10 @@ export function SalesView({ businessId, onGoToPurchasing: _onGoToPurchasing, onG
                                           {done ? "✅" : partial ? "🟡" : "⬜"}
                                         </td>
                                         <td style={{ padding: "3px 6px", textAlign: "right", fontSize: 12 }}>{fmtRub(item.unitPrice)}</td>
-                                        <td style={{ padding: "3px 6px", textAlign: "right", fontSize: 12 }}>{fmtRub(item.totalKopecks)}</td>
+                                        <td style={{ padding: "3px 6px", textAlign: "right", fontSize: 12,
+                                          color: actual > 0 && actual !== itemQty(item) ? "#1565C0" : undefined }}>
+                                          {actual > 0 ? fmtRub(actual * itemUnitKopecks(item)) : fmtRub(item.totalKopecks)}
+                                        </td>
                                         <td style={{ padding: "3px 6px" }}>
                                           {assemblySuppliers[o.id]?.[i] ? (
                                             <span style={{ fontSize: 11, color: "#2E7D32", fontWeight: 600 }}>
@@ -755,7 +758,7 @@ export function SalesView({ businessId, onGoToPurchasing: _onGoToPurchasing, onG
                                     <td colSpan={2} style={{ padding: "5px 6px", textAlign: "right" }}>{fmtRub(o.totalKopecks)}</td>
                                     <td colSpan={2} style={{ padding: "5px 6px", fontSize: 11, color: progress === 100 ? "#1565C0" : "#D97706" }}>
                                       {actuals.some((v) => v > 0) ? (() => {
-                                        const assembledKopecks = o.items.reduce((s, it, i) => s + Math.min(actuals[i] ?? 0, itemQty(it)) * itemUnitKopecks(it), 0);
+                                        const assembledKopecks = o.items.reduce((s, it, i) => s + (actuals[i] ?? 0) * itemUnitKopecks(it), 0);
                                         return `${progress}% · ${fmtRub(assembledKopecks)}`;
                                       })() : ""}
                                     </td>
