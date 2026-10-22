@@ -289,19 +289,24 @@ export function buildPricelistLookup(pl: PlItem[], items: OrderItem[]): Map<stri
     }
   };
 
+  // РЕШЕНИЕ: сортируем совпадения по цене (дешевле → первый) — так закупщик
+  // сразу видит самого выгодного поставщика в верхней строке таблицы.
+  const sortByPrice = (arr: PlItem[]) =>
+    [...arr].sort((a, b) => (a.price ?? 0) - (b.price ?? 0));
+
   for (const item of items) {
     // 1. По штрихкоду
     let hits = findCode(item.barcode);
     // 2. Запасной вариант: productId сравнивается со штрихкодом/артикулом прайса
     if (!hits?.length) hits = findCode(item.productId);
-    if (hits?.length) { setAll(item, hits.map(toMatch)); continue; }
+    if (hits?.length) { setAll(item, sortByPrice(hits).map(toMatch)); continue; }
 
     // 3. Keyword-поиск по названию (первые 3 значимых слова)
     if (!item.productName) continue;
     const words = normStr(item.productName).split(" ").filter((w) => w.length > 3).slice(0, 3);
     if (!words.length) continue;
     const nameHits = pl.filter((p) => p.name && words.every((w) => normStr(p.name).includes(w)));
-    if (nameHits.length) setAll(item, nameHits.slice(0, 5).map(toMatch));
+    if (nameHits.length) setAll(item, sortByPrice(nameHits).slice(0, 5).map(toMatch));
   }
   return map;
 }

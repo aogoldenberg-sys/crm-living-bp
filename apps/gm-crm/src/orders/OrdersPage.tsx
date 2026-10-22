@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react";
-import { collection, query, onSnapshot, orderBy, limit } from "firebase/firestore";
+import { collection, query, where, onSnapshot, orderBy, limit } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../auth/useAuth";
 import { SalesView } from "./views/SalesView";
@@ -13,6 +13,7 @@ import { ClientsView } from "./views/ClientsView";
 import { ItemsView } from "./views/ItemsView";
 import { LogisticsView } from "./views/LogisticsView";
 import { ChatView } from "./views/ChatView";
+import { TasksView } from "./views/TasksView";
 // MailingView теперь внутри ClientsView
 import { IncomingCallPopup } from "../telephony/IncomingCallPopup";
 import { CallLogView } from "../telephony/CallLogView";
@@ -26,10 +27,10 @@ const BASE_URL = import.meta.env.BASE_URL as string;
 const NAV_ICONS: Record<string, string> = {
   sales: "📋", assembly: "📦", purchasing: "🛒", clients: "👥",
   items: "🏷️", suppliers: "🤝", finance: "💰", director: "📊", debts: "⚠️", logistics: "🗺️", calls: "📞",
-  chat: "💬", mailing: "📨",
+  chat: "💬", mailing: "📨", tasks: "✅",
 };
 
-type Section = "sales" | "assembly" | "purchasing" | "finance" | "director" | "suppliers" | "debts" | "clients" | "items" | "logistics" | "calls" | "chat";
+type Section = "sales" | "assembly" | "purchasing" | "finance" | "director" | "suppliers" | "debts" | "clients" | "items" | "logistics" | "calls" | "chat" | "tasks";
 
 const ALL_SECTIONS: { id: Section; label: string }[] = [
   { id: "sales",      label: "Заказы" },
@@ -43,19 +44,22 @@ const ALL_SECTIONS: { id: Section; label: string }[] = [
   { id: "debts",      label: "Долги" },
   { id: "logistics",  label: "Логистика" },
   { id: "calls",      label: "Звонки" },
+  { id: "tasks",      label: "Задачи" },
   // mailing перенесён в суб-таб ClientsView; chat — кнопка верхнего угла
 ];
 
 const HIDDEN_FOR_ROLE: Partial<Record<string, Section[]>> = {
-  sales_manager:  ["director"],
-  marina_manager: ["finance", "director"],
-  spb_manager:    ["suppliers", "director"],
+  sales_manager:   ["director"],
+  marina_manager:  ["finance", "director"],
+  spb_manager:     ["suppliers", "director"],
+  office_manager:  ["finance", "assembly"],
 };
 
 const DEFAULT_SECTION: Record<string, Section> = {
   sales: "sales", assembly: "assembly", purchasing: "purchasing",
   finance: "finance", director: "director",
   sales_manager: "sales", marina_manager: "sales", spb_manager: "sales",
+  office_manager: "sales",
 };
 
 export function OrdersPage() {
@@ -101,6 +105,42 @@ export function OrdersPage() {
       setBadgeCounts(prev => ({ ...prev, debts: snap.docs.length }));
     });
   }, []);
+
+  // Бейдж + push-уведомления для задач, назначенных на текущего пользователя
+  const tasksActiveRef = useRef(false);
+  useEffect(() => { tasksActiveRef.current = active === "tasks"; }, [active]);
+
+  useEffect(() => {
+    if (!user?.email) return;
+    const q = query(
+      collection(db, `tenants/${bid}/tasks`),
+      where("assignedTo", "==", user.email),
+    );
+    let initial = true;
+    return onSnapshot(q, snap => {
+      const count = snap.docs.filter(d => d.data().status !== "done").length;
+      setBadgeCounts(prev => ({ ...prev, tasks: tasksActiveRef.current ? 0 : count }));
+
+      // Push-уведомление при новой задаче (не при первой загрузке)
+      if (!initial) {
+        for (const ch of snap.docChanges()) {
+          if (ch.type === "added") {
+            const t = ch.doc.data() as { title: string; createdBy: string; status: string };
+            if (t.status !== "done") {
+              if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+                new Notification("Новая задача", {
+                  body: t.title,
+                  icon: "/gm-crm/logo-badge.png",
+                  tag: ch.doc.id,
+                });
+              }
+            }
+          }
+        }
+      }
+      initial = false;
+    }, () => {});
+  }, [user?.email]);
 
   // ── Чат: непрочитанные + push-уведомления ──────────────────────────────
   const chatActiveRef = useRef(false);
@@ -256,6 +296,7 @@ export function OrdersPage() {
         {active === "logistics"  && <LogisticsView businessId={bid} />}
         {active === "calls"      && <CallLogView />}
         {active === "chat"       && <ChatView businessId={bid} currentUser={user?.email ?? ""} />}
+        {active === "tasks"      && <TasksView businessId={bid} currentUser={user?.email ?? ""} roleId={roleId ?? ""} />}
         {/* mailing перенесён в ClientsView */}
       </main>
 

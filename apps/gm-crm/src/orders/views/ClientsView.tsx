@@ -477,8 +477,8 @@ export function ClientsView({ businessId, regionFilter }: { businessId: string; 
           </table>
 
           <ClientCalls phone={active.phone} />
-          <ClientEmailSection email={active.email} clientName={active.name} businessId={businessId} />
-          {active.email && <ClientMailings email={active.email} businessId={businessId} />}
+          <ClientEmailSection email={contact?.email || active.email} clientName={active.name} businessId={businessId} />
+          {(contact?.email || active.email) && <ClientMailings email={contact?.email || active.email} businessId={businessId} />}
 
           {/* Модалки */}
           {reconOpen && (

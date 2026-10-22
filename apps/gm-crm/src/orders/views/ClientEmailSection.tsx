@@ -46,6 +46,7 @@ export function ClientEmailSection({ email: emailFromOrder, clientName, business
   const [msgs, setMsgs]               = useState<EmailMsg[]>([]);
   const [loading, setLoading]         = useState(false);
   const [open, setOpen]               = useState<string | null>(null);
+  const [loadingBody, setLoadingBody] = useState(false);
   const [compose, setCompose]         = useState(false);
   const [to, setTo]                   = useState("");
   const [subj, setSubj]               = useState("");
@@ -132,6 +133,22 @@ export function ClientEmailSection({ email: emailFromOrder, clientName, business
   }
 
   const openMsg = msgs.find(m => m.id === open);
+
+  async function openMessage(id: string) {
+    if (open === id) { setOpen(null); return; }
+    setOpen(id);
+    const msg = msgs.find(m => m.id === id);
+    if (msg && msg.bodyHtml !== null) return; // already loaded
+    setLoadingBody(true);
+    try {
+      const headers = await authHeader();
+      const r = await fetch(`${EMAIL_API}/message?id=${encodeURIComponent(id)}`, { headers });
+      const full = await r.json() as EmailMsg;
+      setMsgs(prev => prev.map(m => m.id === id ? { ...m, ...full } : m));
+    } catch { /* show empty */ } finally {
+      setLoadingBody(false);
+    }
+  }
 
   return (
     <div style={{ marginTop: 28 }}>
@@ -273,9 +290,12 @@ export function ClientEmailSection({ email: emailFromOrder, clientName, business
           <div style={{ fontSize: 11, color: "#8B7355", marginBottom: 10 }}>
             От: {openMsg.from} → {openMsg.to} · {fmtDate(openMsg.date)}
           </div>
-          <div style={{ fontSize: 12, lineHeight: 1.6, maxHeight: 320, overflowY: "auto",
-            borderTop: "1px solid #f0ece5", paddingTop: 10 }}
-            dangerouslySetInnerHTML={{ __html: sanitizeEmailHtml(openMsg.bodyHtml ?? "") }} />
+          {loadingBody
+            ? <div style={{ fontSize: 12, color: "#aaa", padding: "10px 0" }}>Загрузка письма…</div>
+            : <div style={{ fontSize: 12, lineHeight: 1.6, maxHeight: 320, overflowY: "auto",
+                borderTop: "1px solid #f0ece5", paddingTop: 10 }}
+                dangerouslySetInnerHTML={{ __html: sanitizeEmailHtml(openMsg.bodyHtml ?? "") }} />
+          }
           {openMsg.attachments.length > 0 && (
             <div style={{ marginTop: 10, paddingTop: 8, borderTop: "1px solid #f0ece5" }}>
               {openMsg.attachments.map((a, i) => (
@@ -307,7 +327,7 @@ export function ClientEmailSection({ email: emailFromOrder, clientName, business
           </thead>
           <tbody>
             {msgs.map(m => (
-              <tr key={m.id} onClick={() => setOpen(open === m.id ? null : m.id)}
+              <tr key={m.id} onClick={() => void openMessage(m.id)}
                 style={{ borderBottom: "1px solid #f0ece5", cursor: "pointer",
                   background: open === m.id ? "rgba(200,154,52,.06)" : undefined }}
                 onMouseEnter={e => { if (open !== m.id) e.currentTarget.style.background = "#faf8f4"; }}

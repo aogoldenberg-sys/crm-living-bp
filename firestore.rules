@@ -61,9 +61,17 @@ service cloud.firestore {
           && get(/databases/$(database)/documents/tenants/gustoriko/emailRoles/$(request.auth.token.email)).data.roleId == "spb_manager";
     }
 
+    // Директор — видит все задачи.
+    function isDirector() {
+      return isGustorikoEmployee()
+          && get(/databases/$(database)/documents/tenants/gustoriko/emailRoles/$(request.auth.token.email)).data.roleId == "director";
+    }
+
     // Читать свою роль — только по совпадению email.
+    // Листинг всех ролей — для любого сотрудника (нужен в задачах для выбора исполнителя).
     match /tenants/gustoriko/emailRoles/{email} {
-      allow read: if request.auth != null && request.auth.token.email == email;
+      allow get:  if request.auth != null && request.auth.token.email == email;
+      allow list: if isGustorikoEmployee();
     }
 
     // Заказы, клиенты, наряды, прайсы — любой сотрудник Густорико.
@@ -142,6 +150,23 @@ service cloud.firestore {
       allow read: if isGustorikoEmployee();
       allow create: if isGustorikoEmployee();
       allow update, delete: if false;
+    }
+    match /tenants/gustoriko/tasks/{taskId} {
+      allow read: if isGustorikoEmployee() && (
+        isDirector() ||
+        resource.data.assignedTo == request.auth.token.email ||
+        resource.data.createdBy  == request.auth.token.email
+      );
+      allow create: if isGustorikoEmployee()
+          && request.resource.data.createdBy == request.auth.token.email;
+      allow update: if isGustorikoEmployee() && (
+        isDirector() ||
+        resource.data.assignedTo == request.auth.token.email ||
+        resource.data.createdBy  == request.auth.token.email
+      );
+      allow delete: if isGustorikoEmployee() && (
+        isDirector() || resource.data.createdBy == request.auth.token.email
+      );
     }
 
     // Менеджер читает сделки только с совпадающим ownerId.

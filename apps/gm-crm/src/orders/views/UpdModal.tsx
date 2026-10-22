@@ -69,12 +69,13 @@ export function UpdModal({ orderNum, customerName, customerInn, customerAddr, it
       buyer_addr: customerAddr ?? "",
       stamp,
       email: email ?? "",
-      vat_included: true,
-      total: sums.total / 100,
+      total: sums.net / 100,           // без НДС — сервер добавит 22% сам
       vat:   sums.vat / 100,
       items: selected.map((it, i) => ({
-        name: it.name, qty: it.qty, unit: it.unit, price: it.price,
-        sum: sums.lines[i].total / 100, vat: sums.lines[i].vat / 100,
+        name: it.name, qty: it.qty, unit: it.unit,
+        price: sums.lines[i].net / (it.qty * 100), // цена без НДС за единицу
+        sum:   sums.lines[i].net / 100,             // сумма строки без НДС
+        vat:   sums.lines[i].vat / 100,
       })),
     };
   }
