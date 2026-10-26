@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { collection, doc, writeBatch } from "firebase/firestore";
 import { db } from "../../firebase";
 import { loadPricelist, normalizeBarcode } from "../useOrders";
@@ -120,16 +120,31 @@ function ItemRow({ row, num, onUpdate, onRemove }: {
   onRemove: () => void;
 }) {
   const [sugg, setSugg] = useState<Array<{ productName: string; barcode: string | null }>>([]);
+  const [dropPos, setDropPos] = useState<{ top: number; left: number; width: number } | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   async function search(q: string) {
     onUpdate({ productName: q, barcode: row.barcode });
-    if (q.length < 2) { setSugg([]); return; }
+    if (q.length < 2) { setSugg([]); setDropPos(null); return; }
     const pl = await loadPricelist();
     const ql = q.toLowerCase();
-    setSugg(pl.filter(it =>
+    const results = pl.filter(it =>
       String(it.name ?? "").toLowerCase().includes(ql) || String(it.barcode ?? "").includes(ql)
-    ).slice(0, 8).map(it => ({ productName: it.name, barcode: it.barcode == null ? null : String(it.barcode) })));
+    ).slice(0, 8).map(it => ({ productName: it.name, barcode: it.barcode == null ? null : String(it.barcode) }));
+    setSugg(results);
+    if (results.length > 0 && inputRef.current) {
+      const r = inputRef.current.getBoundingClientRect();
+      setDropPos({ top: r.bottom + window.scrollY, left: r.left + window.scrollX, width: Math.max(r.width, 260) });
+    }
   }
+
+  // Закрыть dropdown при скролле
+  useEffect(() => {
+    if (!sugg.length) return;
+    const close = () => { setSugg([]); setDropPos(null); };
+    window.addEventListener("scroll", close, true);
+    return () => window.removeEventListener("scroll", close, true);
+  }, [sugg.length]);
 
   const inp: React.CSSProperties = { width: "100%", border: "none", borderBottom: "1px solid #e0d8cc",
     background: "transparent", fontSize: 12, padding: "2px 0", outline: "none" };
@@ -137,17 +152,17 @@ function ItemRow({ row, num, onUpdate, onRemove }: {
   return (
     <tr style={{ borderBottom: "1px solid #f5f0e8" }}>
       <td style={{ ...TD, textAlign: "center", color: "#aaa", fontSize: 11, width: 28 }}>{num}</td>
-      <td style={{ ...TD, position: "relative", minWidth: 180 }}>
-        <input style={inp} value={row.productName}
+      <td style={{ ...TD, minWidth: 180 }}>
+        <input ref={inputRef} style={inp} value={row.productName}
           onChange={e => void search(e.target.value)}
-          onBlur={() => setTimeout(() => setSugg([]), 200)}
+          onBlur={() => setTimeout(() => { setSugg([]); setDropPos(null); }, 200)}
           placeholder="Название…" />
-        {sugg.length > 0 && (
-          <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 80,
-            background: "#fff", border: "1px solid #e0d8cc", borderRadius: 8,
-            boxShadow: "0 4px 16px rgba(0,0,0,.12)", maxHeight: 200, overflowY: "auto" }}>
+        {sugg.length > 0 && dropPos && (
+          <div style={{ position: "fixed", top: dropPos.top, left: dropPos.left, width: dropPos.width,
+            zIndex: 9999, background: "#fff", border: "1px solid #e0d8cc", borderRadius: 8,
+            boxShadow: "0 4px 16px rgba(0,0,0,.15)", maxHeight: 220, overflowY: "auto" }}>
             {sugg.map((s, i) => (
-              <div key={i} onMouseDown={() => { onUpdate({ productName: s.productName, barcode: s.barcode ?? "" }); setSugg([]); }}
+              <div key={i} onMouseDown={() => { onUpdate({ productName: s.productName, barcode: s.barcode ?? "" }); setSugg([]); setDropPos(null); }}
                 style={{ padding: "7px 10px", cursor: "pointer", fontSize: 12, borderBottom: "1px solid #f5f0e8" }}
                 onMouseEnter={e => (e.currentTarget.style.background = "#faf8f4")}
                 onMouseLeave={e => (e.currentTarget.style.background = "")}>
