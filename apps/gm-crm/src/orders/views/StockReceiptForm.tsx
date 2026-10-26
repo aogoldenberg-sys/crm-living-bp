@@ -5,6 +5,14 @@ import { loadPricelist, normalizeBarcode } from "../useOrders";
 import { parseCsv } from "../bankCsv";
 import { parseQty, rubToKopecks } from "../numInput";
 
+export interface EditEntry {
+  id: string; productName: string; barcode: string | null;
+  qty: number; unit?: string; costKopecks: number;
+  supplierName: string | null; note: string | null;
+  batchId?: string | null; region: string | null;
+  createdAt: string; createdBy: string;
+}
+
 interface ReceiptRow {
   _id: string;
   productName: string;
@@ -21,6 +29,7 @@ interface Props {
   suppliers: string[];
   onSaved: () => void;
   onCancel: () => void;
+  editData?: { entries: EditEntry[] };
 }
 
 const TH: React.CSSProperties = { padding: "5px 8px", fontWeight: 600, color: "#8B7355",
@@ -173,13 +182,26 @@ function ItemRow({ row, num, onUpdate, onRemove }: {
   );
 }
 
-export function StockReceiptForm({ businessId, currentUser, region, suppliers, onSaved, onCancel }: Props) {
-  const [supplier, setSupplier]     = useState("");
-  const [receiptNum, setReceiptNum] = useState("");
-  const [receiptDate, setReceiptDate] = useState(new Date().toLocaleDateString("ru-RU"));
-  const [rows, setRows]             = useState<ReceiptRow[]>([newRow()]);
-  // batchId — один на всю форму, группирует строки в одну накладную
-  const [batchId]                   = useState(() => crypto.randomUUID());
+export function StockReceiptForm({ businessId, currentUser, region, suppliers, onSaved, onCancel, editData }: Props) {
+  const first = editData?.entries[0];
+  // Извлекаем номер из "Накладная №123"
+  const extractNum = (note: string | null) => { const m = (note ?? "").match(/№(.+)$/); return m ? m[1].trim() : ""; };
+
+  const [supplier, setSupplier]     = useState(first?.supplierName ?? "");
+  const [receiptNum, setReceiptNum] = useState(editData ? extractNum(first?.note ?? null) : "");
+  const [receiptDate, setReceiptDate] = useState(() =>
+    editData && first ? new Date(first.createdAt).toLocaleDateString("ru-RU") : new Date().toLocaleDateString("ru-RU")
+  );
+  const [rows, setRows] = useState<ReceiptRow[]>(() =>
+    editData
+      ? editData.entries.map(e => newRowFrom(
+          e.productName, e.barcode ?? "", String(e.qty), e.unit ?? "шт",
+          e.costKopecks > 0 ? (e.costKopecks / 100).toFixed(2) : "",
+        ))
+      : [newRow()]
+  );
+  // В режиме редактирования сохраняем старый batchId, чтобы не потерять группировку
+  const [batchId] = useState(() => first?.batchId ?? crypto.randomUUID());
   const [showImport, setShowImport] = useState(false);
   const [importing, setImporting]   = useState(false);
   const [saving, setSaving]         = useState(false);
@@ -219,6 +241,11 @@ export function StockReceiptForm({ businessId, currentUser, region, suppliers, o
     try {
       const now = new Date().toISOString();
       const batch = writeBatch(db);
+      // Редактирование: удаляем старые строки
+      if (editData) {
+        for (const e of editData.entries)
+          batch.delete(doc(db, `tenants/${businessId}/stock/${e.id}`));
+      }
       for (const r of valid) {
         const qty = parseQty(r.qty)!;
         const costKopecks = rubToKopecks(r.costRub, 0)!;
@@ -230,9 +257,9 @@ export function StockReceiptForm({ businessId, currentUser, region, suppliers, o
           costKopecks,
           note: receiptNum ? `Накладная №${receiptNum}` : null,
           batchId,
-          region: region ?? null,
-          createdAt: now,
-          createdBy: currentUser,
+          region: first?.region ?? region ?? null,
+          createdAt: first?.createdAt ?? now,  // сохраняем дату оригинала
+          createdBy: first?.createdBy ?? currentUser,
         });
       }
       await batch.commit();
@@ -250,7 +277,7 @@ export function StockReceiptForm({ businessId, currentUser, region, suppliers, o
 
   return (
     <div className="go-form" style={{ marginBottom: 20 }}>
-      <h3 style={{ margin: "0 0 14px", fontSize: 14, color: "#3A2E1E" }}>Приходная накладная</h3>
+      <h3 style={{ margin: "0 0 14px", fontSize: 14, color: "#3A2E1E" }}>{editData ? "Редактировать накладную" : "Приходная накладная"}</h3>
 
       {/* Шапка */}
       <div style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap", alignItems: "flex-end" }}>
@@ -337,7 +364,7 @@ export function StockReceiptForm({ businessId, currentUser, region, suppliers, o
         <button className="go-btn go-btn--gold" onClick={() => void save()}
           disabled={saving || validCount === 0 || badCount > 0}
           title={badCount > 0 ? "Исправьте количество/цену в подсвеченных строках" : undefined}>
-          {saving ? "Сохранение…" : `Сохранить накладную (${validCount} поз.)`}
+          {saving ? "Сохранение…" : editData ? `Сохранить изменения (${validCount} поз.)` : `Сохранить накладную (${validCount} поз.)`}
         </button>
         <button className="go-btn go-btn--outline" onClick={onCancel}>Отмена</button>
       </div>

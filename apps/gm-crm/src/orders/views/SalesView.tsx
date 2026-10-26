@@ -290,6 +290,13 @@ export function SalesView({ businessId, onGoToPurchasing: _onGoToPurchasing, onG
     await updateDoc(doc(db, `tenants/${businessId}/orders`, order.id), { items, totalKopecks });
   }
 
+  async function updateItemPrice(order: Order, idx: number, priceRub: number) {
+    const unitPrice = Math.round(priceRub * 100);
+    const items = order.items.map((it, i) => i !== idx ? it : { ...it, unitPrice, totalKopecks: unitPrice * itemQty(it) });
+    const totalKopecks = items.reduce((s, it) => s + it.totalKopecks, 0);
+    await updateDoc(doc(db, `tenants/${businessId}/orders`, order.id), { items, totalKopecks });
+  }
+
   async function deleteItem(order: Order, idx: number) {
     const items = order.items.filter((_, i) => i !== idx);
     const totalKopecks = items.reduce((s, it) => s + it.totalKopecks, 0);
@@ -624,7 +631,7 @@ export function SalesView({ businessId, onGoToPurchasing: _onGoToPurchasing, onG
                                 Отгрузить
                               </button>
                             )}
-                            {actions.map((a) => (
+                            {actions.filter((a) => !(o.paid && a.status === "sourcing")).map((a) => (
                               <button key={a.status} onClick={() => void changeStatus(o, a.status)}
                                 style={{ padding: "3px 7px", fontSize: 10, fontWeight: 600, cursor: "pointer",
                                   border: `1px solid ${a.color}44`, borderRadius: 6, background: "transparent", color: a.color, whiteSpace: "nowrap" }}>
@@ -663,6 +670,7 @@ export function SalesView({ businessId, onGoToPurchasing: _onGoToPurchasing, onG
                             <>
                               <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
                                 <colgroup>
+                                  <col style={{ width: 22 }} />
                                   <col style={{ width: "auto" }} />
                                   <col style={{ width: 100 }} />
                                   <col style={{ width: 55 }} />
@@ -675,6 +683,7 @@ export function SalesView({ businessId, onGoToPurchasing: _onGoToPurchasing, onG
                                 </colgroup>
                                 <thead>
                                   <tr style={{ borderBottom: "1px solid #e0d8cc" }}>
+                                    <th style={{ textAlign: "right", padding: "3px 6px", color: "#8B7355", fontSize: 11 }}>№</th>
                                     <th style={{ textAlign: "left", padding: "3px 6px", color: "#8B7355", fontSize: 11 }}>Наименование</th>
                                     <th style={{ textAlign: "left", padding: "3px 6px", color: "#8B7355", fontSize: 11 }}>Арт./ШК</th>
                                     <th style={{ textAlign: "right", padding: "3px 6px", color: "#8B7355", fontSize: 11 }}>Кол</th>
@@ -693,6 +702,7 @@ export function SalesView({ businessId, onGoToPurchasing: _onGoToPurchasing, onG
                                     const partial = actual > 0 && !done;
                                     return (
                                       <tr key={i} style={{ borderBottom: "1px solid #f0ece5" }}>
+                                        <td style={{ padding: "3px 6px", textAlign: "right", fontSize: 11, color: "#8B7355" }}>{i + 1}</td>
                                         <td style={{ padding: "3px 6px", fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
                                           title={item.productName}>{item.productName}</td>
                                         <td style={{ padding: "3px 6px", color: "#8B7355", fontSize: 10, fontFamily: "monospace",
@@ -709,7 +719,18 @@ export function SalesView({ businessId, onGoToPurchasing: _onGoToPurchasing, onG
                                         <td style={{ padding: "3px 6px", textAlign: "center", fontSize: 13 }}>
                                           {done ? "✅" : partial ? "🟡" : "⬜"}
                                         </td>
-                                        <td style={{ padding: "3px 6px", textAlign: "right", fontSize: 12 }}>{fmtRub(item.unitPrice)}</td>
+                                        <td style={{ padding: "3px 6px", textAlign: "right" }}>
+                                          <input type="number" min={0} step={0.01}
+                                            defaultValue={(item.unitPrice / 100).toFixed(2)}
+                                            key={`${o.id}-${i}-${item.unitPrice}`}
+                                            onClick={(e) => e.stopPropagation()}
+                                            onBlur={(e) => {
+                                              const v = parseFloat(e.target.value);
+                                              if (!isNaN(v) && v > 0 && Math.round(v * 100) !== item.unitPrice)
+                                                void updateItemPrice(o, i, v);
+                                            }}
+                                            style={{ width: 60, textAlign: "right", fontSize: 12, padding: "2px 4px", border: "1px solid #e0d8cc", borderRadius: 4 }} />
+                                        </td>
                                         <td style={{ padding: "3px 6px", textAlign: "right", fontSize: 12,
                                           color: actual > 0 && actual !== itemQty(item) ? "#1565C0" : undefined }}>
                                           {actual > 0 ? fmtRub(actual * itemUnitKopecks(item)) : fmtRub(item.totalKopecks)}
@@ -820,7 +841,15 @@ export function SalesView({ businessId, onGoToPurchasing: _onGoToPurchasing, onG
           customerName={updOrder.customerName}
           customerInn={(updOrder as typeof updOrder & { customerInn?: string }).customerInn}
           customerAddr={updOrder.address}
-          items={(updOrder.items ?? []).map(orderItemToUpd)}
+          items={(updOrder.items ?? []).map((it, i) => {
+            const base = orderItemToUpd(it);
+            const orderAsm = actualQtys[updOrder.id];
+            if (orderAsm === undefined) return base; // нет сборки → оригинал, всё выбрано
+            const asmQty = orderAsm[i];
+            if (!asmQty) return { ...base, selected: false }; // Факт пустой → не включаем
+            const unitKop = itemUnitKopecks(it);
+            return { ...base, qty: asmQty, totalKopecks: Math.round(asmQty * unitKop) };
+          })}
           onClose={() => setUpdOrder(null)}
         />
       )}

@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { collection, onSnapshot, query, orderBy, doc, updateDoc, deleteDoc } from "firebase/firestore";
 import { db } from "../../firebase";
 import { fmtRub } from "../useOrders";
-import { StockReceiptForm } from "./StockReceiptForm";
+import { StockReceiptForm, type EditEntry } from "./StockReceiptForm";
 import { matchesRegion, normalizeRegion } from "../region";
 import { round3 } from "../stockOps";
 
@@ -86,6 +86,7 @@ export function StockTab({ businessId, currentUser, region }: { businessId: stri
   const [regionTab, setRegionTab] = useState<"msk" | "spb">("msk");
   const [stockView, setStockView] = useState<"balance" | "receipts">("balance");
   const [expandedBatch, setExpandedBatch] = useState<string | null>(null);
+  const [editGroup, setEditGroup] = useState<{ key: string; entries: StockEntry[] } | null>(null);
   // Инлайн-редактирование записей
   const [editId, setEditId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<Partial<StockEntry>>({});
@@ -226,21 +227,22 @@ export function StockTab({ businessId, currentUser, region }: { businessId: stri
               ⬇ Выгрузить CSV
             </button>
           )}
-          <button onClick={() => setShowForm(v => !v)}
+          <button onClick={() => { setShowForm(v => !v); setEditGroup(null); }}
             className="go-btn go-btn--gold">
-            {showForm ? "Отмена" : "+ Приход"}
+            {showForm && !editGroup ? "Отмена" : "+ Приход"}
           </button>
         </div>
       </div>
 
-      {showForm && (
+      {(showForm || editGroup) && (
         <StockReceiptForm
           businessId={businessId}
           currentUser={currentUser}
           region={effectiveRegion}
           suppliers={suppliers}
-          onSaved={() => setShowForm(false)}
-          onCancel={() => setShowForm(false)}
+          editData={editGroup ? { entries: editGroup.entries as EditEntry[] } : undefined}
+          onSaved={() => { setShowForm(false); setEditGroup(null); }}
+          onCancel={() => { setShowForm(false); setEditGroup(null); }}
         />
       )}
 
@@ -259,9 +261,14 @@ export function StockTab({ businessId, currentUser, region }: { businessId: stri
                   {g.supplier && <span style={{ marginLeft: 10, fontSize: 12, color: "#8B7355" }}>{g.supplier}</span>}
                   <span style={{ marginLeft: 10, fontSize: 11, color: "#aaa" }}>{new Date(g.date).toLocaleDateString("ru-RU")}</span>
                 </div>
-                <div style={{ display: "flex", gap: 16, alignItems: "center", fontSize: 12 }}>
+                <div style={{ display: "flex", gap: 10, alignItems: "center", fontSize: 12 }}>
                   <span style={{ color: "#555" }}>{g.items.length} поз. · {g.totalQty} шт</span>
                   <span style={{ fontWeight: 700, color: "#2E7D32" }}>{fmtRub(g.totalCost)}</span>
+                  <button onClick={ev => { ev.stopPropagation(); setEditGroup({ key: g.key, entries: g.items }); setShowForm(false); setExpandedBatch(null); }}
+                    style={{ fontSize: 11, padding: "3px 9px", borderRadius: 6, cursor: "pointer", fontWeight: 600, whiteSpace: "nowrap",
+                      border: "1px solid rgba(200,154,52,.4)", background: "transparent", color: "#8B6914" }}>
+                    ✏ Ред.
+                  </button>
                   <span style={{ color: "#aaa" }}>{expandedBatch === g.key ? "▲" : "▼"}</span>
                 </div>
               </div>
