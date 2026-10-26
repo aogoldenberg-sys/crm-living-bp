@@ -38,10 +38,9 @@ function lineTotal(it: UpdItem): number {
 
 export function UpdModal({ orderNum, customerName, customerInn, customerAddr, items: initItems, onClose, onShip }: Props) {
   const [items, setItems] = useState<UpdItem[]>(() => initItems.map(normalize));
-  const [stamp, setStamp] = useState(true);
   const [toEmail, setToEmail] = useState("");
-  const [downloading, setDownloading] = useState(false);
-  const [sending, setSending] = useState(false);
+  const [downloading, setDownloading] = useState<boolean | null>(null); // true=со штампом, false=без
+  const [sending, setSending] = useState<boolean | null>(null);
   const [result, setResult] = useState<{ ok: boolean; num?: number; error?: string } | null>(null);
 
   const drafts = useNumDrafts();
@@ -62,14 +61,14 @@ export function UpdModal({ orderNum, customerName, customerInn, customerAddr, it
     setItems(p => p.map(it => ({ ...it, selected: !allSel })));
   }
 
-  function buildPayload(email?: string) {
+  function buildPayload(withStamp: boolean, email?: string) {
     // Сервер (upd_gen_v2.py): price_rub = item['price'] / 100  →  нужны копейки без НДС
     // НДС сервер считает сам: subtotal * VAT_RATE (22%). Поля sum/total/vat на уровне запроса игнорирует.
     return {
       buyer:      customerName,
       buyer_inn:  customerInn  ?? "",
       buyer_addr: customerAddr ?? "",
-      stamp,
+      stamp:      withStamp,
       email: email ?? "",
       items: selected.map((it, i) => ({
         name: it.name, qty: it.qty, unit: it.unit,
@@ -78,14 +77,14 @@ export function UpdModal({ orderNum, customerName, customerInn, customerAddr, it
     };
   }
 
-  async function downloadPdf() {
+  async function downloadPdf(withStamp: boolean) {
     if (!selected.length || drafts.anyInvalid) return;
-    setDownloading(true);
+    setDownloading(withStamp);
     try {
       const res = await fetch(PROXY_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Proxy-Secret": "grp-proxy-2026", "X-Proxy-Path": "/crm-upd", ...(await authHeader()) },
-        body: JSON.stringify(buildPayload()),
+        body: JSON.stringify(buildPayload(withStamp)),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const blob = await res.blob();
@@ -101,18 +100,18 @@ export function UpdModal({ orderNum, customerName, customerInn, customerAddr, it
       console.error("UPD PDF failed:", e);
       setResult({ ok: false, error: String(e) });
     } finally {
-      setDownloading(false);
+      setDownloading(null);
     }
   }
 
-  async function send() {
+  async function send(withStamp: boolean) {
     if (!toEmail.trim() || !selected.length || drafts.anyInvalid) return;
-    setSending(true);
+    setSending(withStamp);
     try {
       const res = await fetch(PROXY_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Proxy-Secret": "grp-proxy-2026", "X-Proxy-Path": "/crm-upd", ...(await authHeader()) },
-        body: JSON.stringify(buildPayload(toEmail.trim())),
+        body: JSON.stringify(buildPayload(withStamp, toEmail.trim())),
       });
       const data = await res.json() as { ok: boolean; num?: number; error?: string };
       setResult(data);
@@ -121,7 +120,7 @@ export function UpdModal({ orderNum, customerName, customerInn, customerAddr, it
       console.error("UPD send failed:", e);
       setResult({ ok: false, error: String(e) });
     } finally {
-      setSending(false);
+      setSending(null);
     }
   }
 
@@ -145,18 +144,20 @@ export function UpdModal({ orderNum, customerName, customerInn, customerAddr, it
             </div>
             {orderNum && <div style={{ fontSize: 11, color: "#aaa" }}>Заказ {orderNum}</div>}
           </div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            {/* Переключатель печати */}
-            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#8B7355", cursor: "pointer" }}>
-              <input type="checkbox" checked={stamp} onChange={e => setStamp(e.target.checked)}
-                style={{ width: 14, height: 14, cursor: "pointer" }} />
-              Печать
-            </label>
-            <button onClick={() => void downloadPdf()} disabled={downloading || !selected.length || drafts.anyInvalid}
+          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+            <button onClick={() => void downloadPdf(true)}
+              disabled={downloading !== null || !selected.length || drafts.anyInvalid}
               style={{ fontSize: 12, padding: "5px 12px", borderRadius: 7, border: "1px solid #C89A34",
                 background: "#C89A34", color: "#fff", cursor: "pointer", fontWeight: 600,
                 opacity: selected.length ? 1 : 0.5 }}>
-              {downloading ? "Генерируем…" : "⬇ Скачать УПД"}
+              {downloading === true ? "Генерируем…" : "⬇ С печатью"}
+            </button>
+            <button onClick={() => void downloadPdf(false)}
+              disabled={downloading !== null || !selected.length || drafts.anyInvalid}
+              style={{ fontSize: 12, padding: "5px 12px", borderRadius: 7, border: "1px solid #C89A34",
+                background: "transparent", color: "#C89A34", cursor: "pointer", fontWeight: 600,
+                opacity: selected.length ? 1 : 0.5 }}>
+              {downloading === false ? "Генерируем…" : "⬇ Без печати"}
             </button>
             <button onClick={onClose}
               style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer", color: "#8B7355" }}>✕</button>
@@ -271,15 +272,19 @@ export function UpdModal({ orderNum, customerName, customerInn, customerAddr, it
             <input type="email" value={toEmail} onChange={e => setToEmail(e.target.value)}
               placeholder="email@company.ru" />
           </div>
-          <button className="go-btn go-btn--gold" onClick={() => void send()}
-            disabled={sending || !toEmail.trim() || !selected.length || drafts.anyInvalid}>
-            {sending ? "Отправляем…" : "Отправить УПД"}
+          <button className="go-btn go-btn--gold" onClick={() => void send(true)}
+            disabled={sending !== null || !toEmail.trim() || !selected.length || drafts.anyInvalid}>
+            {sending === true ? "Отправляем…" : "Отправить с печатью"}
+          </button>
+          <button className="go-btn go-btn--outline" onClick={() => void send(false)}
+            disabled={sending !== null || !toEmail.trim() || !selected.length || drafts.anyInvalid}>
+            {sending === false ? "Отправляем…" : "Отправить без печати"}
           </button>
           <button className="go-btn go-btn--outline" onClick={onClose}>Закрыть</button>
         </div>
 
         <div style={{ fontSize: 11, color: "#aaa", marginTop: 10 }}>
-          Отметьте позиции для включения в УПД · Цены редактируемые · Печать — опционально
+          Отметьте позиции для включения в УПД · Цены редактируемые
         </div>
       </div>
     </div>
